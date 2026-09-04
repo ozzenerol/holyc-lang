@@ -1216,7 +1216,18 @@ Ast *parseSubscriptExpr(Cctrl *cc, Ast *ast) {
     }
     cctrlTokenExpect(cc, ']');
     Ast *binop = parseCreateBinaryOp(cc, AST_BIN_OP_ADD, ast, subscript);
-    //binop->type = ast->type;
+    
+    if (ast->type->kind == AST_TYPE_ARRAY && ast->type->len > 0 && astIsIntType(subscript->type)) {
+        int ok = 1;
+        const s64 idx = evalIntConstExprOrErr(subscript, &ok);
+        if (ok && (idx < 0 || idx >= ast->type->len)) {
+            cctrlWarningFromTo(cc, "Valid indexes are 0 to the array length minus one",
+                '[', ']',
+                "Array index %ld is out of bounds for an array of length %d",
+                idx, ast->type->len);
+        }
+    }
+
     return astUnaryOperator(binop->type->ptr, AST_UN_OP_DEREF, binop);
 }
 
