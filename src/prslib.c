@@ -1216,10 +1216,20 @@ Ast *parseSubscriptExpr(Cctrl *cc, Ast *ast) {
     }
     cctrlTokenExpect(cc, ']');
     Ast *binop = parseCreateBinaryOp(cc, AST_BIN_OP_ADD, ast, subscript);
-    
-    if (ast->type->kind == AST_TYPE_ARRAY && ast->type->len > 0 && astIsIntType(subscript->type)) {
+
+    if (!astIsIntType(subscript->type)) {
+        cctrlRaiseExceptionFromTo(cc, "Subscript expressions must evaluate to an integer type",
+            '[', ']',
+            "Cannot subscript `%s` with a %s of type `%s`",
+            astTypeToString(ast->type),
+            astKindToHumanReadable(subscript),
+            astTypeToString(subscript->type));
+    }
+
+    if (astTypeIsArray(ast->type) && ast->type->len > 0) {
         int ok = 1;
         const s64 idx = evalIntConstExprOrErr(subscript, &ok);
+
         if (ok && (idx < 0 || idx >= ast->type->len)) {
             cctrlWarningFromTo(cc, "Valid indexes are 0 to the array length minus one",
                 '[', ']',
