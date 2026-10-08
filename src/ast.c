@@ -285,14 +285,17 @@ Ast *astBinaryOp(AstBinOp operation, Ast *left, Ast *right, int *_is_err) {
          operation == AST_BIN_OP_LOG_OR)) {
         ast->type = astTypeCopy(ast_int_type);
     }
-    /* `1 + p` is canonicalised to `p + 1`, but `&&` / `||` must keep
-     * their order: the left operand is evaluated first and decides
-     * whether the right one runs at all. */
-    if (operation != AST_BIN_OP_ASSIGN &&
-            operation != AST_BIN_OP_LOG_AND &&
-            operation != AST_BIN_OP_LOG_OR &&
+    /* `1 + p` is canonicalised to `p + 1`. Only `+` may be swapped:
+     * `z < p` must not become `p < z`, nor `&&` / `||` change which
+     * operand runs first, and `5 - p` has no meaning (as in C) rather
+     * than quietly being `p - 5`. */
+    int right_only_ptr = ast->type &&
             astConvertArray(left->type)->kind != AST_TYPE_POINTER &&
-            astConvertArray(right->type)->kind == AST_TYPE_POINTER) {
+            astConvertArray(right->type)->kind == AST_TYPE_POINTER;
+    if (right_only_ptr && operation == AST_BIN_OP_SUB) {
+        *_is_err = 1;
+    }
+    if (right_only_ptr && operation == AST_BIN_OP_ADD) {
         ast->left = right;
         ast->right = left;
     } else {
