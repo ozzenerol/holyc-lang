@@ -757,6 +757,11 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
                         astBinOpKindToString(ast->binop));
         }
     } else if (irIsInt(ir_type)) {
+        /* A comparison is typed I64 even with a U64 operand (see
+         * astBinaryOp), so its signedness comes from the operands. */
+        int cmp_unsigned = !ast->type->issigned ||
+                           (ast_lhs && astIsU64Type(ast_lhs->type)) ||
+                           (ast_rhs && astIsU64Type(ast_rhs->type));
         switch (ast->binop) {
             case AST_BIN_OP_ADD:
                 op = IR_IADD;
@@ -787,7 +792,7 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
             case AST_BIN_OP_SHR:
                 /* HolyC `>>` is arithmetic for signed types (matches the
                  * AST codegen's `sarq`). Use logical shift only for
-                 * unsigned types. */
+                 * unsigned types (a U64 operand makes the result U64). */
                 op = ast->type->issigned ? IR_SAR : IR_SHR;
                 break;
             case AST_BIN_OP_BIT_AND:
@@ -801,7 +806,7 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
                 break;
             case AST_BIN_OP_LT:
                 op = IR_ICMP;
-                if (ast->type->issigned) {
+                if (!cmp_unsigned) {
                     cmp = IR_CMP_LT;
                 } else {
                     cmp = IR_CMP_ULT;
@@ -809,7 +814,7 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
                 break;
             case AST_BIN_OP_LE:
                 op = IR_ICMP;
-                if (ast->type->issigned) {
+                if (!cmp_unsigned) {
                     cmp = IR_CMP_LE;
                 } else {
                     cmp = IR_CMP_ULE;
@@ -817,7 +822,7 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
                 break;
             case AST_BIN_OP_GT:
                 op = IR_ICMP;
-                if (ast->type->issigned) {
+                if (!cmp_unsigned) {
                     cmp = IR_CMP_GT;
                 } else {
                     cmp = IR_CMP_UGT;
@@ -825,7 +830,7 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
                 break;
             case AST_BIN_OP_GE:
                 op = IR_ICMP;
-                if (ast->type->issigned) {
+                if (!cmp_unsigned) {
                     cmp = IR_CMP_GE;
                 } else {
                     cmp = IR_CMP_UGE;
@@ -967,7 +972,7 @@ static IrOp irCompoundAssignToIrOp(AstBinOp op, int issigned) {
         case AST_BIN_OP_DIV_ASSIGN: return issigned ? IR_IDIV : IR_UDIV;
         case AST_BIN_OP_MOD_ASSIGN: return issigned ? IR_IREM : IR_UREM;
         case AST_BIN_OP_SHL_ASSIGN: return IR_SHL;
-        case AST_BIN_OP_SHR_ASSIGN: return IR_SHR;
+        case AST_BIN_OP_SHR_ASSIGN: return issigned ? IR_SAR : IR_SHR;
         case AST_BIN_OP_AND_ASSIGN: return IR_AND;
         case AST_BIN_OP_XOR_ASSIGN: return IR_XOR;
         case AST_BIN_OP_OR_ASSIGN:  return IR_OR;

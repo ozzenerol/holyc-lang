@@ -564,6 +564,7 @@ AstType *astTypeCheck(AstType *expected, Ast *ast, AstBinOp op);
 
 /* Queries */
 int astIsIntType(AstType *type);
+int astIsU64Type(AstType *type);
 int astIsFloatType(AstType *type);
 int astTypeAlign(AstType *type);
 

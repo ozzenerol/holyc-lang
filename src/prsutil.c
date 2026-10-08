@@ -351,6 +351,13 @@ s64 evalOneIntExprOrErr(Ast *LHS, Ast *RHS, AstBinOp op, int *_ok) {
     return 0;
 }
 
+/* A U64 operand makes `/`, `%`, `>>` and the ordered comparisons unsigned,
+ * matching the IR lowering so folded values equal the runtime ones. */
+static int evalIsUnsignedBinOp(Ast *ast) {
+    return astIsU64Type(ast->type) ||
+           astIsU64Type(ast->left->type) || astIsU64Type(ast->right->type);
+}
+
 s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
     switch (ast->kind) {
         case AST_LITERAL: {
@@ -388,9 +395,17 @@ s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
                     return evalIntConstExprOrErr(ast->left, _ok) *
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_DIV:
+                    if (evalIsUnsignedBinOp(ast)) {
+                        return (u64)evalIntConstExprOrErr(ast->left, _ok) /
+                            (u64)evalIntConstExprOrErr(ast->right, _ok);
+                    }
                     return evalIntConstExprOrErr(ast->left, _ok) /
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_MOD:
+                    if (evalIsUnsignedBinOp(ast)) {
+                        return (u64)evalIntConstExprOrErr(ast->left, _ok) %
+                            (u64)evalIntConstExprOrErr(ast->right, _ok);
+                    }
                     return evalIntConstExprOrErr(ast->left, _ok) %
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_ADD:
@@ -403,18 +418,38 @@ s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
                     return evalIntConstExprOrErr(ast->left, _ok) <<
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_SHR:
+                    if (evalIsUnsignedBinOp(ast)) {
+                        return (u64)evalIntConstExprOrErr(ast->left, _ok) >>
+                            (u64)evalIntConstExprOrErr(ast->right, _ok);
+                    }
                     return evalIntConstExprOrErr(ast->left, _ok) >>
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_LT:
+                    if (evalIsUnsignedBinOp(ast)) {
+                        return (u64)evalIntConstExprOrErr(ast->left, _ok) <
+                            (u64)evalIntConstExprOrErr(ast->right, _ok);
+                    }
                     return evalIntConstExprOrErr(ast->left, _ok) <
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_LE:
+                    if (evalIsUnsignedBinOp(ast)) {
+                        return (u64)evalIntConstExprOrErr(ast->left, _ok) <=
+                            (u64)evalIntConstExprOrErr(ast->right, _ok);
+                    }
                     return evalIntConstExprOrErr(ast->left, _ok) <=
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_GT:
+                    if (evalIsUnsignedBinOp(ast)) {
+                        return (u64)evalIntConstExprOrErr(ast->left, _ok) >
+                            (u64)evalIntConstExprOrErr(ast->right, _ok);
+                    }
                     return evalIntConstExprOrErr(ast->left, _ok) >
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_GE:
+                    if (evalIsUnsignedBinOp(ast)) {
+                        return (u64)evalIntConstExprOrErr(ast->left, _ok) >=
+                            (u64)evalIntConstExprOrErr(ast->right, _ok);
+                    }
                     return evalIntConstExprOrErr(ast->left, _ok) >=
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_EQ:
