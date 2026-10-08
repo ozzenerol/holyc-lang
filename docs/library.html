@@ -378,19 +378,35 @@ because of the <code>%f</code> limitation above.</p></div>
   "timestamp is %d characters\n", StrLen(stamp);
 
   "elapsed ms is never negative: %d\n", NowMilliseconds() &gt;= start;
+
+  MemSet(&amp;ds, 0, sizeof(CDateStruct));  // Struct2Date reads every field
+  ds.year = 2024;
+  ds.mon = 2;
+  ds.day_of_mon = 29;
+  ds.hour = 12;
+  ds.min = 34;
+  CDate leap = Struct2Date(&amp;ds);
+  "%s %s\n", MPrintDate(leap), MPrintTime(leap);
+
+  CDateStruct back;
+  Date2Struct(&amp;back, leap);
+  "%d-%02d-%02d, day of week %d\n", back.year, back.mon, back.day_of_mon,
+    back.day_of_week;
 }
 </code></pre>
 <pre class="output">year looks right: 1
 timestamp is 19 characters
 elapsed ms is never negative: 1
+02/29/2024 12:34:00
+2024-02-29, day of week 4
 </pre>
-<p><code>Now()</code> returns a TempleOS-style <code>CDate</code>.
-<code>CDateStruct</code> has <code>year</code>, <code>mon</code>,
+<p><code>Now()</code> returns a TempleOS-style <code>CDate</code>, and
+<code>Date2Struct</code> / <code>Struct2Date</code> convert between it and a
+<code>CDateStruct</code>, which has <code>year</code>, <code>mon</code>,
 <code>day_of_mon</code>, <code>hour</code>, <code>min</code>, <code>sec</code> and
-<code>day_of_week</code>.</p>
-<div class="warn"><p><code>Date2Struct</code>, <code>MPrintDate</code> and <code>MPrintTime</code>
-currently crash. Use <code>NowDateTimeStruct</code> and <code>MPrintTimestampNow</code>
-(see <a href="known-issues.html">known issues</a>).</p></div>
+<code>day_of_week</code> (0 is Sunday). <code>MPrintDate</code> and
+<code>MPrintTime</code> return new strings as <code>MM/DD/YYYY</code> and
+<code>HH:MM:SS</code>.</p>
 
 <h2 id="maths">Maths</h2>
 <p>The C maths library is declared under its usual names (<code>sqrt</code>,

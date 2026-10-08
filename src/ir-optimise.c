@@ -697,6 +697,24 @@ static int irRangeClobbersScratch(List *from, List *to) {
     return 0;
 }
 
+/* True if any op strictly between `from` and `to` is a call (or an
+ * inline asm block). Those clobber every caller-saved register, not
+ * just the codegen's scratch set: the call's own argument setup
+ * rewrites the ABI arg regs, so a PARAM still living in its arrive
+ * register (rdi/x0...) is gone afterwards. */
+static int irRangeHasCall(List *from, List *to) {
+    for (List *p = from->next; p != to; p = p->next) {
+        IrInstr *J = (IrInstr *)p->value;
+        if (J->op == IR_CALL || J->op == IR_ASM) return 1;
+    }
+    return 0;
+}
+
+/* True if `v` currently lives in a register rather than a frame slot. */
+static int irLocIsReg(IrValue *v) {
+    return v && v->loc.kind == IR_LOC_REG && v->loc.as.reg;
+}
+
 /* TMP id -> defining instruction. Skips ops that don't "produce"
  * their dst (STORE/STORE_DEREF/RMW_DEREF write to memory; BR/RET
  * pass a value via dst). */
@@ -794,9 +812,11 @@ static int irFuseIaddIntoMemAddressing(IrFunction *fn) {
                      * base living in scratch 0 is gone by then
                      * (`str x0, [x0, #40]`). Either way the codegen
                      * would read a stale register at the consumer. */
-                    if (irLocIsScratchClobbered(ptr) &&
-                        ((use_node && irRangeClobbersScratch(cur, use_node)) ||
-                         irLocClobberedBy(use, ptr, IR_CLOBBER_BEFORE_R1)))
+                    if ((irLocIsScratchClobbered(ptr) &&
+                         ((use_node && irRangeClobbersScratch(cur, use_node)) ||
+                          irLocClobberedBy(use, ptr, IR_CLOBBER_BEFORE_R1))) ||
+                        (irLocIsReg(ptr) && use_node &&
+                         irRangeHasCall(cur, use_node)))
                     {
                         /* fall through to scale-fold attempt */
                     } else {
@@ -824,6 +844,12 @@ static int irFuseIaddIntoMemAddressing(IrFunction *fn) {
                 if (scaler && irLocIsScratchClobbered(base) &&
                     ((use_node && irRangeClobbersScratch(cur, use_node)) ||
                      irLocClobberedBy(use, base, IR_CLOBBER_BEFORE_R1)))
+                {
+                    scaler = NULL;
+                }
+                if (scaler && use_node &&
+                    (irLocIsReg(base) || irLocIsReg(scaler->r1)) &&
+                    irRangeHasCall(cur, use_node))
                 {
                     scaler = NULL;
                 }

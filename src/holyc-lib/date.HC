@@ -156,6 +156,7 @@ I32 FirstDayOfMon(I64 i)
   CDate cdt=0;
   cdt.date=i;
   Date2Struct(&ds,cdt);
+  ds.day_of_mon=1;
   cdt=Struct2Date(&ds);
   return cdt.date;
 }
@@ -168,7 +169,7 @@ I64 LastDayOfMon(I64 i)
   Date2Struct(&ds,cdt);
   ds.mon++;
   if (ds.mon==13) {
-    ds.mon=0;
+    ds.mon=1;
     ds.year++;
   }
   ds.day_of_mon=1;

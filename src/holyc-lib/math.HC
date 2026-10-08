@@ -140,7 +140,9 @@ F64 Pow(F64 a, I64 b)
 }
 
 U64 ModU64(U64 *k, U64 m)
-{
-  return *k % m;
+{// @TempleOS: returns *k % m and sets *k to *k / m.
+  U64 res = *k % m;
+  *k /= m;
+  return res;
 }
 
