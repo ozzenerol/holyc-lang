@@ -385,17 +385,19 @@ currently crash. Use <code>NowDateTimeStruct</code> and <code>MPrintTimestampNow
 <h2 id="maths">Maths</h2>
 <p>The C maths library is declared under its usual names (<code>sqrt</code>,
 <code>pow</code>, <code>sin</code>, <code>floor</code>, <code>fabs</code>, …, all on
-<code>F64</code>), plus <code>Abs</code> and <code>Pow</code>.</p>
+<code>F64</code>), plus <code>Abs</code>, <code>Gcd</code> and <code>Pow</code>.
+<code>Gcd</code> ignores signs: <code>Gcd(0, n)</code> is <code>|n|</code> and
+<code>Gcd(0, 0)</code> is 0.</p>
 <pre data-run><code>
 U0 Main()
 {
   "%.4f %.0f %.1f %.1f\n", sqrt(2.0), pow(2.0, 10.0), floor(2.7), fabs(-1.5);
-  "%d %.2f\n", Abs(-5), Pow(1.5, 2);
+  "%d %d %d %.2f\n", Abs(-5), Gcd(12, 18), Gcd(-4, 0), Pow(1.5, 2);
 }
 </code></pre>
 <pre class="output">
 1.4142 1024 2.0 1.5
-5 2.25
+5 6 4 2.25
 </pre>
 
 <h2>More modules</h2>
