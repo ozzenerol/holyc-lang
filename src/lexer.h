@@ -211,6 +211,17 @@ typedef struct LexFile {
     AoStr *src; /* source */
 } LexFile;
 
+/* An open #if/#ifdef/#ifndef/#ifjit/#ifaot: where it is (for
+ * "Unterminated #if"), whether one of its branches has been taken and
+ * whether its #else has been seen. */
+typedef struct LexCond {
+    s64 line;
+    s64 col;
+    s64 len;
+    int taken;
+    int seen_else;
+} LexCond;
+
 typedef struct Lexer {
     int tk_type;
     char *ptr;
@@ -231,8 +242,10 @@ typedef struct Lexer {
     int flags;
     int ishex;
     int isu64;
-    int collecting;
-    int skip_else;
+    /* The open conditionals, innermost last */
+    LexCond *conds;
+    int cond_depth;
+    int cond_cap;
     char *builtin_root;
     List *files;
     List *all_source;/* This saves all of the files we see so we can free them later */

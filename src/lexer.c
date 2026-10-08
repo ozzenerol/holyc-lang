@@ -344,8 +344,9 @@ void lexInit(Lexer *l, char *source, int flags) {
     l->all_source = listNew();
     l->symbol_table = mapNew(32, &map_cstring_builtin_lexer_type);
     l->seen_files = setNew(32, &set_cstring_type);
-    l->collecting = 1;
-    l->skip_else = 1;
+    l->conds = NULL;
+    l->cond_depth = 0;
+    l->cond_cap = 0;
     /* Default: no diagnostic engine wired up; lex errors fall
      * back to loggerPanic. cctrlInitParse plugs the real Cctrl
      * in when this lexer is being driven by a real parse. */
@@ -371,6 +372,7 @@ void lexerRelease(Lexer *l) {
     lexReleaseAllFiles(l);
     mapRelease(l->symbol_table);
     setRelease(l->seen_files);
+    free(l->conds);
     free(l);
 }
 
@@ -2347,113 +2349,152 @@ bad_condition:
     return 0;
 }
 
-/* Decide if we should collect tokens or not */
-int lexPreProcBoolean(Lexer *l, Map *macro_defs, Lexeme *le) {
-    Lexeme next,*macro;
+/* The innermost open conditional, NULL outside any */
+static LexCond *lexCondTop(Lexer *l) {
+    return l->cond_depth ? &l->conds[l->cond_depth - 1] : NULL;
+}
 
-    /* The skip loops feed every token from a dead `#if` region through
-     * here. `i64` only holds a keyword id for TK_KEYWORD tokens - for
-     * identifiers it's whatever was left in the union, which can
-     * collide with a KW_PP_* value and re-trigger directive parsing on
-     * arbitrary skipped text. */
-    if (le->tk_type != TK_KEYWORD) return 0;
+static void lexCondPush(Lexer *l, Lexeme *dir, int taken) {
+    if (l->cond_depth == l->cond_cap) {
+        l->cond_cap = l->cond_cap ? l->cond_cap * 2 : 8;
+        l->conds = (LexCond *)realloc(l->conds,
+                                      l->cond_cap * sizeof(LexCond));
+    }
+    LexCond *cond = &l->conds[l->cond_depth++];
+    cond->line = dir->line;
+    cond->col = dir->col;
+    cond->len = dir->len;
+    cond->taken = taken;
+    cond->seen_else = 0;
+}
 
-    switch (le->i64) {
-        case KW_PP_IF: {
-            int ok = lexPreProcIf(macro_defs,l,"#if");
-            if (ok) {
-                l->collecting = 1;
-                l->skip_else = 1;
-            } else {
-                l->collecting = 0;
-                l->skip_else = 0;
-            }
-            return ok;
-        }
+/* At the end of the input: report every conditional still open, at
+ * its directive, and let the parser finish what it has. */
+static void lexCondUnterminated(Lexer *l) {
+    for (int i = 0; i < l->cond_depth; ++i) {
+        LexCond *cond = &l->conds[i];
+        lexReportAt(l, cond->line, cond->col, cond->len, "Unterminated #if");
+    }
+    l->cond_depth = 0;
+}
 
-        case KW_PP_IF_DEF: {
-            lex(l,&next);
-            if ((macro = mapGetLen(macro_defs,next.start,next.len)) != NULL) {
-                l->collecting = 1;
-                l->skip_else = 1;
-                return 1;
-            }
+/* Is the macro named after #ifdef/#ifndef/#elifdef `dir` defined? A
+ * missing or malformed name is reported and the directive taken as
+ * false; lexDropDirective keeps the next line when the name is missing
+ * rather than reading its first token as the name. */
+static int lexCondDefined(Map *macro_defs, Lexer *l, Lexeme *dir,
+                          int *defined) {
+    Lexeme next;
+    LexPos pos = lexDirectivePos(l), at;
 
-            l->collecting = 0;
-            l->skip_else = 0;
-            return 0;
-        }
+    if (!lex(l, &next)) {
+        lexReportAt(l, pos.line, pos.col, pos.len,
+                    "Syntax is: %.*s <TK_IDENT>", dir->len, dir->start);
+        return 0;
+    }
+    if (next.tk_type != TK_IDENT || next.line != pos.line) {
+        at = lexDropDirective(l, &pos, &next);
+        lexReportAt(l, at.line, at.col, at.len,
+                    "Syntax is: %.*s <TK_IDENT>", dir->len, dir->start);
+        return 0;
+    }
+    *defined = mapGetLen(macro_defs, next.start, next.len) != NULL;
+    return 1;
+}
 
+/* Evaluate the condition of #if/#elif `dir` and its variants: 1 to take
+ * the branch, 0 not to. A malformed one is reported and taken as false. */
+static int lexCondEval(Map *macro_defs, Lexer *l, Lexeme *dir) {
+    int defined = 0;
+    switch (dir->i64) {
+        case KW_PP_IF:   return lexPreProcIf(macro_defs, l, "#if");
+        case KW_PP_ELIF: return lexPreProcIf(macro_defs, l, "#elif");
+        case KW_PP_IF_DEF:
+        case KW_PP_ELIF_DEF:
+            return lexCondDefined(macro_defs, l, dir, &defined) && defined;
+        case KW_PP_IF_NDEF:
+            return lexCondDefined(macro_defs, l, dir, &defined) && !defined;
         case KW_PP_IF_JIT:
         case KW_PP_IF_AOT: {
             /* `#ifdef` with an implicit identifier: main() defines
              * exactly one of __HCC_JIT__ / __HCC_AOT__, so each form
-             * is the other's negation and both compose with
-             * #else / #endif through the shared skip machinery. */
-            char *flag = le->i64 == KW_PP_IF_JIT ? "__HCC_JIT__"
-                                                 : "__HCC_AOT__";
-            if (mapGetLen(macro_defs,flag,(s64)strlen(flag)) != NULL) {
-                l->collecting = 1;
-                l->skip_else = 1;
-                return 1;
-            }
-
-            l->collecting = 0;
-            l->skip_else = 0;
-            return 0;
+             * is the other's negation. */
+            char *flag = dir->i64 == KW_PP_IF_JIT ? "__HCC_JIT__"
+                                                  : "__HCC_AOT__";
+            return mapGetLen(macro_defs, flag, (s64)strlen(flag)) != NULL;
         }
-
-        case KW_PP_IF_NDEF: {
-            lex(l,&next);
-            if ((macro = mapGetLen(macro_defs,next.start,next.len)) == NULL) {
-                l->collecting = 0;
-                l->skip_else = 1;
-                return 1;
-            }
-            l->collecting = 1;
-            l->skip_else = 0;
-            return 0;
-        }
-
-        case KW_PP_ELIF: {
-            if (l->skip_else) return 0;
-            int ok = lexPreProcIf(macro_defs,l,"#elif");
-            if (ok) {
-                l->skip_else = 1;
-            } else {
-                l->skip_else = 0;
-            }
-            return ok;
-        }
-
-        case KW_PP_ELIF_DEF: {
-            if (l->skip_else) return 0;
-            lex(l,&next);
-            if ((macro = mapGetLen(macro_defs,next.start,next.len)) != NULL) {
-                l->collecting = 1;
-                l->skip_else = 1;
-                return 1;
-            }
-            l->collecting = 0;
-            l->skip_else = 0;
-            return 0;
-        }
-
-
-        case KW_PP_ELSE: {
-            if (l->skip_else) return 0;
-            l->collecting = 1;
-            return 1;
-        }
-
-        case KW_PP_ENDIF:
-            l->skip_else = 0;
-            l->collecting = 1;
-            return 1;
-
         default:
             return 0;
     }
+}
+
+static int lexIsCondOpen(Lexeme *le) {
+    if (le->tk_type != TK_KEYWORD) return 0;
+    switch (le->i64) {
+        case KW_PP_IF:
+        case KW_PP_IF_DEF:
+        case KW_PP_IF_NDEF:
+        case KW_PP_IF_JIT:
+        case KW_PP_IF_AOT:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* Skip the dead text of the innermost conditional: up to a branch to
+ * take (an #elif that holds or an #else, while no branch has been
+ * taken) or its #endif, which closes it. Conditionals nested in the
+ * dead text are skipped whole and their conditions not evaluated.
+ * Returns 0 at the end of the input, having reported what's open. */
+static int lexCondSkip(Map *macro_defs, Lexer *l) {
+    Lexeme le;
+    LexCond *cond = lexCondTop(l);
+    int depth = 0;
+
+    while (lex(l, &le)) {
+        if (lexIsCondOpen(&le)) {
+            depth++;
+            continue;
+        }
+        if (le.tk_type != TK_KEYWORD || depth > 0) {
+            if (le.tk_type == TK_KEYWORD && le.i64 == KW_PP_ENDIF) depth--;
+            continue;
+        }
+        switch (le.i64) {
+            case KW_PP_ENDIF:
+                l->cond_depth--;
+                return 1;
+
+            case KW_PP_ELSE:
+                if (cond->seen_else) {
+                    lexReportAt(l, le.line, le.col, le.len,
+                                "#else after #else");
+                    break;
+                }
+                cond->seen_else = 1;
+                if (!cond->taken) {
+                    cond->taken = 1;
+                    return 1;
+                }
+                break;
+
+            case KW_PP_ELIF:
+            case KW_PP_ELIF_DEF:
+                if (cond->seen_else) {
+                    lexReportAt(l, le.line, le.col, le.len,
+                                "%.*s after #else", le.len, le.start);
+                    break;
+                }
+                if (!cond->taken && lexCondEval(macro_defs, l, &le)) {
+                    cond->taken = 1;
+                    return 1;
+                }
+                break;
+        }
+    }
+    lexCondUnterminated(l);
+    return 0;
 }
 
 void lexSetAsmFlags(Lexer *l) {
@@ -2471,6 +2512,7 @@ Lexeme *lexToken(Map *macro_defs, Lexer *l) {
 
     while (1) {
         if (!lex(l,&le)) {
+            lexCondUnterminated(l);
             return NULL;
         }
 
@@ -2505,50 +2547,46 @@ Lexeme *lexToken(Map *macro_defs, Lexer *l) {
                     continue;
                 }
 
-                case KW_PP_ELIF_DEF:
-                case KW_PP_ELIF:
-                case KW_PP_ELSE: {
-                    if (l->skip_else) {
-                        while (lex(l,&le)) {
-                            if (le.tk_type == TK_KEYWORD && le.i64 == KW_PP_ENDIF) {
-                                break;
-                            }
-                        }
-                        l->skip_else = 0;
-                    } else {
-                        int line = le.line, col = le.col, len = le.len;
-                        while ((lexPreProcBoolean(l,macro_defs,&le)) != 1) {
-                            int ok = lex(l,&le);
-                            if (!ok) {
-                                lexReportAt(l, line, col, len,
-                                            "Unterminated #if");
-                                return NULL;
-                            }
-                        }
-                    }
-                    continue;
-                }
-
                 case KW_PP_IF_DEF:
                 case KW_PP_IF_NDEF:
                 case KW_PP_IF_JIT:
                 case KW_PP_IF_AOT:
                 case KW_PP_IF: {
-                    /* Reported at the directive, not at the end of input */
-                    int line = le.line, col = le.col, len = le.len;
-                    while ((lexPreProcBoolean(l,macro_defs,&le)) != 1) {
-                        int ok = lex(l,&le);
-                        if (!ok) {
-                            /* At the end of the input: report it and
-                             * let the parser finish what it has. */
-                            lexReportAt(l, line, col, len, "Unterminated #if");
-                            return NULL;
-                        }
-                    }
+                    int taken = lexCondEval(macro_defs,l,&le);
+                    lexCondPush(l,&le,taken);
+                    if (!taken && !lexCondSkip(macro_defs,l)) return NULL;
                     continue;
                 }
+
+                case KW_PP_ELIF_DEF:
+                case KW_PP_ELIF:
+                case KW_PP_ELSE: {
+                    /* Reached from a branch being collected, so one
+                     * branch was taken and the rest of the #if is dead */
+                    LexCond *cond = lexCondTop(l);
+                    if (!cond) {
+                        /* Dropped, with an #elif's condition */
+                        if (le.i64 != KW_PP_ELSE) lexSkipLine(l);
+                        lexReportAt(l, le.line, le.col, le.len,
+                                    "%.*s without #if", le.len, le.start);
+                        continue;
+                    }
+                    if (cond->seen_else) {
+                        lexReportAt(l, le.line, le.col, le.len,
+                                    "%.*s after #else", le.len, le.start);
+                    }
+                    if (le.i64 == KW_PP_ELSE) cond->seen_else = 1;
+                    if (!lexCondSkip(macro_defs,l)) return NULL;
+                    continue;
+                }
+
                 case KW_PP_ENDIF:
-                    l->skip_else = 0;
+                    if (!l->cond_depth) {
+                        lexReportAt(l, le.line, le.col, le.len,
+                                    "#endif without #if");
+                    } else {
+                        l->cond_depth--;
+                    }
                     continue;
 
                 case KW_PP_ERROR: {
