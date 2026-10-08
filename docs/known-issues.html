@@ -49,9 +49,6 @@ works as shown.</p>
     <tr><td><code>&gt;&gt;</code>, <code>/</code> and <code>%</code> on <code>U64</code> behave as signed</td>
         <td><code>0xC004000000000000 &gt;&gt; 63</code> is all ones; <code>(1 &lt;&lt; 63) % 3</code> is wrong</td>
         <td>Mask after shifting (<code>(w &gt;&gt; 63) &amp; 1</code>); avoid dividing values with the top bit set</td></tr>
-    <tr><td>Reading a field straight off a returned <code>I64</code>-based class crashes</td>
-        <td><code>Now().date</code> (<code>CDate</code> is an <code>I64 class</code>)</td>
-        <td>Copy it first: <code>CDate c = Now(); c.date</code></td></tr>
     <tr><td><code>auto</code> in a range-based <code>for</code> over a container field gets the wrong type</td>
         <td><code>for (auto it : h.v)</code> where <code>v</code> is an <code>IntVec *</code> field</td>
         <td>Give the type: <code>for (I64 it : h.v)</code></td></tr>

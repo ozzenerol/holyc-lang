@@ -1452,6 +1452,34 @@ IrValue *irLowerClassRef(IrCtx *ctx, Ast *ast) {
 
     irCollapseClassRefChain(&cls, &offset);
 
+    /* A field of an intrinsic class value that has no storage of its own -
+     * `Now().date`, `x(CDate).time` - where the value (`I64 class CDate`)
+     * comes back in a register rather than as an address. Spill it to a
+     * stack slot and read the field from there. */
+    if (cls && astIsIntrinsicClass(cls->type) &&
+        cls->kind != AST_LVAR && cls->kind != AST_GVAR &&
+        !astIsUnOpKind(cls, AST_UN_OP_DEREF))
+    {
+        IrValue *val = irExpr(ctx, cls);
+        IrInstr *slot = irAlloca(cls->type);
+        irAddStackSpace(ctx, cls->type->size);
+        irBlockAddInstr(ctx, slot);
+        IrValue *base = irTmp(IR_TYPE_PTR, 8);
+        irBlockAddInstr(ctx, irInstrNew(IR_LEA, base, slot->dst, NULL));
+        irBlockAddInstr(ctx, irInstrNew(IR_STORE_DEREF, base, val, NULL));
+        IrValue *addr = base;
+        if (offset != 0) {
+            addr = irTmp(IR_TYPE_PTR, 8);
+            IrValue *off_const = irConstInt(IR_TYPE_I64, offset);
+            irBlockAddInstr(ctx, irInstrNew(IR_IADD, addr, base, off_const));
+        }
+        if (field_decays) {
+            return addr;
+        }
+        irBlockAddInstr(ctx, irInstrNew(IR_LOAD_DEREF, load_dst, addr, NULL));
+        return irPromoteNarrowInt(ctx, load_dst, ast->type);
+    }
+
     if (astIsUnOpKind(cls, AST_UN_OP_DEREF)) {
         IrValue *ptr_val = irExpr(ctx, cls->operand);
         IrValue *addr = ptr_val;
