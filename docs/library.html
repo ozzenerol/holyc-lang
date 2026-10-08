@@ -284,6 +284,8 @@ banana
   StrMapSet(stock, "apples", 3(U0 *));
   StrMapSet(stock, "pears", 5(U0 *));
   StrMapSet(stock, "apples", 4(U0 *));
+  StrMapSet(stock, "plums", 7(U0 *));
+  StrMapDelete(stock, "plums");
 
   "%d apples, has kiwis: %d, %d keys\n",
     StrMapGet(stock, "apples"), StrMapHas(stock, "kiwis"), stock-&gt;size;
@@ -299,6 +301,7 @@ banana
   IntMapSet(names, 404, "not found");
   IntMapSet(names, 200, "ok");
   "%s\n", IntMapGet(names, 404);
+  "deleted 200: %d, deleted 500: %d\n", IntMapDelete(names, 200), IntMapDelete(names, 500);
   IntMapRelease(names);
 }
 </code></pre>
@@ -306,6 +309,7 @@ banana
 apples = 4
 pears = 5
 not found
+deleted 200: 1, deleted 500: 0
 </pre>
 <p>Iteration follows insertion order. <code>StrMapSetFreeValue</code> and
 <code>StrMapSetFreeKey</code> register destructors that run on replace and release.
@@ -313,7 +317,11 @@ not found
 (default 32), rounded up to a power of two; the table grows as you add keys.
 Setting an existing key keeps the key already stored. With destructors registered the map
 owns what you give it: an update frees the value it replaces and the duplicate key you
-passed (never the stored key, and nothing when you pass the stored pointers again).</p>
+passed (never the stored key, and nothing when you pass the stored pointers again).
+<code>StrMapDelete</code> and <code>IntMapDelete</code> remove a key, running the
+destructors on it, and return <code>FALSE</code> if the key wasn't there; iteration skips
+deleted keys and keeps the order of the rest, and a deleted key can be set again (it then
+comes last).</p>
 <div class="warn"><p>The map keeps the key pointer you pass the first time a key is set,
 instead of copying it. Use keys that live as long as the map, such as
 <code>StrNew</code> copies; updating an existing key from a reused buffer is fine.</p></div>

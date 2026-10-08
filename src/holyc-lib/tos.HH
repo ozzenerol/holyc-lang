@@ -195,6 +195,7 @@ public class IntMapNode
 {
   I64 key;
   U0 *value;
+  I64 order; /* Position in the map's `indexes`; HT_DELETED once deleted */
 };
 
 public class StrMapNode
@@ -202,6 +203,7 @@ public class StrMapNode
   U8 *key;
   I64 key_len;
   U0 *value;
+  I64 order; /* Position in the map's `indexes`; HT_DELETED once deleted */
 };
 
 public class IntMap
@@ -243,7 +245,8 @@ public U0 *StrMapGet(StrMap *map, U8 *key);
 public U0 StrMapSetFreeValue(StrMap *map, U0 (*_free_value)(U0 *value));
 public U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key));
 public U0 StrMapRelease(StrMap *map);
-public Bool StrMapResize(StrMap *map, U64 size);
+public Bool StrMapResize(StrMap *map);
+public Bool StrMapDelete(StrMap *map, U8 *key);
 public Bool StrMapIter(StrMap *map, I64 *_idx, StrMapNode **_node);
 public Bool StrMapValueIter(StrMap *map, I64 *_idx, U0 **_value);
 public Bool StrMapKeyIter(StrMap *map, I64 *_idx, U8 **_key);
@@ -257,7 +260,8 @@ public U0 *IntMapGet(IntMap *map, I64 key);
 public IntMap *IntMapNew(U64 capacity = 32);
 public U0 IntMapSetFreeValue(IntMap *map, U0 (*_free_value)(U0 *value));
 public U0 IntMapRelease(IntMap *map);
-public Bool IntMapResize(IntMap *map, U64 size);
+public Bool IntMapResize(IntMap *map);
+public Bool IntMapDelete(IntMap *map, I64 key);
 public Bool IntMapIter(IntMap *map, I64 *_idx, IntMapNode **_node);
 public Bool IntMapValueIter(IntMap *map, I64 *_idx, U0 **_value);
 public Bool IntMapKeyIter(IntMap *map, I64 *_idx, I64 *_key);
