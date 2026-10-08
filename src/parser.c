@@ -1121,12 +1121,16 @@ Ast *parseRangeLoop(Cctrl *cc, Ast *iteratee) {
 
         parseAssertContainerHasFields(cc,size_field,entries_field);
 
-        Ast *deref = astUnaryOperator(container->type->ptr,AST_UN_OP_DEREF,container);
+        /* A class held by value is used as is, a pointer is dereferenced */
+        Ast *deref = container;
+        if (container->type->kind == AST_TYPE_POINTER) {
+            deref = astUnaryOperator(container->type->ptr,AST_UN_OP_DEREF,container);
+        }
         Ast *size_ref = astClassRef(size_field,deref,"size");
         Ast *entries_ref = astClassRef(entries_field,deref,"entries");
 
         if (iteratee->type->kind == AST_TYPE_AUTO) {
-            AstType *deref_type = entries_ref->type;
+            AstType *deref_type = entries_field->ptr;
             iteratee->type = deref_type;
         }
 
