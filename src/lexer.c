@@ -1630,6 +1630,14 @@ static void lexLink(Lexer *l) {
     }
 }
 
+/* Drop the rest of a malformed #define's line before raising, so the
+ * parse resumes on the next line instead of tripping over the leftover
+ * tokens of the define. */
+static void lexDefineSkipLine(Lexer *l) {
+    l->flags &= ~CCF_ACCEPT_NEWLINES;
+    while (*l->ptr && *l->ptr != '\n') l->ptr++;
+}
+
 Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     int tk_type,iters;
     Lexeme next,*start,*end,*expanded,*macro;
@@ -1637,17 +1645,33 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     Vec *tokens = lexemeVecNew();
 
     tk_type = -1;
+    /* A define must be on one line a \n determines the end of a define */
+    l->flags |= CCF_ACCEPT_NEWLINES;
     /* <ident> <value> */
-    lex(l, &next);
+    if (!lex(l, &next) || tokenPunctIs(&next,'\n') || tokenPunctIs(&next,'\0')) {
+        l->flags &= ~CCF_ACCEPT_NEWLINES;
+        lexRaise(l, "Syntax is: #define <TK_IDENT> <value> got nothing");
+    }
     if (next.tk_type != TK_IDENT) {
+        lexDefineSkipLine(l);
         lexRaise(l,
                 "Syntax is: #define <TK_IDENT> <value> got %s",
                 lexemeToString(&next));
     }
 
+    /* `#define NAME(` with no space before the `(` is a C-style
+     * function-like macro. HolyC has none and a define's value is
+     * evaluated eagerly to one token, so reject it here. `#define NAME (x)`
+     * (with a space) is an ordinary define with a parenthesised value. */
+    if (next.start[next.len] == '(') {
+        char *eol = next.start;
+        while (*eol && *eol != '\n' && *eol != '\r') eol++;
+        lexDefineSkipLine(l);
+        lexRaise(l, "function-like macros are not supported: #define %.*s",
+                 (int)(eol - next.start), next.start);
+    }
+
     ident = aoStrDupRaw(next.start, next.len);
-    /* A define must be on one line a \n determines the end of a define */
-    l->flags |= CCF_ACCEPT_NEWLINES;
     iters = 0;
     do {
         iters++;
@@ -1703,15 +1727,36 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
         expanded = lexemeCopy(start);
         mapAdd(macro_defs,ident->data,expanded);
     } else {
-        /* XXX: this is a hack as sometimes the number of tokens in a macro 
-         * will exceed what is allowed in our ring buffer. Conveniently Vec 
-         * has some fields we can use. */
+        /* As for #if: hand the parser a ring padded out with sentinels,
+         * its error paths rewind into the slots past the expression. */
         cctrlInitMacroProcessor(macro_proccessor);
-        macro_proccessor->token_buffer->entries = (Lexeme **)tokens->entries;
+        u64 ring_cap = roundUpToNextPowerOf2(tokens->size + 1);
+        Lexeme **ring = (Lexeme **)malloc(ring_cap * sizeof(Lexeme *));
+        for (u64 i = 0; i < ring_cap; ++i) {
+            ring[i] = i < tokens->size
+                      ? (Lexeme *)tokens->entries[i]
+                      : lexemeSentinal();
+        }
+        macro_proccessor->token_buffer->entries = ring;
         macro_proccessor->token_buffer->size = tokens->size;
-        macro_proccessor->token_buffer->capacity = roundUpToNextPowerOf2(tokens->size);
+        macro_proccessor->token_buffer->capacity = ring_cap;
 
+        /* A parse error in the value (`#define X (1+`, `#define X (a+1)`
+         * with `a` not a macro) lands here and is re-raised against the
+         * define's line, instead of exiting from inside the stub. */
+        jmp_buf recovery;
+        macro_proccessor->current_recovery = &recovery;
+        if (setjmp(recovery) != 0) {
+            macro_proccessor->current_recovery = NULL;
+            cctrlDiagClear(macro_proccessor);
+            free(ring);
+            lexRaise(l, "#define %s: the value must be a constant expression "
+                     "or a string, made of literals and other macros",
+                     ident->data);
+        }
         Ast *ast = parseExpr(macro_proccessor,16);
+        macro_proccessor->current_recovery = NULL;
+        free(ring);
         expanded = lexemeNew(start->start,end->len-start->len);
         expanded->tk_type = tk_type;
         if (tk_type == TK_STR) {

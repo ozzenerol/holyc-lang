@@ -115,9 +115,9 @@ U0 InitFixtures()
     "I64 Main() {\n"
     "  return not_a_symbol;\n"
     "}\n";
-  /* The known parser-crasher: function-like macros. The point is NOT
-   * the crash (fixing it should keep this green) - it is that a
-   * hostile input produces diagnostics and a live server. */
+  /* Function-like macros used to crash the parser; they are now a
+   * compile error. The point is NOT the crash - it is that a hostile
+   * input produces diagnostics and a live server. */
   CRASHER_HC =
     "#define F(x) ((x)*2)\n"
     "I64 Main() {\n"
