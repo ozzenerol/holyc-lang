@@ -1883,6 +1883,35 @@ static Ast *lexPreProcParseCond(Lexer *l, Lexeme **ring, Vec *macro_tokens,
     return ast;
 }
 
+/* Load `macro_tokens` into the macro processor as a ring padded out
+ * with sentinels: parsePrimary rewinds one slot to inspect the token
+ * preceding an expression (and error paths rewind further), so every
+ * slot the ring can reach must hold a valid lexeme. The +1 also
+ * guarantees capacity exceeds size - with capacity == size the rewind
+ * lands on the expression's own last token. With `terminate` the slot
+ * after the tokens is a `;` the parser can read. */
+static Lexeme **lexPreProcRing(Vec *macro_tokens, int terminate) {
+    cctrlInitMacroProcessor(macro_proccessor);
+    u64 ring_cap = roundUpToNextPowerOf2(macro_tokens->size + 1);
+    Lexeme **ring = (Lexeme **)malloc(ring_cap * sizeof(Lexeme *));
+    for (u64 i = 0; i < ring_cap; ++i) {
+        ring[i] = i < macro_tokens->size
+                  ? (Lexeme *)macro_tokens->entries[i]
+                  : lexemeSentinal();
+    }
+    if (terminate) {
+        Lexeme *semi = ring[macro_tokens->size];
+        semi->tk_type = TK_PUNCT;
+        semi->i64 = ';';
+        semi->start = ";";
+        semi->len = 1;
+    }
+    macro_proccessor->token_buffer->entries = ring;
+    macro_proccessor->token_buffer->size = macro_tokens->size + !!terminate;
+    macro_proccessor->token_buffer->capacity = ring_cap;
+    return ring;
+}
+
 int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
     int tk_type,should_collect,in_defined;
     Vec *macro_tokens;
@@ -1976,26 +2005,36 @@ int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
 
     start = macro_tokens->entries[0];
     end = macro_tokens->entries[macro_tokens->size-1];
-    cctrlInitMacroProcessor(macro_proccessor);
-    /* Hand the parser a ring padded out with sentinels: parsePrimary
-     * rewinds one slot to inspect the token preceding an expression
-     * (and error paths rewind further), so every slot the ring can
-     * reach must hold a valid lexeme. The +1 also guarantees capacity
-     * exceeds size - with capacity == size the rewind lands on the
-     * expression's own last token. */
-    u64 ring_cap = roundUpToNextPowerOf2(macro_tokens->size + 1);
-    Lexeme **ring = (Lexeme **)malloc(ring_cap * sizeof(Lexeme *));
-    for (u64 i = 0; i < ring_cap; ++i) {
-        ring[i] = i < macro_tokens->size
-                  ? (Lexeme *)macro_tokens->entries[i]
-                  : lexemeSentinal();
-    }
-    macro_proccessor->token_buffer->entries = ring;
-    macro_proccessor->token_buffer->size = macro_tokens->size;
-    macro_proccessor->token_buffer->capacity = ring_cap;
-
+    Lexeme **ring = lexPreProcRing(macro_tokens, 0);
     Ast *ast = lexPreProcParseCond(l, ring, macro_tokens, directive);
     free(ring);
+
+    /* parseExpr stops at the first token that cannot continue the
+     * expression, so `#if 0 1` used to evaluate `0` and silently drop
+     * the `1`. Running off the end of the ring leaves the same state as
+     * stopping on one extra token (the parser rewinds after the NULL),
+     * so parse again with a `;` after the condition and check that
+     * the parser stopped on it. Only once the condition parsed: a `;`
+     * where an incomplete one (`#if foo(`) wanted more would send the
+     * parser down paths the macro processor can't take. */
+    if (ast) {
+        ring = lexPreProcRing(macro_tokens, 1);
+        lexPreProcParseCond(l, ring, macro_tokens, directive);
+        for (s64 i = macro_proccessor->token_buffer->tail;
+             i < (s64)macro_tokens->size; ++i) {
+            Lexeme *extra = ring[i];
+            if (extra->tk_type != TK_COMMENT) {
+                char extra_str[64];
+                snprintf(extra_str, sizeof(extra_str), "%.*s",
+                         extra->len, extra->start);
+                free(ring);
+                vecRelease(macro_tokens);
+                lexRaise(l, "%s: unexpected '%s' after the condition",
+                         directive, extra_str);
+            }
+        }
+        free(ring);
+    }
 
     int ok = ast != NULL;
     expanded = lexemeNew(start->start,end->len-start->len);
