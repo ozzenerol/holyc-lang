@@ -2781,6 +2781,21 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             }
         }
 
+        /* Global function pointer `T (*name)(params)`: a global variable
+         * of function type. parseParams needs a scope for any nested
+         * function pointer params, as in parseAsmFunctionBinding. */
+        int is_fnptr = 0;
+        if (tokenPunctIs(name,'(') && type != NULL) {
+            is_fnptr = 1;
+            Lexeme *fnptr_name = cctrlTokenPeekBy(cc,1);
+            char *fname;
+            int flen;
+            cc->localenv = cctrlCreateAstMap(cc->localenv);
+            type = parseFunctionPointerType(cc,&fname,&flen,type);
+            cc->localenv = NULL;
+            name = fnptr_name;
+        }
+
         if (name->tk_type != TK_IDENT) {
             cctrlRaiseException(cc,"Identifier expected: got %s",lexemeToString(name));
         }
@@ -2853,9 +2868,21 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 return assign;
             }
 
-            cctrlTokenRewind(cc);
-
-            Ast *ast_expr = parseExpr(cc,16); // parseVariableInitialiser(cc,variable,PUNCT_TERM_COMMA|PUNCT_TERM_SEMI);
+            Ast *ast_expr;
+            if (is_fnptr) {
+                /* The token before `=` is the `)` closing the params, not
+                 * the name, so build the assignment from the RHS alone. */
+                cctrlTokenGet(cc);                  /* consume '=' */
+                Ast *rhs = parseExpr(cc,16);
+                if (!astTypeCheck(type,rhs,AST_BIN_OP_ASSIGN)) {
+                    typeCheckWarn(cc,'=',variable,rhs);
+                }
+                int is_err = 0;
+                ast_expr = astBinaryOp(AST_BIN_OP_ASSIGN,variable,rhs,&is_err);
+            } else {
+                cctrlTokenRewind(cc);
+                ast_expr = parseExpr(cc,16); // parseVariableInitialiser(cc,variable,PUNCT_TERM_COMMA|PUNCT_TERM_SEMI);
+            }
 
             if (ast_expr->right->kind != AST_STRING) {
                 *is_global = 1;
