@@ -416,6 +416,7 @@ Set *irCgComputeReferencedBlocks(IrFunction *fn) {
 
 static int irFnValueIsReferenced(IrFunction *fn, IrValue *target);
 static int irFnLocalSlotNeeded(IrFunction *fn, IrValue *local);
+static int irFnParamSlotNeeded(IrFunction *fn, IrValue *param);
 
 /* True when the function returns its aggregate through a hidden
  * out-pointer, which then needs an 8-byte pointer slot at `ast_func->loff`.
@@ -460,7 +461,7 @@ void irCgBindAstLoffs(IrRaCtx *ra, Ast *ast_func) {
              * (left p->loff at 0), so don't bind a bogus loff - it would
              * make backends think the slot exists and store over the
              * frame base. Must mirror the layout pass's skip. */
-            if (iv && !irFnValueIsReferenced(ra->func, iv)) continue;
+            if (iv && !irFnParamSlotNeeded(ra->func, iv)) continue;
             if (iv) irCgSetLoff(ra, irVarId(iv), p->loff);
         }
     }
@@ -556,6 +557,18 @@ static int irFnLocalSlotNeeded(IrFunction *fn, IrValue *local) {
     return 0;
 }
 
+/* True if param `param` needs its stack slot. A param that arrived on
+ * the stack (or a by-value struct) is an IR_VAL_LOCAL slot the body
+ * reads directly, so it can appear where irFnValueIsReferenced does not
+ * look - as a fused SIB idx or as the value of a ret/br - and needs the
+ * stricter local test: `I64 F(I64 a,...,I64 f, I64 *p, I64 i)
+ * { return p[i]; }` dropped i's slot and panicked in codegen. */
+static int irFnParamSlotNeeded(IrFunction *fn, IrValue *param) {
+    if (param && param->kind == IR_VAL_LOCAL)
+        return irFnLocalSlotNeeded(fn, param);
+    return irFnValueIsReferenced(fn, param);
+}
+
 /* True if fn contains an IR_CALL. The x86_64 prologue uses this to
  * decide whether the leaf-function frame-elision is safe (a call needs
  * the entry rsp to be 8 mod 16, which the rbp push gives us; without
@@ -616,7 +629,7 @@ int irCgComputeAstLayout(Ast *ast_func, IrFunction *ir_func) {
              * DSE: skip the slot too. VARGS is always live. */
             if (p->kind != AST_VAR_ARGS) {
                 IrValue *iv = irFnGetVar(ir_func, irGetParamId(p));
-                if (iv && !irFnValueIsReferenced(ir_func, iv)) continue;
+                if (iv && !irFnParamSlotNeeded(ir_func, iv)) continue;
             }
             int sz;
             if (p->kind == AST_FUNPTR) {
@@ -673,7 +686,7 @@ int irCgComputeAstLayout(Ast *ast_func, IrFunction *ir_func) {
             /* Slot unreferenced (forwarded + DSE'd): no slot, no loff.
              * Must match the totalling-loop skip exactly. */
             IrValue *iv = irFnGetVar(ir_func, irGetParamId(p));
-            if (iv && !irFnValueIsReferenced(ir_func, iv)) continue;
+            if (iv && !irFnParamSlotNeeded(ir_func, iv)) continue;
             int sz = (p->kind == AST_FUNPTR) ? 8 : p->type->size;
             p->loff = -offset;
             offset -= align(sz, 8);
