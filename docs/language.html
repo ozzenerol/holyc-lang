@@ -392,6 +392,21 @@ U0 Main()
 </pre>
 <p>Declare a prototype to call a function before its definition:
 <code>I64 Later(I64 x);</code></p>
+<p><code>inline</code> is accepted as a hint only: an <code>inline</code> function is compiled
+as an ordinary function, so it can recurse, take default arguments and have its address taken.</p>
+<pre data-run><code>inline I64 Twice(I64 x)
+{
+  return x * 2;
+}
+
+U0 Main()
+{
+  I64 (*fp)(I64 x) = &amp;Twice;
+  "%d %d\n", Twice(21), fp(4);
+}
+</code></pre>
+<pre class="output">42 8
+</pre>
 
 <h3>Default arguments</h3>
 <p>Any parameter can have a default, not just trailing ones. Leave an argument empty to use
