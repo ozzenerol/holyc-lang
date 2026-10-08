@@ -965,6 +965,20 @@ Ast *parseOptExpr(Cctrl *cc) {
     return ast;
 }
 
+/* Parse the body of a range loop and prepend the declaration of the loop
+ * variable. A body without braces is a single statement, so it is wrapped
+ * in a compound statement to have a statement list to prepend to. */
+static Ast *parseRangeLoopBody(Cctrl *cc, Ast *iterator) {
+    Ast *forbody = parseStatement(cc);
+    if (forbody == NULL || forbody->kind != AST_COMPOUND_STMT) {
+        List *stmts = listNew();
+        if (forbody) listAppend(stmts,forbody); /* NULL: an empty `;` body */
+        forbody = astCompountStatement(stmts);
+    }
+    listPrepend(forbody->stms,iterator);
+    return forbody;
+}
+
 Ast *parseDesugarArrayLoop(Cctrl *cc, Ast *iteratee, Ast *static_array) {
     /* Create a temporay variable as the counter */
     AoStr *range_tmp_var = getRangeLoopIdx();
@@ -1001,8 +1015,7 @@ Ast *parseDesugarArrayLoop(Cctrl *cc, Ast *iteratee, Ast *static_array) {
     Ast *step = astUnaryOperator(astTypeCopy(ast_int_type),AST_UN_OP_PRE_INC,counter_var);
 
     cctrlTokenExpect(cc,')');
-    Ast *forbody = parseStatement(cc);
-    listPrepend(forbody->stms,iterator);
+    Ast *forbody = parseRangeLoopBody(cc,iterator);
     return astFor(counter,cond,step,forbody,NULL,NULL,NULL);
 }
 
@@ -1056,8 +1069,7 @@ Ast *parseCreateForRange(Cctrl *cc, Ast *iteratee,
             );
     Ast *step = astUnaryOperator(astTypeCopy(ast_int_type),AST_UN_OP_PRE_INC,counter_var);
     cctrlTokenExpect(cc,')');
-    Ast *forbody = parseStatement(cc);
-    listPrepend(forbody->stms,iterator);
+    Ast *forbody = parseRangeLoopBody(cc,iterator);
     return astFor(counter,cond,step,forbody,NULL,NULL,NULL);
 }
 

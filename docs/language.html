@@ -351,9 +351,7 @@ one (starting from 0), and <code>switch [x]</code> skips the range check on
   IntVec *v = IntVecNew();
   IntVecPush(v, 10);
   IntVecPush(v, 20);
-  for (I64 x : v) {
-    "%d\n", x;
-  }
+  for (I64 x : v) "%d\n", x;
   IntVecRelease(v);
 }
 </code></pre>
@@ -361,8 +359,6 @@ one (starting from 0), and <code>switch [x]</code> skips the range check on
 10
 20
 </pre>
-<div class="warn"><p>Always give a range-based <code>for</code> a <code>{ }</code> body. Without braces
-the compiler currently crashes (see <a href="known-issues.html">known issues</a>).</p></div>
 
 <h3>goto</h3>
 <pre data-run><code>U0 Main()
