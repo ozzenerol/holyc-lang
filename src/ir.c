@@ -649,23 +649,9 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
     int is_cmp = astIsBinOpCmp(ast);
     int left_is_float = ast_lhs && astIsFloatType(ast_lhs->type);
     int right_is_float = ast_rhs && astIsFloatType(ast_rhs->type);
-    int float_dispatch;
+    int float_dispatch = left_is_float || right_is_float;
 
     if (is_cmp) {
-        float_dispatch = left_is_float && right_is_float;
-        /* Mixed-type compare: truncate the float operand to int so ICMP
-         * sees two integers, matching HolyC AST codegen. */
-        if (!float_dispatch && (left_is_float || right_is_float)) {
-            IrValue *trunc_dst = irTmp(IR_TYPE_I64, 8);
-            if (left_is_float) {
-                irBlockAddInstr(ctx, irInstrNew(IR_FPTOSI, trunc_dst, lhs, NULL));
-                lhs = trunc_dst;
-            } else {
-                irBlockAddInstr(ctx, irInstrNew(IR_FPTOSI, trunc_dst, rhs, NULL));
-                rhs = trunc_dst;
-            }
-        }
-
         /* Force result tmp to int for the ICMP/FCMP path below. The
          * parser may type a comparison as float (mislabel) or as a
          * pointer / function-pointer kind (`fp1 == fp2`); the runtime
@@ -675,30 +661,34 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
             ir_result = irTmp(ir_type, 8);
         }
     } else {
-        float_dispatch = irIsFloat(ir_type) || left_is_float ||
-                         right_is_float;
-        /* Mixed int/float arithmetic: promote the int side to the float
-         * operand's type so the IR_F* op sees two same-width float
-         * operands. Without this, e.g. `f64 * -1` lowered to
-         * fmul(f64, i64) which the codegen treats as a fmul of garbage.
-         * The promotion width must match the float operand (F32 vs F64)
-         * or the codegen picks the wrong register width. */
-        if (float_dispatch && !(left_is_float && right_is_float)) {
-            IrValueType fty = left_is_float ? lhs->type : rhs->type;
-            int fsz = left_is_float ? (int)irValueByteSize(lhs)
-                                    : (int)irValueByteSize(rhs);
-            IrValue *prom = irTmp(fty, fsz);
-            IrInstr *cast_instr = NULL;
-            if (!left_is_float) {
-                cast_instr = irInstrNew(IR_SITOFP, prom, lhs, NULL);
-                lhs = prom;
-            }
-            if (!right_is_float) {
-                cast_instr = irInstrNew(IR_SITOFP, prom, rhs, NULL);
-                rhs = prom;
-            }
-            irBlockAddInstr(ctx, cast_instr);
+        float_dispatch = float_dispatch || irIsFloat(ir_type);
+    }
+
+    /* Mixed int/float arithmetic or comparison: promote the int side to
+     * the float operand's type so the IR_F* op / FCMP sees two same-width
+     * float operands (C's usual arithmetic conversions: `2.5 == 2` is 0).
+     * Without this, e.g. `f64 * -1` lowered to fmul(f64, i64) which the
+     * codegen treats as a fmul of garbage. The promotion width must match
+     * the float operand (F32 vs F64) or the codegen picks the wrong
+     * register width. */
+    if (float_dispatch && !(left_is_float && right_is_float)) {
+        IrValueType fty = left_is_float ? lhs->type : rhs->type;
+        int fsz = left_is_float ? (int)irValueByteSize(lhs)
+                                : (int)irValueByteSize(rhs);
+        Ast *ast_int = left_is_float ? ast_rhs : ast_lhs;
+        IrOp cvt = (ast_int && ast_int->type && !ast_int->type->issigned)
+                   ? IR_UITOFP : IR_SITOFP;
+        IrValue *prom = irTmp(fty, fsz);
+        IrInstr *cast_instr = NULL;
+        if (!left_is_float) {
+            cast_instr = irInstrNew(cvt, prom, lhs, NULL);
+            lhs = prom;
         }
+        if (!right_is_float) {
+            cast_instr = irInstrNew(cvt, prom, rhs, NULL);
+            rhs = prom;
+        }
+        irBlockAddInstr(ctx, cast_instr);
     }
 
     /* Equalise float operand widths: a mixed F32/F64 op promotes the
