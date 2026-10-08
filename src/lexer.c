@@ -906,18 +906,23 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             break;
         /* Anything else is invalid */
         default:
-            if (*ptr == 'f' && !*ishex) {
-                if (*(ptr+1) != '\0' && *(ptr+1) == '3' && 
-                   *(ptr+2) != '\0' && *(ptr+2) == '2') {
-                    ptr += 2;
-                    *isfloat = 1;
-                    break;
-                } else if (*(ptr+1) != '\0' && *(ptr+1) == '6' && 
-                           *(ptr+2) != '\0' && *(ptr+2) == '4') {
-                    ptr += 2;
-                    *isfloat = 1;
-                    break;
+            /* `1f32` / `2f64`: a float suffix ends the literal, so
+             * `1f325` is an invalid suffix rather than 1.0 followed by
+             * ignored digits. Letters straight after it (`1f32g`) are
+             * reported by lexNumeric. */
+            if (*ptr == 'f' && !*ishex &&
+                ((ptr[1] == '3' && ptr[2] == '2') ||
+                 (ptr[1] == '6' && ptr[2] == '4'))) {
+                char *end = ptr + 3;
+                if (!isNumTerminator(*end) && !(*end == '.' && end[1] == '.')) {
+                    while (!isNumTerminator(*end)) end++;
+                    lexNumWarning(l, "line %d: invalid suffix '%.*s' on number\n",
+                                  l->lineno, (int)(end - ptr), ptr);
+                    *err = 1;
+                    return -1;
                 }
+                *isfloat = 1;
+                return end - start;
             }
             /* Letters are only digits in a hex literal: `123abc` used
              * to be read as 123 (strtoull stops at the `a`). */
@@ -930,6 +935,13 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             break;
         }
         ptr++;
+    }
+
+    /* `0x` on its own is not 0, like `0b` above. */
+    if (*ishex && ptr - start == 2) {
+        lexNumWarning(l, "line %d: hex literal has no digits\n", l->lineno);
+        *err = 1;
+        return -1;
     }
 
     /* Floating point hex does not exist */
