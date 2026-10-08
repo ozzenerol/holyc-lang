@@ -15,9 +15,10 @@
 #define FALSE 0
 #define NULL  0
 
-#define STDOUT 0
-#define STDERR 1
-#define STDIN  2
+/* POSIX file descriptor numbers */
+#define STDIN  0
+#define STDOUT 1
+#define STDERR 2
 
 #define __BUFSIZ__ 2048
 

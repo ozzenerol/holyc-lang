@@ -83,9 +83,6 @@ works as shown.</p>
     <tr><td><code>StrMapSet</code> stores your key pointer, and replaces it on update</td>
         <td>Setting a key from a reused buffer leaves the map pointing at it</td>
         <td>Pass keys that live as long as the map (<code>StrNew</code>), and set each key once</td></tr>
-    <tr><td><code>STDOUT</code> is 0 and <code>STDIN</code> is 2 in <code>tos.HH</code></td>
-        <td><code>Write(STDOUT, ...)</code> writes to stdin, which only works on a terminal</td>
-        <td>Use the numbers: 1 for stdout, 2 for stderr</td></tr>
     <tr><td>Libraries built with <code>-lib</code> can't be loaded by the JIT</td>
         <td><code>#link &lt;mylib&gt;</code> under <code>-jit</code>: "failed to load library"</td>
         <td>Symlink <code>libmylib.so</code> to <code>libmylib.so.0.0.1</code></td></tr>
