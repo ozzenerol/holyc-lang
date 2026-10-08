@@ -298,11 +298,12 @@ pears = 5
 not found
 </pre>
 <p>Iteration follows insertion order. <code>StrMapSetFreeValue</code> and
-<code>StrMapSetFreeKey</code> register destructors that run on replace and release.</p>
+<code>StrMapSetFreeKey</code> register destructors that run on replace and release.
+<code>StrMapNew</code> and <code>IntMapNew</code> take an optional starting capacity
+(default 32), rounded up to a power of two; the table grows as you add keys.</p>
 <div class="warn"><p>The map keeps the key pointer you pass instead of copying it, and setting
 an existing key swaps in the new pointer. Use keys that live as long as the map, such as
-<code>StrNew</code> copies. Give <code>StrMapNew</code> a power-of-two capacity, or none:
-other sizes hang (see <a href="known-issues.html">known issues</a>).</p></div>
+<code>StrNew</code> copies.</p></div>
 
 <h2 id="json">JSON</h2>
 <p><code>JsonParse</code> parses text into a tree of <code>Json</code> nodes. Check
