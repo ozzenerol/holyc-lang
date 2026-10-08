@@ -632,19 +632,42 @@ static void jitLoadFirstSrcFpr(JitFnCtx *ctx, IrValue *src) {
     jitLoadToFpr(ctx, src, A_X0); /* d0 — same numeric index */
 }
 
-/* idx register for addressing-mode fusion. Returns 1 if there is an
- * idx component, 0 otherwise. `*out` is always written so callers can
- * forward it unconditionally. */
-static int jitIdxReg(JitFnCtx *ctx, IrInstr *instr, A64Reg *out) {
-    *out = A_X2;
-    if (!instr->idx || !instr->scale) return 0;
-    if (instr->idx->loc.kind == IR_LOC_REG && instr->idx->loc.as.reg) {
-        *out = jitRegFromName(instr->idx->loc.as.reg->data);
-        return 1;
+/* Register `v` already lives in, or -1 if it has to be loaded. */
+static int jitHomeReg(IrValue *v) {
+    if (v && v->loc.kind == IR_LOC_REG && v->loc.as.reg)
+        return (int)jitRegFromName(v->loc.as.reg->data);
+    return -1;
+}
+
+/* Mirror of aarch64AddrRegs: resolve a mem op's address and SIB idx
+ * to registers, loading whichever is not register-resident into the
+ * one of x1/x2 the other operand is not sitting in, so neither load
+ * overwrites the other. `x0_busy` copies an operand out of x0 first
+ * (RMW loads the old value into x0 and still needs the address).
+ * Returns 1 if there is an idx component; `*idx_out` is always
+ * written so callers can forward it unconditionally. */
+static int jitAddrRegs(JitFnCtx *ctx, IrInstr *instr, IrValue *addr,
+                       int x0_busy, A64Reg *base_out, A64Reg *idx_out)
+{
+    int has_idx = instr->idx && instr->scale;
+    int base = jitHomeReg(addr);
+    int idx = has_idx ? jitHomeReg(instr->idx) : -1;
+    if (x0_busy && base == A_X0) base = -1;
+    if (x0_busy && idx == A_X0) idx = -1;
+    if (base < 0) {
+        base = (idx == A_X1) ? A_X2 : A_X1;
+        if (addr->kind == IR_VAL_GLOBAL)
+            jitGlobalAddr(ctx->jit, (A64Reg)base, addr->as.global.name->data);
+        else
+            jitLoadToReg(ctx, addr, (A64Reg)base);
     }
-    jitLoadToReg(ctx, instr->idx, A_X2);
-    *out = A_X2;
-    return 1;
+    if (has_idx && idx < 0) {
+        idx = (base == A_X2) ? A_X1 : A_X2;
+        jitLoadToReg(ctx, instr->idx, (A64Reg)idx);
+    }
+    *base_out = (A64Reg)base;
+    *idx_out = has_idx ? (A64Reg)idx : A_X2;
+    return has_idx;
 }
 
 /* ---------------- condition codes ---------------- */
@@ -1231,15 +1254,8 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
                 }
                 break;
             }
-            A64Reg base = A_X1;
-            if (instr->r1 && instr->r1->loc.kind == IR_LOC_REG &&
-                instr->r1->loc.as.reg)
-            {
-                base = jitRegFromName(instr->r1->loc.as.reg->data);
-            } else {
-                jitLoadToReg(ctx, instr->r1, A_X1);
-            }
-            A64Reg idx; int has_idx = jitIdxReg(ctx, instr, &idx);
+            A64Reg base, idx;
+            int has_idx = jitAddrRegs(ctx, instr, instr->r1, 0, &base, &idx);
             if (instr->dst && irIsFloat(instr->dst->type)) {
                 int fsz = (int)irValueByteSize(instr->dst);
                 if (has_idx) {
@@ -1285,12 +1301,8 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
                 }
                 break;
             }
-            A64Reg base = A_X1;
-            int addr_in_reg = instr->dst && instr->dst->loc.kind == IR_LOC_REG &&
-                              instr->dst->loc.as.reg;
-            if (addr_in_reg) base = jitRegFromName(instr->dst->loc.as.reg->data);
-            A64Reg idx; int has_idx = jitIdxReg(ctx, instr, &idx);
-            if (!addr_in_reg) jitLoadToReg(ctx, instr->dst, A_X1);
+            A64Reg base, idx;
+            int has_idx = jitAddrRegs(ctx, instr, instr->dst, 0, &base, &idx);
             if (instr->r1 && irIsFloat(instr->r1->type)) {
                 int fsz = (int)irValueByteSize(instr->r1);
                 jitLoadFirstSrcFpr(ctx, instr->r1);
@@ -1325,15 +1337,8 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
         }
 
         case IR_RMW_DEREF: {
-            A64Reg base = A_X1;
-            int addr_in_reg = instr->dst && instr->dst->loc.kind == IR_LOC_REG &&
-                              instr->dst->loc.as.reg;
-            if (addr_in_reg) base = jitRegFromName(instr->dst->loc.as.reg->data);
-            else if (instr->dst && instr->dst->kind == IR_VAL_GLOBAL)
-                jitGlobalAddr(jit, A_X1, instr->dst->as.global.name->data);
-            else jitLoadToReg(ctx, instr->dst, A_X1);
-
-            A64Reg idx; int has_idx = jitIdxReg(ctx, instr, &idx);
+            A64Reg base, idx;
+            int has_idx = jitAddrRegs(ctx, instr, instr->dst, 1, &base, &idx);
             int sz = (int)irValueByteSize(instr->r1);
             jitDerefLoad(enc, sz, A_X0, base, has_idx, idx, instr->scale, instr->disp);
             IrOp rop = instr->extra.rmw_op;

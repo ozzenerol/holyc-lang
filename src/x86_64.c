@@ -651,14 +651,50 @@ static void x86_64SpillDstFpr(IrCgCtx *ctx, IrInstr *instr, const char *xmm_reg)
     x86_64StoreFpr(ctx, instr->dst, xmm_reg);
 }
 
-/* Resolve a mem op's SIB idx to its physical register: use idx.loc
- * when set, otherwise load into %rdx. NULL if no scaled-idx. */
-static const char *x86_64IdxReg(IrCgCtx *ctx, IrInstr *instr) {
-    if (!instr->idx || !instr->scale) return NULL;
-    if (instr->idx->loc.kind == IR_LOC_REG && instr->idx->loc.as.reg)
-        return instr->idx->loc.as.reg->data;
-    x86_64LoadToReg(ctx, instr->idx, "rdx");
-    return "rdx";
+/* Register `v` already lives in (a param still in its arg reg, a
+ * fused tmp), or NULL if it has to be loaded. */
+static const char *x86_64HomeReg(IrValue *v) {
+    if (v && v->loc.kind == IR_LOC_REG && v->loc.as.reg)
+        return v->loc.as.reg->data;
+    return NULL;
+}
+
+/* Resolve a mem op's address `addr` and its SIB idx (NULL when there
+ * is none) to registers. A register-resident operand is used in
+ * place; one that has to be loaded goes in %rcx or %rdx, whichever
+ * the OTHER operand is not sitting in, so loading one never
+ * overwrites the other - `I64 F(I64 a, I64 b, I64 *p, I64 i)
+ * { return p[i]; }` reloaded p into %rcx over i
+ * (`movq (%rcx,%rcx,8), %rax`). */
+static void x86_64AddrRegs(IrCgCtx *ctx, IrInstr *instr, IrValue *addr,
+                           const char **base_out, const char **idx_out)
+{
+    int has_idx = instr->idx && instr->scale;
+    const char *base = x86_64HomeReg(addr);
+    const char *idx = has_idx ? x86_64HomeReg(instr->idx) : NULL;
+    if (!base) {
+        base = (idx && !strcmp(idx, "rcx")) ? "rdx" : "rcx";
+        x86_64LoadToReg(ctx, addr, base);
+    }
+    if (has_idx && !idx) {
+        idx = !strcmp(base, "rdx") ? "rcx" : "rdx";
+        x86_64LoadToReg(ctx, instr->idx, idx);
+    }
+    *base_out = base;
+    *idx_out = idx;
+}
+
+/* First of `pref`, %rax, %rcx, %rdx that is neither the base nor the
+ * idx register of the address it will be stored through. */
+static const char *x86_64ValReg(const char *pref, const char *base_reg,
+                                const char *idx_reg)
+{
+    const char *cands[] = { pref, "rax", "rcx", "rdx" };
+    for (int i = 0; i < 4; ++i) {
+        if (strcmp(cands[i], base_reg) &&
+            (!idx_reg || strcmp(cands[i], idx_reg))) return cands[i];
+    }
+    loggerPanic("ir-cg-x86_64: no free value register\n");
 }
 
 /* The float branch uses ucomisd, whose flags follow unsigned-int
@@ -1371,15 +1407,8 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
             }
             /* Address may already live in %rax from a fused producer.
              * Read r1's loc to skip the slot reload in that case. */
-            const char *base_reg = "rcx";
-            if (instr->r1 && instr->r1->loc.kind == IR_LOC_REG &&
-                instr->r1->loc.as.reg)
-            {
-                base_reg = instr->r1->loc.as.reg->data;
-            } else {
-                x86_64LoadToReg(ctx, instr->r1, "rcx");
-            }
-            const char *idx_reg = x86_64IdxReg(ctx, instr);
+            const char *base_reg, *idx_reg;
+            x86_64AddrRegs(ctx, instr, instr->r1, &base_reg, &idx_reg);
             if (instr->dst && irIsFloat(instr->dst->type)) {
                 char mem[48];
                 x86_64FmtMemOperand(mem, sizeof(mem), instr->disp,
@@ -1424,19 +1453,11 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
             /* Address may already live in a register thanks to the
              * peephole's loc-pinning. Pull it out of there directly
              * instead of bouncing through a slot reload. */
-            const char *base_reg = "rcx";
-            int addr_in_reg = instr->dst &&
-                              instr->dst->loc.kind == IR_LOC_REG &&
-                              instr->dst->loc.as.reg;
-            if (addr_in_reg) {
-                base_reg = instr->dst->loc.as.reg->data;
-            }
-            const char *idx_reg = x86_64IdxReg(ctx, instr);
+            int addr_in_reg = x86_64HomeReg(instr->dst) != NULL;
+            const char *base_reg, *idx_reg;
+            x86_64AddrRegs(ctx, instr, instr->dst, &base_reg, &idx_reg);
             /* Float r1: value through xmm0. */
             if (instr->r1 && irIsFloat(instr->r1->type)) {
-                if (!addr_in_reg) {
-                    x86_64LoadToReg(ctx, instr->dst, "rcx");
-                }
                 x86_64LoadFirstSrcFpr(ctx, instr, instr->r1);
                 char mem[48];
                 x86_64FmtMemOperand(mem, sizeof(mem), instr->disp,
@@ -1450,9 +1471,6 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
              * the address register (skip the rax bounce). */
             s64 imm;
             int has_imm = x86_64IsImm32(instr->r1, &imm);
-            if (!addr_in_reg) {
-                x86_64LoadToReg(ctx, instr->dst, "rcx");
-            }
             if (has_imm) {
                 x86_64DerefStoreImm(ctx->buf, sz, imm, base_reg,
                                     idx_reg, instr->scale, instr->disp);
@@ -1464,9 +1482,8 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
              * rdx when an SIB-pinned idx has stolen our chosen slot
              * (e.g. idx fused from an immediate producer landed in
              * %rax). */
-            const char *val_reg = addr_in_reg ? "rcx" : "rax";
-            if (idx_reg && !strcmp(val_reg, idx_reg)) val_reg = "rdx";
-            if (!strcmp(val_reg, base_reg)) val_reg = "rdx";
+            const char *val_reg = x86_64ValReg(addr_in_reg ? "rcx" : "rax",
+                                               base_reg, idx_reg);
             x86_64LoadToReg(ctx, instr->r1, val_reg);
             x86_64DerefStoreWidth(ctx->buf, sz, val_reg, base_reg,
                                   idx_reg, instr->scale, instr->disp);
@@ -1488,20 +1505,14 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                          asmNormaliseGlobalLabel(ctx->cc,
                                  instr->dst->as.global.name)->data);
             } else {
-                const char *base_reg = "rcx";
-                int addr_in_reg = instr->dst &&
-                                  instr->dst->loc.kind == IR_LOC_REG &&
-                                  instr->dst->loc.as.reg;
-                if (addr_in_reg) base_reg = instr->dst->loc.as.reg->data;
-                else             x86_64LoadToReg(ctx, instr->dst, "rcx");
-
-                const char *idx_reg = x86_64IdxReg(ctx, instr);
+                int addr_in_reg = x86_64HomeReg(instr->dst) != NULL;
+                const char *base_reg, *idx_reg;
+                x86_64AddrRegs(ctx, instr, instr->dst, &base_reg, &idx_reg);
                 x86_64FmtMemOperand(mem, sizeof(mem), instr->disp,
                                     base_reg, idx_reg, instr->scale);
                 /* Pick a val_reg not aliased with base/idx. */
-                val_reg = addr_in_reg ? "rcx" : "rax";
-                if (idx_reg && !strcmp(val_reg, idx_reg)) val_reg = "rdx";
-                if (!strcmp(val_reg, base_reg)) val_reg = "rdx";
+                val_reg = x86_64ValReg(addr_in_reg ? "rcx" : "rax",
+                                       base_reg, idx_reg);
             }
 
             const char *sfx = x86_64SizedSuffix(sz);
