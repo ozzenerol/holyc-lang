@@ -20,7 +20,7 @@ def page(title, filename, content):
         for href, label in NAV)
     full_title = "HolyC" if filename == "index.html" else f"{title} · HolyC"
     return f'''<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -30,6 +30,16 @@ def page(title, filename, content):
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=VT323&display=swap">
 <link rel="stylesheet" href="assets/style.css">
+<script>
+/* Theme before first paint: from ?theme= (carried between pages, since
+   file:// pages don't share storage in every browser), else saved, else
+   dark (the <html> default). */
+(function () {{
+  var t = new URLSearchParams(location.search).get("theme");
+  try {{ if (!t) t = localStorage.getItem("holyc-theme"); }} catch (e) {{}}
+  if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+}})();
+</script>
 <script src="assets/docs.js" defer></script>
 </head>
 <body>

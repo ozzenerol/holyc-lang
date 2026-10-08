@@ -1,11 +1,20 @@
 (function () {
   var root = document.documentElement;
 
-  // Theme: remembered per browser, otherwise follows the system.
-  try {
-    var saved = localStorage.getItem("holyc-theme");
-    if (saved) root.setAttribute("data-theme", saved);
-  } catch (e) {}
+  // The theme is set in <head> (see tools/page.py). Choosing one saves it
+  // and adds ?theme= to the links between pages, so it sticks even where
+  // file:// pages can't share storage (Firefox).
+  function carryTheme() {
+    var t = root.getAttribute("data-theme");
+    document.querySelectorAll('a[href$=".html"], a[href*=".html#"], a[href*=".html?"]').forEach(function (a) {
+      var href = a.getAttribute("href");
+      if (/^[a-z]+:/i.test(href)) return;            // external link
+      var hash = "", i = href.indexOf("#");
+      if (i >= 0) { hash = href.slice(i); href = href.slice(0, i); }
+      href = href.replace(/\?.*$/, "");
+      a.setAttribute("href", href + (t ? "?theme=" + t : "") + hash);
+    });
+  }
 
   function toggleTheme() {
     var dark = root.getAttribute("data-theme") === "dark" ||
@@ -13,6 +22,7 @@
     var next = dark ? "light" : "dark";
     root.setAttribute("data-theme", next);
     try { localStorage.setItem("holyc-theme", next); } catch (e) {}
+    carryTheme();
   }
 
   var KEYWORDS = /^(if|else|for|while|do|switch|case|default|break|continue|return|goto|try|catch|throw|class|union|public|private|extern|_extern|asm|static|inline|auto|sizeof|alignof|typeof|reg|noreg|volatile|atomic)$/;
@@ -64,6 +74,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     var themeBtn = document.querySelector(".theme");
     if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+    carryTheme();
 
     var menu = document.querySelector(".menu"), pages = document.querySelector(".pages");
     if (menu) menu.addEventListener("click", function () {
