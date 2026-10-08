@@ -1725,6 +1725,18 @@ static void lexDefineSkipLine(Lexer *l) {
     while (*l->ptr && *l->ptr != '\n') l->ptr++;
 }
 
+/* Does a #define's value contain a postfix cast? */
+static int lexDefineHasCast(Ast *ast) {
+    if (!ast) return 0;
+    switch (ast->kind) {
+        case AST_CAST:  return 1;
+        case AST_UNOP:  return lexDefineHasCast(ast->operand);
+        case AST_BINOP: return lexDefineHasCast(ast->left) ||
+                               lexDefineHasCast(ast->right);
+        default:        return 0;
+    }
+}
+
 /* Errors here are reported with lexReport, not lexRaise: each one
  * leaves the rest of the define's line consumed, so lexing can carry on
  * with the macro left undefined. A longjmp would land in whatever
@@ -1859,6 +1871,12 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
         Ast *ast = parseExpr(macro_proccessor,16);
         macro_proccessor->current_recovery = NULL;
         free(ring);
+        /* The first literal picks a define's type, but a cast picks the
+         * type of the value: `5(F64)` is an F64, `2.7(I64)` an I64. */
+        if ((tk_type == TK_I64 || tk_type == TK_F64) &&
+            lexDefineHasCast(ast)) {
+            tk_type = astIsFloatType(ast->type) ? TK_F64 : TK_I64;
+        }
         expanded = lexemeNew(start->start,end->len-start->len);
         expanded->tk_type = tk_type;
         if (tk_type == TK_STR) {

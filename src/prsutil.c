@@ -221,9 +221,36 @@ int astCanEval(Ast *ast, int *_ok, int is_float) {
     }
 }
 
+/* Fold a postfix cast to an integer type the way it runs: keep the low
+ * `size` bytes, sign- or zero-extended (`300(U8)` is 44, `200(I8)` -56).
+ * Casts to pointers and to I64/U64 leave the value as is. */
+static s64 evalIntCast(s64 value, AstType *to) {
+    if (astIsIntType(to) && to->size > 0 && to->size < 8) {
+        u64 mask = (1ULL << (to->size * 8)) - 1;
+        value &= mask;
+        if (to->issigned && (value & (s64)(mask ^ (mask >> 1)))) {
+            value |= ~mask;
+        }
+    }
+    return value;
+}
+
 double evalFloatExprOrErr(Ast *ast, int *_ok) {
 #define eval evalFloatExprOrErr
     switch (ast->kind) {
+        case AST_CAST: {
+            double value;
+            if (!astIsFloatType(ast->type)) {
+                value = (double)evalIntConstExprOrErr(ast, _ok);
+            } else if (astIsFloatType(ast->operand->type)) {
+                value = eval(ast->operand, _ok);
+            } else {
+                s64 i = evalIntConstExprOrErr(ast->operand, _ok);
+                value = astIsU64Type(ast->operand->type) ? (double)(u64)i
+                                                         : (double)i;
+            }
+            return ast->type->size == 4 ? (double)(float)value : value;
+        }
         case AST_LITERAL: {
             if (astIsFloatType(ast->type)) {
                 return ast->f64;
@@ -360,6 +387,12 @@ static int evalIsUnsignedBinOp(Ast *ast) {
 
 s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
     switch (ast->kind) {
+        case AST_CAST: {
+            s64 value = astIsFloatType(ast->operand->type)
+                ? (s64)evalFloatExprOrErr(ast->operand, _ok)
+                : evalIntConstExprOrErr(ast->operand, _ok);
+            return evalIntCast(value, ast->type);
+        }
         case AST_LITERAL: {
             if (astIsIntType(ast->type)) {
                 return ast->i64;
