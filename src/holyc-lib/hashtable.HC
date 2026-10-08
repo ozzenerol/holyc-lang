@@ -382,14 +382,11 @@ public U8 *IntMapToString(IntMap *map, U8 *(*stringify_value)(U0 *))
   I64 printed = 0; /* `i` skips the holes deletes leave, so count */
   for (I64 i = 0; IntMapIter(map,&i,&entry);) {
     auto str_val = stringify_value(entry->value);
-    U8 *next; /* CatPrint returns a new string */
     if (++printed == map_size) {
-      next = CatPrint(buffer, "[%d] => %s}",entry->key,str_val);
+      buffer = CatPrint(buffer, "[%d] => %s}",entry->key,str_val);
     } else {
-      next = CatPrint(buffer, "[%d] => %s, ",entry->key,str_val);
+      buffer = CatPrint(buffer, "[%d] => %s, ",entry->key,str_val);
     }
-    Free(buffer);
-    buffer = next;
     Free(str_val);
   }
   return buffer;
@@ -406,14 +403,11 @@ public U8 *IntMapKeysToString(IntMap *map)
   auto buffer = StrPrint(NULL,"{");
   I64 printed = 0; /* `i` skips the holes deletes leave, so count */
   for (I64 i = 0; IntMapIter(map,&i,&entry);) {
-    U8 *next; /* CatPrint returns a new string */
     if (++printed == map_size) {
-      next = CatPrint(buffer, "%d}",entry->key);
+      buffer = CatPrint(buffer, "%d}",entry->key);
     } else {
-      next = CatPrint(buffer, "%d, ",entry->key);
+      buffer = CatPrint(buffer, "%d, ",entry->key);
     }
-    Free(buffer);
-    buffer = next;
   }
   return buffer;
 }
@@ -750,14 +744,11 @@ public U8 *StrMapToString(StrMap *map, U8 *(*stringify_value)(U0 *))
   I64 printed = 0; /* `i` skips the holes deletes leave, so count */
   for (I64 i = 0; StrMapIter(map,&i,&entry);) {
     auto str_val = stringify_value(entry->value);
-    U8 *next; /* CatPrint returns a new string */
     if (++printed == map_size) {
-      next = CatPrint(buffer, "[%s] => %s}",entry->key,str_val);
+      buffer = CatPrint(buffer, "[%s] => %s}",entry->key,str_val);
     } else {
-      next = CatPrint(buffer, "[%s] => %s, ",entry->key,str_val);
+      buffer = CatPrint(buffer, "[%s] => %s, ",entry->key,str_val);
     }
-    Free(buffer);
-    buffer = next;
     Free(str_val);
   }
   return buffer;
@@ -775,14 +766,11 @@ public U8 *StrMapKeysToString(StrMap *map)
   auto buffer = StrPrint(NULL,"{");
   I64 printed = 0; /* `i` skips the holes deletes leave, so count */
   for (I64 i = 0; StrMapIter(map,&i,&entry);) {
-    U8 *next; /* CatPrint returns a new string */
     if (++printed == map_size) {
-      next = CatPrint(buffer, "%s}",entry->key);
+      buffer = CatPrint(buffer, "%s}",entry->key);
     } else {
-      next = CatPrint(buffer, "%s, ",entry->key);
+      buffer = CatPrint(buffer, "%s, ",entry->key);
     }
-    Free(buffer);
-    buffer = next;
   }
   return buffer;
 }

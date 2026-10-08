@@ -1284,12 +1284,25 @@ U8 *MPrintTimestampNow()
   return timestamp;
 }
 
+/* Append formatted text to the heap string `_dst` (MAlloc, StrNew,
+ * StrPrint(NULL, ...) or a previous CatPrint; NULL starts a new one),
+ * growing it when it is full, and return it. The block may move and the
+ * old pointer is then freed, so always write `s = CatPrint(s, ...)` and
+ * never pass a string literal or a stack buffer. */
 U8 *CatPrint(U8 *_dst,U8 *fmt,...)
 {// @TempleOS
   U8 *s2 = StrPrintJoin(NULL,fmt,argc,argv);
-  U8 *s = StrPrint(NULL,"%s%s",_dst,s2);
+  if (!s2) return _dst;
+  if (!_dst) return s2;
+  I64 len = StrLen(_dst);
+  I64 s2len = StrLen(s2);
+  I64 size = MSize(_dst);
+  if (len + s2len >= size) {
+    _dst = ReAlloc(_dst,(size*2)+s2len+1);
+  }
+  MemCpy(_dst+len,s2,s2len+1);
   Free(s2);
-  return s;
+  return _dst;
 }
 
 U8 *CatLenPrint(U8 *_dst, I64 *_len, U8 *fmt, ...)

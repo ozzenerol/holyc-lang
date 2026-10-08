@@ -81,7 +81,7 @@ U0 Main()
   s = StrNew(\"hello\"); Free(s);
   s = StrPrint(NULL, \"%d\", 42); Free(s);
   s = MStrPrint(\"%d\", 7); Free(s);
-  p = StrNew(\"a\"); s = CatPrint(p, \"%d\", 123); Free(p); Free(s);
+  s = StrNew(\"a\"); s = CatPrint(s, \"%d\", 123); Free(s);
   PtrVec *v = PtrVecNew;
   for (i = 0; i < 1000; i++) PtrVecPush(v, MAlloc(24));
   PtrVecRelease(v, &FreeIt);

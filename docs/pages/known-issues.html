@@ -45,16 +45,6 @@ works as shown.</p>
   </tbody>
 </table>
 
-<h2>Standard library</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td><code>CatPrint</code> returns a new string and never frees the one you pass</td>
-        <td><code>s = CatPrint(s, "%d", i);</code> in a loop leaks every old <code>s</code></td>
-        <td>Keep the old pointer and <code>Free</code> it after the call</td></tr>
-  </tbody>
-</table>
-
 <h2>Reporting</h2>
 <p>Please report bugs on <a href="https://github.com/ozzenerol/holyc-lang/issues">GitHub</a>.
 A minimal <code>.HC</code> file that reproduces the problem helps the most.</p>
