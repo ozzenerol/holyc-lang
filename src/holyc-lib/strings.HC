@@ -68,66 +68,66 @@ public extern "c" I64 atol(U8 *str);
 
 #ifdef IS_X86_64
 asm {
+// All three return like C: <0 if s1 < s2, 0 if equal, >0 if s1 > s2,
+// comparing bytes as unsigned and stopping at the first NUL.
 // RDI=s1, RSI=s2, RDX=N
-// 'a'=97, 'z'=122
-// 'A'=65, 'Z'=90
+// 'A'=65, 'Z'=90; letters are lowercased like strncasecmp
 _STRNICMP::
     PUSHQ  RBP
     MOVQ   RBP, RSP
     MOVQ   RCX, RDX
+    XORQ   RAX, RAX
 @@3:
     TEST   RCX, RCX
     JZ     @@2
     DECQ   RCX
-    LODSB
-    TEST   AL,AL
-    JZ     @@6
-    CMP    AL, 97
-    JB     @@22
-    CMP    AL, 122
-    JA     @@22
-    SUB    AL, 32
-@@22:
-    MOV    BL, [RDI]
+    MOVZBQ RAX, [RDI]
+    MOVZBQ RDX, [RSI]
     INCQ   RDI
-    TEST   BL,BL
-    JZ     @@6
-    CMP    BL, 97
+    INCQ   RSI
+    CMP    AL, 65
+    JB     @@22
+    CMP    AL, 90
+    JA     @@22
+    ADD    AL, 32
+@@22:
+    CMP    DL, 65
     JB     @@23
-    CMP    BL, 122
+    CMP    DL, 90
     JA     @@23
-    SUB    BL, 32
+    ADD    DL, 32
 @@23:
-    CMP    AL, BL
-    JE     @@3
-@@6:
-    SUBQ   RSI, RDI
-    MOVQ   RAX, RSI
-    LEAVE
-    RET
+    SUBQ   RAX, RDX
+    JNZ    @@2
+    TEST   RDX, RDX
+    JNZ    @@3
 @@2:
-    XORQ   RAX, RAX
     LEAVE
     RET
 
+// RDI=s1, RSI=s2, RDX=N
 _STRNCMP::
     PUSHQ   RBP
     MOVQ    RBP, RSP
     MOVQ    RCX, RDX
+    XORQ    RAX, RAX
+@@3:
     TEST    RCX, RCX
     JZ      @@2
-    REPE    CMPSB
-    JE      @@1
-    MOVZBQ  RAX,-1[RDI]
-    MOVZBQ  RDX,-1[RSI]
-    SUBQ    RAX,RDX
-    JMP     @@2
-@@1:
-    XORQ    RAX, RAX
+    DECQ    RCX
+    MOVZBQ  RAX, [RDI]
+    MOVZBQ  RDX, [RSI]
+    INCQ    RDI
+    INCQ    RSI
+    SUBQ    RAX, RDX
+    JNZ     @@2
+    TEST    RDX, RDX
+    JNZ     @@3
 @@2:
     LEAVE
     RET
 
+// RDI=s1, RSI=s2. LODSB reads s2 into AL, SCASB compares it with s1.
 _STRCMP::
     PUSH  RBP
     MOV   RBP,RSP
@@ -141,8 +141,8 @@ _STRCMP::
     JMP    @@3
 @@1:
     SUB     RDI, 1
-    MOVZX   RAX, AL
-    MOVZBQ  RDX, [RDI]
+    MOVZX   RDX, AL
+    MOVZBQ  RAX, [RDI]
     SUB     RAX, RDX
 @@3:
     LEAVE

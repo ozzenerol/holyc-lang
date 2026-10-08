@@ -15,16 +15,6 @@ class WordCount
   I64 count;
 };
 
-// Byte-wise comparison, like C's strcmp.
-I64 Compare(U8 *a, U8 *b)
-{
-  while (*a && *a == *b) {
-    a++;
-    b++;
-  }
-  return *a - *b;
-}
-
 // Sort predicate: TRUE when a ranks above b. Most frequent first, then
 // alphabetical so ties have a stable order.
 I64 RanksHigher(U0 *_a, U0 *_b)
@@ -34,7 +24,7 @@ I64 RanksHigher(U0 *_a, U0 *_b)
   if (a->count != b->count) {
     return a->count > b->count;
   }
-  return Compare(a->word, b->word) < 0;
+  return StrCmp(a->word, b->word) < 0;
 }
 
 Bool IsLetter(U8 c)

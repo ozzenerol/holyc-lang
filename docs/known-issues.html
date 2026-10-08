@@ -65,9 +65,6 @@ works as shown.</p>
     <tr><td><code>JsonToString</code> exits on floats</td>
         <td>Any JSON containing a float, because of the issue above</td>
         <td>Keep floats out of JSON you print, or store them as strings</td></tr>
-    <tr><td><code>StrCmp</code> / <code>StrNCmp</code> return the wrong sign on x86_64</td>
-        <td><code>StrCmp("abc", "abd")</code> is positive</td>
-        <td>Use them for equality (<code>== 0</code>) only, or compare characters yourself</td></tr>
     <tr><td><code>Date2Struct</code>, <code>MPrintDate</code> and <code>MPrintTime</code> crash</td>
         <td><code>MPrintDate(Now())</code></td>
         <td><code>NowDateTimeStruct</code> and <code>MPrintTimestampNow</code></td></tr>
