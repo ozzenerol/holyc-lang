@@ -1749,16 +1749,39 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
             x86_64SpillDstFpr(ctx, instr, "xmm0");
             break;
 
-        case IR_UITOFP:
-            /* x86 has no unsigned int-to-float; treat the source as
-             * signed. True U64 -> double for values >= 2^63 would
-             * need the signed-bit-fixup dance; not currently needed. */
+        case IR_UITOFP: {
+            /* x86 has no unsigned 64-bit int-to-float. Branch-free form
+             * of what gcc/clang emit: when the top bit is set, convert
+             * (u >> 1) | (u & 1) (the low bit keeps the rounding right)
+             * and double the result; otherwise convert u as signed. The
+             * doubling multiplies by 1.0 or 2.0 built from the sign. */
+            int is_f32 = (int)irValueByteSize(instr->dst) == 4;
             x86_64LoadFirstSrc(ctx, instr, instr->r1);
-            aoStrCatFmt(ctx->buf, "%s %%rax, %%xmm0\n\t",
-                        (int)irValueByteSize(instr->dst) == 4 ? "cvtsi2ssq"
-                                                              : "cvtsi2sdq");
+            aoStrCatFmt(ctx->buf,
+                        "movq    %%rax, %%rcx\n\t"
+                        "shrq    $1, %%rcx\n\t"
+                        "movq    %%rax, %%rdx\n\t"
+                        "andq    $1, %%rdx\n\t"
+                        "orq     %%rdx, %%rcx\n\t"
+                        "movq    %%rax, %%rdx\n\t"
+                        "sarq    $63, %%rdx\n\t"
+                        "xorq    %%rax, %%rcx\n\t"
+                        "andq    %%rdx, %%rcx\n\t"
+                        "xorq    %%rax, %%rcx\n\t"
+                        "%s %%rcx, %%xmm0\n\t"
+                        "shrq    $63, %%rdx\n\t"
+                        "shlq    $%i, %%rdx\n\t"
+                        "movabsq $%s, %%rax\n\t"
+                        "addq    %%rdx, %%rax\n\t"
+                        "movq    %%rax, %%xmm1\n\t"
+                        "%s   %%xmm1, %%xmm0\n\t",
+                        is_f32 ? "cvtsi2ssq" : "cvtsi2sdq",
+                        is_f32 ? 23 : 52,
+                        is_f32 ? "0x3F800000" : "0x3FF0000000000000",
+                        is_f32 ? "mulss" : "mulsd");
             x86_64SpillDstFpr(ctx, instr, "xmm0");
             break;
+        }
 
         case IR_FPTOSI:
             x86_64LoadFirstSrcFpr(ctx, instr, instr->r1);

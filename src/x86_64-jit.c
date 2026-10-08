@@ -1375,13 +1375,41 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
             break;
 
         case IR_SITOFP:
-        case IR_UITOFP:
-            /* Signed conversion either way (matches the AOT backend). */
             jitLoadFirstSrc(ctx, instr->r1);
             if (jitFpDbl(instr->dst)) x86_64_enc_cvtsi2sd(enc, 0, R_RAX);
             else                      x86_64_enc_cvtsi2ss(enc, 0, R_RAX);
             jitSpillDstFpr(ctx, instr, 0);
             break;
+
+        case IR_UITOFP: {
+            /* Branch-free unsigned 64-bit -> float, same sequence as the
+             * AOT backend: convert u, or (u >> 1) | (u & 1) when the top
+             * bit is set, then multiply by 1.0 / 2.0 from the sign. */
+            int dbl = jitFpDbl(instr->dst);
+            jitLoadFirstSrc(ctx, instr->r1);
+            x86_64_enc_mov_reg_reg(enc, R_RCX, R_RAX);
+            x86_64_enc_shift_imm_reg(enc, 5, R_RCX, 1);
+            x86_64_enc_mov_reg_reg(enc, R_RDX, R_RAX);
+            x86_64_enc_alu_imm_reg(enc, '&', R_RDX, 1);
+            x86_64_enc_alu_reg_reg(enc, '|', R_RCX, R_RDX);
+            x86_64_enc_mov_reg_reg(enc, R_RDX, R_RAX);
+            x86_64_enc_shift_imm_reg(enc, 7, R_RDX, 63);
+            x86_64_enc_alu_reg_reg(enc, '^', R_RCX, R_RAX);
+            x86_64_enc_alu_reg_reg(enc, '&', R_RCX, R_RDX);
+            x86_64_enc_alu_reg_reg(enc, '^', R_RCX, R_RAX);
+            if (dbl) x86_64_enc_cvtsi2sd(enc, 0, R_RCX);
+            else     x86_64_enc_cvtsi2ss(enc, 0, R_RCX);
+            x86_64_enc_shift_imm_reg(enc, 5, R_RDX, 63);
+            x86_64_enc_shift_imm_reg(enc, 4, R_RDX, dbl ? 52 : 23);
+            x86_64_enc_movabsq_imm_reg(enc, R_RAX,
+                    dbl ? 0x3FF0000000000000ULL : 0x3F800000ULL);
+            x86_64_enc_alu_reg_reg(enc, '+', R_RAX, R_RDX);
+            x86_64_enc_movq_gpr_xmm(enc, 1, R_RAX);
+            if (dbl) x86_64_enc_sse_arith(enc, X86_SSE_MULSD, 0, 1);
+            else     x86_64_enc_sse_arith_ss(enc, X86_SSE_MULSD, 0, 1);
+            jitSpillDstFpr(ctx, instr, 0);
+            break;
+        }
 
         case IR_PTRTOINT:
         case IR_INTTOPTR:

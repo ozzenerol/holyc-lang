@@ -1018,6 +1018,11 @@ start_routine:
                  * to F64 when mixed, matching C usual conversions). */
                 return astTypeCopy(ptr1->size >= ptr2->size ? ptr1 : ptr2);
             }
+            if (ptr2->kind == AST_TYPE_CHAR) {
+                /* float OP char (U8 / I8 / Bool) -> the float type, as
+                 * for float OP int (CHAR sorts after FLOAT). */
+                return astTypeCopy(ptr1);
+            }
             goto error;
         case AST_TYPE_ARRAY:
             if (ptr2->kind != AST_TYPE_ARRAY) {
