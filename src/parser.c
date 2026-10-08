@@ -175,6 +175,20 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
         cls_fields = type->fields;
     }
 
+    /* A class that was only forward declared (`class Foo;`) has no
+     * fields to match the initialisers against. Checked through any
+     * array dimensions so `Foo a[2] = {{..},{..}}` is reported at the
+     * outer `{` and the recovery skips the whole initialiser. */
+    AstType *elem_type = type;
+    while (elem_type->kind == AST_TYPE_ARRAY && elem_type->ptr) {
+        elem_type = elem_type->ptr;
+    }
+    if (elem_type->kind == AST_TYPE_CLASS && elem_type->fields == NULL) {
+        cctrlTokenRewind(cc);
+        cctrlRaiseException(cc,"Cannot use an initialiser list, %s is incomplete",
+                astTypeToString(elem_type));
+    }
+
     while (1) {
         tok = cctrlTokenGet(cc);
         if (tokenPunctIs(tok, '}')) {
