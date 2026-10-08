@@ -1604,8 +1604,13 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
          * `*matrix` in `matrix[i][j]`): array decays to its
          * pointer, no real load. Same for class result -
          * the parent expression is `&*x` (`&arr[i]`) which
-         * cancels out. */
-        if (astTypeIsArray(ast->type) || ast->type->kind == AST_TYPE_CLASS) return ptr;
+         * cancels out. An intrinsic class (`I64 class CDate`) is a
+         * scalar value though, so `*p` / `p[i]` loads it like an int. */
+        if (astTypeIsArray(ast->type) ||
+            (ast->type->kind == AST_TYPE_CLASS && !ast->type->is_intrinsic))
+        {
+            return ptr;
+        }
         IrValueType ir_type = irConvertType(ast->type);
         IrValue *load_dst = irTmp(ir_type, ast->type->size);
         irBlockAddInstr(ctx, irInstrNew(IR_LOAD_DEREF, load_dst, ptr, NULL));
