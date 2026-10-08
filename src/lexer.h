@@ -180,6 +180,9 @@ typedef struct Lexeme {
     int col;
     char *start;
     int ishex;
+    /* An integer literal too big for an I64 (or a #define folded to a
+     * U64): typed U64, like C does for such hex literals. */
+    int isu64;
     union {
         s64 i64;
         double f64;
@@ -227,6 +230,7 @@ typedef struct Lexer {
     int lineno;
     int flags;
     int ishex;
+    int isu64;
     int collecting;
     int skip_else;
     char *builtin_root;

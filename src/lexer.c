@@ -195,6 +195,7 @@ Lexeme *lexemeNew(char *start, int len) {
     le->line = -1;
     le->col = 0;
     le->tk_type = -1;
+    le->isu64 = 0;
     return le;
 }
 
@@ -205,6 +206,7 @@ Lexeme *lexemeSentinal(void) {
     le->line = 1;
     le->col = 0;
     le->tk_type = -1;
+    le->isu64 = 0;
     return le;
 }
 
@@ -299,6 +301,7 @@ void lexInit(Lexer *l, char *source, int flags) {
     l->cur_strlen = 0;
     l->cur_file = NULL;
     l->ishex = 0;
+    l->isu64 = 0;
     l->flags = flags;
     l->files = listNew();
     l->all_source = listNew();
@@ -1165,14 +1168,14 @@ int lexNumeric(Lexer *l, int _isfloat) {
     } else if (ishex) {
         l->cur_i64 = strtoull(start, &endptr, 16);
         l->ishex = ishex;
-        return TK_I64;
     } else if (isbin) {
         l->cur_i64 = strtoull(start + 2, &endptr, 2);
-        return TK_I64;
     } else {
-        l->cur_i64 = strtoll(start, &endptr, 10);
-        return TK_I64;
+        l->cur_i64 = strtoull(start, &endptr, 10);
     }
+    /* A literal above I64_MAX only fits in a U64, so it is typed U64. */
+    l->isu64 = l->cur_i64 < 0;
+    return TK_I64;
 }
 
 LexerType *lexPreProcDirective(Lexer *l) {
@@ -1267,7 +1270,9 @@ static int lexCore(Lexer *l, Lexeme *le) {
                     le->i64 = l->cur_i64;
                 }
                 le->ishex = l->ishex;
+                le->isu64 = tk_type == TK_I64 && l->isu64;
                 l->ishex = 0;
+                l->isu64 = 0;
                 return 1;
 
             case '\"': {
@@ -1471,7 +1476,9 @@ static int lexCore(Lexer *l, Lexeme *le) {
                         le->i64 = l->cur_i64;
                     }
                     le->ishex = l->ishex;
+                    le->isu64 = tk_type == TK_I64 && l->isu64;
                     l->ishex = 0;
+                    l->isu64 = 0;
                     return 1;
                 } else if (lexPeekMatch(l,'.')) {
                     lexNextChar(l);
@@ -1824,6 +1831,7 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
         } else if (tk_type == TK_I64 || tk_type == TK_CHAR_CONST) {
             if (ast) {
                 expanded->i64 = evalIntConstExpr(ast);
+                expanded->isu64 = astIsU64Type(ast->type);
             } else {
                 printf("Failed to expand: %s\n",ident->data);
                 expanded->i64 = -1;
@@ -1923,6 +1931,7 @@ int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
                 Lexeme *lit = lexemeCopy(&next);
                 lit->tk_type = TK_I64;
                 lit->i64 = (macro != NULL);
+                lit->isu64 = 0;
                 vecPush(macro_tokens,lit);
                 if (tk_type == -1) tk_type = TK_I64;
             }

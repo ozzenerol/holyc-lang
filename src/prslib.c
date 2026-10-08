@@ -1193,6 +1193,7 @@ static Ast *parsePrimary(Cctrl *cc) {
     }
     case TK_I64: {
         ast = astI64Type(tok->i64);
+        if (tok->isu64) ast->type = astTypeCopy(ast_uint_type);
         return ast;
     }
     case TK_F64:

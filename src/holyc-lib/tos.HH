@@ -25,7 +25,7 @@
 #define EXIT_FAIL 1
 #define EXIT_OK   0
 
-#define I64_MIN 0x8000000000000000
+#define I64_MIN (-0x7fffffffffffffff - 1)
 #define I64_MAX 0x7fffffffffffffff
 #define U64_MAX 0xffffffffffffffff
 #define U8_MAX  0xFF

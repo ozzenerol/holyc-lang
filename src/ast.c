@@ -271,6 +271,14 @@ Ast *astBinaryOp(AstBinOp operation, Ast *left, Ast *right, int *_is_err) {
          operation == AST_BIN_OP_LOG_OR)) {
         ast->type = astTypeCopy(ast_int_type);
     }
+    /* Likewise an integer comparison yields an I64 0/1 even when an operand
+     * is U64; the IR picks the unsigned compare from the operand types. */
+    if (ast->type && astIsU64Type(ast->type) &&
+        astIsIntType(left->type) && astIsIntType(right->type) &&
+        (astIsBinOpCmp(ast) || operation == AST_BIN_OP_LOG_AND ||
+         operation == AST_BIN_OP_LOG_OR)) {
+        ast->type = astTypeCopy(ast_int_type);
+    }
     if (operation != AST_BIN_OP_ASSIGN &&
             astConvertArray(left->type)->kind != AST_TYPE_POINTER &&
             astConvertArray(right->type)->kind == AST_TYPE_POINTER) {
@@ -994,6 +1002,10 @@ start_routine:
             switch (ptr2->kind) {
                 case AST_TYPE_INT:
                 case AST_TYPE_CHAR:
+                    if (op != AST_BIN_OP_ASSIGN &&
+                        (astIsU64Type(ptr1) || astIsU64Type(ptr2))) {
+                        return astTypeCopy(ast_uint_type);
+                    }
                     return astTypeCopy(ast_int_type);
                 case AST_TYPE_CLASS:
                     if (ptr2->is_intrinsic) {
@@ -1327,6 +1339,14 @@ int astIsIntType(AstType *type) {
         }
     }
     return 0;
+}
+
+/* `U64`: the only integer type that makes arithmetic unsigned. Every integer
+ * promotes to 64 bits, and U8/U16/U32 fit in an I64, so (like C with a 64-bit
+ * `long`) they promote to signed; an operation is unsigned only when one of
+ * its operands is U64. */
+int astIsU64Type(AstType *type) {
+    return astIsIntType(type) && type->size == 8 && !type->issigned;
 }
 
 void astStringEndStmt(AoStr *str) {

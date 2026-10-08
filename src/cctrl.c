@@ -1278,7 +1278,9 @@ Ast *cctrlGetVar(Cctrl *cc, char *varname, int len) {
             if (cc->flags & CCTRL_PASTE_DEFINES) {
                 return astLVar(ast_int_type, varname, len);
             }
-            return astI64Type(tok->i64);
+            ast_var = astI64Type(tok->i64);
+            if (tok->isu64) ast_var->type = astTypeCopy(ast_uint_type);
+            return ast_var;
         case TK_F64:
             if (cc->flags & CCTRL_PASTE_DEFINES) {
                 return astLVar(ast_float_type, varname, len);
