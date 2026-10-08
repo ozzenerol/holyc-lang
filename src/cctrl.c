@@ -229,6 +229,19 @@ void cctrlAddBuiltinFunctions(Cctrl *cc) {
       mapAdd(cc->global_env,fn->fname->data,fn);
 }
 
+static void cctrlAddBuiltinTypes(Map *symbol_table) {
+    for (int i = 0; i < (int)static_size(built_in_types); ++i) {
+        AstType *type = (AstType *)malloc(sizeof(AstType));
+        BuiltInType *built_in = &built_in_types[i];
+        memset(type, 0, sizeof(AstType));
+        type->size = built_in->size;
+        type->issigned = built_in->issigned;
+        type->kind = built_in->kind;
+        type->ptr = NULL;
+        mapAdd(symbol_table, built_in->name, type);
+    }
+}
+
 Cctrl *ccMacroProcessor(Map *macro_defs) {
     Cctrl *cc = (Cctrl *)calloc(1, sizeof(Cctrl));
     cc->macro_defs = macro_defs;
@@ -238,6 +251,13 @@ Cctrl *ccMacroProcessor(Map *macro_defs) {
      * dereference a garbage map. */
     cc->global_env = mapNew(32, &map_ast_type);
     cc->asm_funcs = mapNew(32, &map_ast_type);
+    /* A postfix cast in a #define's value, `#define X (5(U64) % 3)`,
+     * looks the type name up: give it the built-in types (classes and
+     * unions are not known while lexing, so those stay empty). */
+    cc->symbol_table = mapNew(32, &map_asttype_type);
+    cctrlAddBuiltinTypes(cc->symbol_table);
+    cc->clsdefs = mapNew(32, &map_asttype_type);
+    cc->uniondefs = mapNew(32, &map_asttype_type);
     cc->ast_list = NULL;
     /* The macro-processor stub Cctrl is passed to helpers that may
      * call cctrlRaiseException; keep diagnostics state consistent
@@ -312,16 +332,7 @@ Cctrl *cctrlNew(enum CliTarget target) {
     }
     free(str_array);
 
-    for (int i = 0; i < (int)static_size(built_in_types); ++i) {
-        AstType *type = (AstType *)malloc(sizeof(AstType));
-        BuiltInType *built_in = &built_in_types[i]; 
-        memset(type, 0, sizeof(AstType));
-        type->size = built_in->size;
-        type->issigned = built_in->issigned;
-        type->kind = built_in->kind;
-        type->ptr = NULL;
-        mapAdd(cc->symbol_table, built_in->name, type);
-    }
+    cctrlAddBuiltinTypes(cc->symbol_table);
 
     cc->target = target;
 
