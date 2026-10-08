@@ -126,20 +126,21 @@ tab:[	] quote:["] backslash:[\]
 <a href="#exceptions">exceptions</a>. String literals are <code>U8 *</code>.</p>
 
 <h2>Variables</h2>
-<p>Declare variables anywhere in a block. Several can share one declaration inside a
-function:</p>
-<pre data-run><code>I64 g_total = 100;          // a global, visible to everything below it
+<p>Declare variables anywhere in a block, or at file scope for globals. Several can
+share one declaration, inside a function or at global scope; each <code>*</code> belongs
+to the name after it:</p>
+<pre data-run><code>I64 g_total = 100, g_count; // globals, visible to everything below them
 
 U0 Main()
 {
   I64 a = 1, b = 2, c;
   c = a + b;
   F64 ratio = 0.25;
-  U8 *name = "hcc";
-  "%d %d %.2f %s\n", c, g_total, ratio, name;
+  U8 *name = "hcc", letter = 'h';
+  "%d %d %d %.2f %s %c\n", c, g_total, g_count, ratio, name, letter;
 }
 </code></pre>
-<pre class="output">3 100 0.25 hcc
+<pre class="output">3 100 0 0.25 hcc h
 </pre>
 
 <h3>auto</h3>

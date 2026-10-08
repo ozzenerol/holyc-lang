@@ -2453,18 +2453,44 @@ Ast *parseAsmFunctionBinding(Cctrl *cc) {
     return asm_func;
 }
 
+/* `tok` ended a global declarator; on `,` hand the base type to the
+ * next parseToplevelDef call so `T a, *b;` parses like a local list. */
+static void parseGlobalDeclListNext(Cctrl *cc, Lexeme *tok, AstType *base_type) {
+    assertTokenIsTerminator(cc,tok,PUNCT_TERM_SEMI|PUNCT_TERM_COMMA);
+    if (tokenPunctIs(tok,',')) {
+        cc->tmp_gvar_base_type = base_type;
+    }
+}
+
+/* The terminator was already consumed (by parseVariableInitialiser) */
+static void parseGlobalDeclListNextPrev(Cctrl *cc, AstType *base_type) {
+    cctrlTokenRewind(cc);
+    parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
+}
+
 Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
     Ast *variable, *asm_block, *asm_func, *extern_func, *ast;
-    AstType *type = NULL;
+    AstType *type = NULL, *base_type = NULL;
     Lexeme *tok, *name, *peek;
     int is_static = 0;
 
     while (1) {
         if ((tok = cctrlTokenGet(cc)) == NULL) {
+            if (cc->tmp_gvar_base_type) {
+                cc->tmp_gvar_base_type = NULL;
+                cctrlRaiseException(cc,"Unexpected end of input, expected a declaration after `,`");
+            }
             return NULL;
         }
 
-        if (tok->tk_type == TK_KEYWORD) {
+        if (cc->tmp_gvar_base_type) {
+            /* Next declarator of `T a, b;` - the base type carries
+             * over, any `*`s belong to this declarator alone. */
+            base_type = cc->tmp_gvar_base_type;
+            cc->tmp_gvar_base_type = NULL;
+            cctrlTokenRewind(cc);
+            type = parsePointerType(cc,base_type);
+        } else if (tok->tk_type == TK_KEYWORD) {
             switch (tok->i64) {
                 case KW_ASM_EXTERN: {
                     if ((asm_func = parseAsmFunctionBinding(cc)) != NULL) {
@@ -2537,10 +2563,11 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                     continue;
 
                 case KW_STATIC:
-                    type = parseDeclSpec(cc);
-                    if (type == NULL) {
+                    base_type = parseBaseDeclSpec(cc);
+                    if (base_type == NULL) {
                         cctrlRaiseException(cc,"Expected type declaration");
                     }
+                    type = parsePointerType(cc,base_type);
                     /* static at the global scope does not yet do anything */
                     is_static = 1;
                     (void)is_static;
@@ -2570,7 +2597,8 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 case KW_F64:
                 case KW_AUTO:
                     cctrlTokenRewind(cc);
-                    type = parseDeclSpec(cc);
+                    base_type = parseBaseDeclSpec(cc);
+                    type = parsePointerType(cc,base_type);
                     break;
 
                 case KW_IF:
@@ -2630,10 +2658,11 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 return ast;
             } else {
                 cctrlTokenRewind(cc);
-                type = parseDeclSpec(cc);
-                if (type == NULL) {
+                base_type = parseBaseDeclSpec(cc);
+                if (base_type == NULL) {
                     cctrlRaiseException(cc,"Undefined type: %.*s",tok->len,tok->start);
                 }
+                type = parsePointerType(cc,base_type);
             }
         } else if (tok->tk_type == TK_CHAR_CONST) {
             ast = parseFloatingCharConst(cc,tok);
@@ -2741,8 +2770,10 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             variable = astGVar(type,name->start,name->len,0);
             mapAdd(cc->global_env,variable->gname->data,variable);
             cc->tmp_gvar_decl = variable;
-            return parseVariableInitialiser(cc,variable,
-                                            PUNCT_TERM_COMMA|PUNCT_TERM_SEMI);
+            ast = parseVariableInitialiser(cc,variable,
+                                           PUNCT_TERM_COMMA|PUNCT_TERM_SEMI);
+            parseGlobalDeclListNextPrev(cc,base_type);
+            return ast;
         }
 
         if (tokenPunctIs(tok,'=') && type->kind != AST_TYPE_ARRAY) {
@@ -2769,14 +2800,14 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 variable->type = rhs->type;
                 if (rhs->kind == AST_STRING) {
                     ast_decl->declinit = rhs;
-                    cctrlTokenExpect(cc,';');
+                    parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
                     return ast_decl;
                 }
                 int is_err = 0;
                 Ast *assign = astBinaryOp(AST_BIN_OP_ASSIGN, variable,
                                           rhs, &is_err);
                 *is_global = 1;
-                cctrlTokenExpect(cc,';');
+                parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
                 return assign;
             }
 
@@ -2788,10 +2819,10 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 *is_global = 1;
             } else {
                 ast_decl->declinit = ast_expr->right;
-                cctrlTokenExpect(cc,';');
+                parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
                 return ast_decl;
             }
-            cctrlTokenExpect(cc,';');
+            parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
             return ast_expr;
         } else if (type->kind == AST_TYPE_ARRAY) {
             variable = astGVar(type,name->start,name->len,0);
@@ -2801,6 +2832,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             if (type->kind == AST_TYPE_AUTO) {
                 parseAssignAuto(cc,ast);
             }
+            parseGlobalDeclListNextPrev(cc,base_type);
             return ast;
         }
 
@@ -2817,7 +2849,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
         }
 
         if (tokenPunctIs(tok,';') || tokenPunctIs(tok, ',')) {
-            cctrlTokenGet(cc);
+            parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
             variable = astGVar(type,name->start,name->len,0);
             mapAdd(cc->global_env,variable->gname->data,variable);
             return astDecl(variable,NULL);
@@ -2839,6 +2871,7 @@ void parseToAst(Cctrl *cc) {
     cc->tmp_locals = NULL;
     cc->localenv = NULL;
     cc->tmp_gvar_decl = NULL;
+    cc->tmp_gvar_base_type = NULL;
 
     /* Top-level recovery point. cctrlRaiseException longjmps here
      * once a CctrlDiagnostic is queued; we wipe function-scoped state
@@ -2869,6 +2902,7 @@ void parseToAst(Cctrl *cc) {
             cc->tmp_rettype = NULL;
             cc->tmp_loop_begin = NULL;
             cc->tmp_loop_end = NULL;
+            cc->tmp_gvar_base_type = NULL;
             /* The lists below roll back the half-built AST_DECL; the
              * variable's global_env entry must go with it, or later
              * statements can reference storage that no longer exists. */
@@ -2907,7 +2941,8 @@ void parseToAst(Cctrl *cc) {
         }
         is_global = 0;
         tok = cctrlTokenPeek(cc);
-        if (!tok) break;
+        /* A dangling `T a,` at EOF: let parseToplevelDef report it */
+        if (!tok && !cc->tmp_gvar_base_type) break;
         cc->tmp_locals = NULL;
         cc->localenv = NULL;
     }
