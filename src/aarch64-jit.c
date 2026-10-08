@@ -194,9 +194,20 @@ static JFrameForm jitFrameForm(AsmEnc *enc, int loff, int size) {
     return JFRAME_REGOFF;
 }
 
+/* Width of a GPR memory access for a `size`-byte value. A slot wider
+ * than a register (an intrinsic `I64 class` such as CDate is sized 16)
+ * holds its value in the low 8 bytes. ldur/stur and the scaled form
+ * already treat such widths as 8, but the register-offset encoder
+ * rejects them and emits nothing, so normalise up front. Mirrors the
+ * default case of aarch64.c's frame and deref accesses. */
+static int jitGprAccessSize(int size) {
+    return (size == 1 || size == 2 || size == 4) ? size : 8;
+}
+
 /* Integer frame load with size-aware sign/zero extension (matches
  * x86 movslq for 4 bytes, movzbq/movzwq for sub-word). */
 static void jitFrameLoad(AsmEnc *enc, A64Reg reg, int size, int loff) {
+    size = jitGprAccessSize(size);
     JFrameForm form = jitFrameForm(enc, loff, size);
     if (form == JFRAME_REGOFF) {
         aarch64_enc_ldst_regoff(enc, 0 /*gpr*/, 1 /*load*/, size,
@@ -230,6 +241,7 @@ static void jitFrameLoad(AsmEnc *enc, A64Reg reg, int size, int loff) {
 
 /* Integer frame store: size-aware width (strb / strh / str). */
 static void jitFrameStore(AsmEnc *enc, A64Reg reg, int size, int loff) {
+    size = jitGprAccessSize(size);
     JFrameForm form = jitFrameForm(enc, loff, size);
     if (form == JFRAME_REGOFF) {
         aarch64_enc_ldst_regoff(enc, /*is_simd=*/0 , /*is_load=*/0, size,
@@ -292,6 +304,7 @@ static void jitFpFrameStore(AsmEnc *enc, A64Reg dreg, int size, int loff) {
 static void jitDerefLoad(AsmEnc *enc, int size, A64Reg dst, A64Reg base,
                          int has_idx, A64Reg idx, int scale, s32 disp)
 {
+    size = jitGprAccessSize(size);
     if (has_idx) {
         int sh = (scale == 8) ? 3 : (scale == 4) ? 2 : (scale == 2) ? 1 : 0;
         if (disp) jitAddSubImm(enc, base, (s64)disp);
@@ -355,6 +368,7 @@ static void jitDerefLoad(AsmEnc *enc, int size, A64Reg dst, A64Reg base,
 static void jitDerefStore(AsmEnc *enc, int size, A64Reg val, A64Reg base,
                           int has_idx, A64Reg idx, int scale, s32 disp)
 {
+    size = jitGprAccessSize(size);
     if (has_idx) {
         int sh = (scale == 8) ? 3 : (scale == 4) ? 2 : (scale == 2) ? 1 : 0;
         if (disp) jitAddSubImm(enc, base, (s64)disp);
