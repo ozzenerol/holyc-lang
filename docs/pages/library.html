@@ -44,11 +44,12 @@ frees and leaks reported at exit.</p>
 <h3>Building strings</h3>
 <p><code>StrPrint(NULL, fmt, ...)</code> returns a newly allocated formatted string, and
 <code>CatPrint</code> appends to one. Unlike print statements, their <code>%d</code> is a
-full 64-bit integer.</p>
+full 64-bit integer. <code>%f</code>, <code>%e</code> and <code>%g</code> print a float the
+way C's <code>printf</code> does, with the same rounding.</p>
 <pre data-run><code>
 U0 Main()
 {
-  U8 *s = StrPrint(NULL, "%d|%05d|%s", 5000000000, 42, "x");
+  U8 *s = StrPrint(NULL, "%d|%05d|%s|%.2f", 5000000000, 42, "x", 3.14159);
   "%s\n", s;
 
   U8 *csv = StrNew("id");
@@ -65,13 +66,10 @@ U0 Main()
 }
 </code></pre>
 <pre class="output">
-5000000000|00042|x
+5000000000|00042|x|3.14
 id,1,2,3
 concatenate
 </pre>
-<div class="warn"><p><code>StrPrint</code> and friends don't support <code>%f</code> yet: the program
-prints <code>Floats not supported</code> and exits. Print floats with a print statement
-instead (see <a href="known-issues.html">known issues</a>).</p></div>
 
 <h3>Inspecting strings</h3>
 <pre data-run><code>
@@ -314,7 +312,7 @@ float, <code>:b</code> boolean, <code>:a</code> array, <code>:o</code> object). 
 <pre data-run><code>
 U0 Main()
 {
-  U8 *text = "{\"name\": \"hcc\", \"version\": 15, \"tags\": [\"jit\", \"repl\"], \"stable\": false}";
+  U8 *text = "{\"name\": \"hcc\", \"version\": 15, \"ratio\": 0.75, \"tags\": [\"jit\", \"repl\"], \"stable\": false}";
   Json *doc = JsonParse(text);
   if (!JsonOk(doc)) {
     JsonPrintError(doc);
@@ -342,16 +340,16 @@ stable: 0
 missing: 1
 tag jit
 tag repl
-{"name": "hcc","version": 15,"tags": ["jit","repl"],"stable": false}
+{"name": "hcc","version": 15,"ratio": 0.75,"tags": ["jit","repl"],"stable": false}
 </pre>
 <p>Each node has a <code>type</code> (<code>JSON_STRING</code>, <code>JSON_INT</code>,
 <code>JSON_FLOAT</code>, <code>JSON_BOOL</code>, <code>JSON_NULL</code>,
 <code>JSON_ARRAY</code>, <code>JSON_OBJECT</code>), a <code>key</code> when it's an object
 member, its value in <code>str</code> / <code>i64</code> / <code>f64</code> /
 <code>boolean</code> / <code>array</code> / <code>object</code>, and <code>next</code> for
-its siblings.</p>
-<div class="warn"><p><code>JsonToString</code> exits the program if the JSON contains a float,
-because of the <code>%f</code> limitation above.</p></div>
+its siblings. <code>JsonToString</code> writes a float in the shortest form that reads back
+as the same value, always with a decimal point (<code>0.75</code>, <code>2.0</code>,
+<code>1.0e+21</code>).</p>
 
 <h2 id="dates">Dates and time</h2>
 <pre data-run><code>

@@ -14,12 +14,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>StrPrint</code> and friends exit on <code>%f</code></td>
-        <td><code>StrPrint(NULL, "%f", 1.5)</code> prints "Floats not supported" and exits</td>
-        <td>Format floats with a print statement</td></tr>
-    <tr><td><code>JsonToString</code> exits on floats</td>
-        <td>Any JSON containing a float, because of the issue above</td>
-        <td>Keep floats out of JSON you print, or store them as strings</td></tr>
     <tr><td><code>StrCmp</code> / <code>StrNCmp</code> return the wrong sign on x86_64</td>
         <td><code>StrCmp("abc", "abd")</code> is positive</td>
         <td>Use them for equality (<code>== 0</code>) only, or compare characters yourself</td></tr>

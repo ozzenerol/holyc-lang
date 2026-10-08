@@ -477,8 +477,29 @@ err:
   return NULL;
 }
 
+static U8 *JsonFloatToStr(U8 *buf, F64 f)
+{ // Shortest %g that reads back as `f`, with a '.' so it parses as a float
+  I64 prec = 1, len;
+  U8 *e;
+  while (TRUE) {
+    StrPrint(buf,"%.*g",prec,f);
+    if (prec >= 17 || strtod(buf,NULL) == f) break;
+    prec++;
+  }
+  if (!StrOcc(buf,'.') && !StrOcc(buf,'n')) { // not inf/nan
+    len = StrLen(buf);
+    e = StrFirstOcc(buf,"e");
+    if (!e) e = buf + len;
+    memmove(e+2,e,len - (e-buf) + 1);
+    e[0] = '.';
+    e[1] = '0';
+  }
+  return buf;
+}
+
 static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
 {
+  U8 fbuf[64];
   if (J == NULL) {
     js->buf = CatLenPrint(js->buf,&js->len,"(nil)");
     return;
@@ -491,7 +512,7 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
         js->buf = CatLenPrint(js->buf,&js->len,"%d",J->i64);
         break;
       case JSON_FLOAT:
-        js->buf = CatLenPrint(js->buf,&js->len,"%f",J->f64);
+        js->buf = CatLenPrint(js->buf,&js->len,"%s",JsonFloatToStr(fbuf,J->f64));
         break;
       case JSON_STRNUM:
         js->buf = CatLenPrint(js->buf,&js->len,"%s",J->strnum);
