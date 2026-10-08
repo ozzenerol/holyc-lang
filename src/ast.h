@@ -197,6 +197,11 @@ typedef struct AstType {
  * codegen skips emitting storage: the canonical definition lives in
  * another translation unit (typically libtos). */
 #define AST_FLAG_EXTERN  (1<<2)
+/* Set on the AST_FUNCALL to C's printf that a HolyC print statement
+ * (`"%d\n", x;`) lowers to. Its integer conversions were rewritten to
+ * 64-bit (`%d` -> `%lld`), so the IR widens every narrow integer
+ * argument to a full 64-bit value before the call. */
+#define AST_FLAG_PRINT_STMT (1<<3)
 
 /* AST_LVAR.pinned_kind values. */
 #define LVAR_AUTO  0  /* compiler chooses storage (default) */

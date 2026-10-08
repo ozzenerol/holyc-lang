@@ -1722,7 +1722,7 @@ Ast *parseStatement(Cctrl *cc) {
     if (tok->tk_type == TK_STR) {
         cctrlTokenRewind(cc);
         /* HACK in holyc printf */
-        return parseFunctionArguments(cc,"printf",6,';');
+        return parsePrintStatement(cc);
     }
 
     /* Hacked in goto label ;) */
@@ -2690,7 +2690,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             return ast;
         } else if (tok->tk_type == TK_STR) {
             cctrlTokenRewind(cc);
-            ast = parseFunctionArguments(cc,"printf",6,';');
+            ast = parsePrintStatement(cc);
             *is_global = 1;
             return ast;
         } else if (tok->tk_type == TK_I64) {
