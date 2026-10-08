@@ -1912,6 +1912,15 @@ void irLowerReturn(IrCtx *ctx, Ast *ast) {
         } else {
             IrValue *val = irExpr(ctx, ast->retval);
             IrValue *rv = ctx->cur_func->return_value;
+            /* float<->int return (`F64 f(I64 u) { return u; }`) needs a
+             * real conversion (sitofp/fptosi) like an assignment does,
+             * not a raw bit copy into the return slot. */
+            if (ast->type && ast->retval->type &&
+                ((astIsFloatType(ast->retval->type) && astIsIntType(ast->type)) ||
+                 (astIsIntType(ast->retval->type) && astIsFloatType(ast->type))))
+            {
+                val = irLowerCast(ctx, val, ast->retval->type, ast->type);
+            }
             /* Convert the return value to the function's return type so
              * the stored width matches the slot. The codegen sizes a
              * store from the value's own byte width, so a narrow return
