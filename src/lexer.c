@@ -250,18 +250,24 @@ static Cctrl *macro_proccessor = NULL;
 
 /* Queue a user-visible lex error on the lexer's Cctrl; with no
  * Cctrl back-pointer (re-lexer, macro stub) print it and exit, the
- * loggerPanic-style fallback. */
-static void lexReportVa(Lexer *l, const char *fmt, va_list ap) {
+ * loggerPanic-style fallback. It is reported at `line`:`col`, `len`
+ * wide, or with `line` 0 at the token being lexed. */
+static void lexReportVa(Lexer *l, s64 line, s64 col, s64 len,
+                        const char *fmt, va_list ap)
+{
     if (l && l->cc) {
         char *body = mprintVa((char *)fmt, ap, NULL);
 
         AoStr *bold = aoStrNew();
         aoStrCatColoured(bold, ESC_BOLD, body);
 
-        s64 line = l->tok_start_line > 0 ? l->tok_start_line : l->lineno;
-        s64 col  = l->tok_start_col;
-        s64 len  = (l->start && l->ptr && l->ptr > l->start)
+        if (line <= 0) {
+            line = l->tok_start_line > 0 ? l->tok_start_line : l->lineno;
+            col  = l->tok_start_col;
+            len  = (l->start && l->ptr && l->ptr > l->start)
                    ? (s64)(l->ptr - l->start) : 1;
+        }
+        if (len < 1) len = 1;
 
         AoStr *buf = cctrlCreateErrorLineAt(l->cc, line, col, len,
                                             bold->data, CCTRL_ERROR, NULL);
@@ -295,7 +301,19 @@ static void lexReportVa(Lexer *l, const char *fmt, va_list ap) {
 static void lexReport(Lexer *l, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    lexReportVa(l, fmt, ap);
+    lexReportVa(l, 0, 0, 0, fmt, ap);
+    va_end(ap);
+}
+
+/* lexReport at an explicit position. A directive's errors are usually
+ * found once its line has been read, when the token being lexed is the
+ * newline at its end (one column past the line). */
+static void lexReportAt(Lexer *l, s64 line, s64 col, s64 len,
+                        const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    lexReportVa(l, line, col, len, fmt, ap);
     va_end(ap);
 }
 
@@ -304,7 +322,7 @@ static void lexReport(Lexer *l, const char *fmt, ...) {
 __noreturn static void lexRaise(Lexer *l, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    lexReportVa(l, fmt, ap);
+    lexReportVa(l, 0, 0, 0, fmt, ap);
     va_end(ap);
     cctrlTerminate(l->cc);
 }
@@ -1239,6 +1257,9 @@ int lexNumeric(Lexer *l, int _isfloat) {
 
 LexerType *lexPreProcDirective(Lexer *l) {
     Lexeme le;
+    /* Where the `#` is; lex() below moves tok_start to the name */
+    s64 hash_line = l->tok_start_line;
+    s64 hash_col = l->tok_start_col;
     if (!lex(l,&le)) return 0;
 
     /* TempleOS documentation/assertion directives: `#help_index "..."`,
@@ -1258,10 +1279,14 @@ LexerType *lexPreProcDirective(Lexer *l) {
     LexerType *type = mapGetLen(l->symbol_table,buffer,len);
     if (!type) {
         /* Report it and drop the line, as for the skipped ones above. */
-        lexReport(l, "invalid preprocessor directive '%s'", buffer);
+        lexReportAt(l, hash_line, hash_col,
+                    l->ptr - (l->line_start_ptr + hash_col - 1),
+                    "invalid preprocessor directive '%s'", buffer);
         while (*l->ptr != '\0' && *l->ptr != '\n') l->ptr++;
         return NULL;
     }
+    l->tok_start_line = hash_line;
+    l->tok_start_col = hash_col;
     return type;
 }
 
@@ -1580,12 +1605,27 @@ static int lexCore(Lexer *l, Lexeme *le) {
                     lexemeAssignOp(le,start,1,ch,l->lineno);
                     return 1;
                 }
+                /* The CCF_PERMISSIVE lexer only re-lexes a line to echo
+                 * it in an error report: hand `#name` back verbatim, as
+                 * one token, rather than acting on the directive (which
+                 * dropped it from the echo, and for an unknown one made
+                 * this Cctrl-less lexer exit). */
+                if (l->flags & CCF_PERMISSIVE) {
+                    while (isalnum(*l->ptr) || *l->ptr == '_') l->ptr++;
+                    lexemeAssignOp(le,start,l->ptr - start,ch,l->lineno);
+                    le->tk_type = TK_IDENT;
+                    return 1;
+                }
                 type = lexPreProcDirective(l);
                 if (type == NULL) {
                     /* Skipped directive (#help_index et al) - the
                      * line is consumed; hand back the next token. */
                     return lex(l, le);
                 }
+                /* Span the whole `#name`, positioned at the `#` (which
+                 * lexPreProcDirective put back in tok_start) */
+                le->start = start;
+                le->len = l->ptr - start;
                 le->tk_type = TK_KEYWORD;
                 le->i64 = type->kind;
                 return 1;
@@ -1654,16 +1694,42 @@ static void lexSkipLine(Lexer *l) {
     while (*l->ptr && *l->ptr != '\n') l->ptr++;
 }
 
-/* Drop a malformed #include/#link/#undef whose operand `next` was lexed
- * with newlines skipped. If `next` is on the directive's `line` the
- * rest of that line goes; if the operand was missing and `next` is the
- * first token of a later line, step back so that line is kept. */
-static void lexDropDirective(Lexer *l, int line, Lexeme *next) {
-    if (next->line == line) {
+/* A source span to report an error at */
+typedef struct LexPos {
+    s64 line;
+    s64 col;
+    s64 len;
+} LexPos;
+
+/* The directive just lexed (`#include` et al): lexCore leaves tok_start
+ * on its `#` and the lexer just past its name. */
+static LexPos lexDirectivePos(Lexer *l) {
+    LexPos pos;
+    pos.line = l->tok_start_line;
+    pos.col = l->tok_start_col;
+    pos.len = l->ptr - (l->line_start_ptr + pos.col - 1);
+    return pos;
+}
+
+/* Drop a malformed #include/#link/#undef/#error whose operand `next`
+ * was lexed with newlines skipped, and return where to report it. If
+ * `next` is on the directive's line the error is at `next` and the rest
+ * of that line goes; if the operand was missing and `next` is the first
+ * token of a later line, the error is at the directive and lexing steps
+ * back so that line is kept. */
+static LexPos lexDropDirective(Lexer *l, const LexPos *dir, Lexeme *next) {
+    if (next->line == dir->line) {
+        LexPos pos;
+        pos.line = next->line;
+        pos.col = next->col;
+        pos.len = l->ptr - (l->line_start_ptr + next->col - 1);
         lexSkipLine(l);
-    } else if (l->tok_start_line == l->lineno) {
+        return pos;
+    }
+    if (l->tok_start_line == l->lineno) {
         l->ptr = l->line_start_ptr + l->tok_start_col - 1;
     }
+    return *dir;
 }
 
 /* Errors in #include, #link and #undef are reported with lexReport and
@@ -1673,17 +1739,19 @@ static void lexDropDirective(Lexer *l, int line, Lexeme *next) {
 void lexInclude(Lexer *l) {
     AoStr *ident, *include_path;
     Lexeme next;
-    int line = l->lineno;
+    LexPos dir = lexDirectivePos(l), at;
 
     if (!lex(l, &next)) {
-        lexReport(l, "Syntax is: #include \"<value>\" got nothing");
+        lexReportAt(l, dir.line, dir.col, dir.len,
+                    "Syntax is: #include \"<value>\" got nothing");
         return;
     }
     if (tokenPunctIs(&next, '<')) {
         ident = aoStrNew();
         for (;;) {
             if (!lex(l, &next)) {
-                lexReport(l, "Unterminated #include <...>");
+                lexReportAt(l, dir.line, dir.col, dir.len,
+                            "Unterminated #include <...>");
                 aoStrRelease(ident);
                 return;
             }
@@ -1715,8 +1783,8 @@ void lexInclude(Lexer *l) {
             }
         }
     } else {
-        lexDropDirective(l, line, &next);
-        lexReport(l,
+        at = lexDropDirective(l, &dir, &next);
+        lexReportAt(l, at.line, at.col, at.len,
                 "Syntax is: #include \"<value>\" got: %s",
                 lexemeToString(&next));
         return;
@@ -1752,17 +1820,19 @@ static void lexLink(Lexer *l) {
     Lexeme next;
     AoStr *name;
     int is_path = 0;
-    int line = l->lineno;
+    LexPos dir = lexDirectivePos(l), at;
 
     if (!lex(l, &next)) {
-        lexReport(l, "Syntax is: #link \"<path>\" or #link <libname>");
+        lexReportAt(l, dir.line, dir.col, dir.len,
+                    "Syntax is: #link \"<path>\" or #link <libname>");
         return;
     }
     if (tokenPunctIs(&next, '<')) {
         name = aoStrNew();
         for (;;) {
             if (!lex(l, &next)) {
-                lexReport(l, "Unterminated #link <...>");
+                lexReportAt(l, dir.line, dir.col, dir.len,
+                            "Unterminated #link <...>");
                 aoStrRelease(name);
                 return;
             }
@@ -1773,8 +1843,8 @@ static void lexLink(Lexer *l) {
         name = aoStrDupRaw(next.start, next.len);
         is_path = 1;
     } else {
-        lexDropDirective(l, line, &next);
-        lexReport(l,
+        at = lexDropDirective(l, &dir, &next);
+        lexReportAt(l, at.line, at.col, at.len,
                 "Syntax is: #link \"<path>\" or #link <libname> got: %s",
                 lexemeToString(&next));
         return;
@@ -1824,6 +1894,11 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     Lexeme next,*start,*end,*expanded,*macro;
     AoStr *ident;
     Vec *tokens = lexemeVecNew();
+    /* The `#define` (tok_start still holds it) and, once read, the
+     * span of its value on that line, for the errors below (volatile:
+     * read after the setjmp below) */
+    volatile s64 def_line = l->tok_start_line, def_col = l->tok_start_col;
+    volatile s64 val_col = 0, val_end = 0;
 
     tk_type = -1;
     /* A define must be on one line a \n determines the end of a define */
@@ -1831,7 +1906,8 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     /* <ident> <value> */
     if (!lex(l, &next) || tokenPunctIs(&next,'\n') || tokenPunctIs(&next,'\0')) {
         l->flags &= ~CCF_ACCEPT_NEWLINES;
-        lexReport(l, "Syntax is: #define <TK_IDENT> <value> got nothing");
+        lexReportAt(l, def_line, def_col, 7,
+                    "Syntax is: #define <TK_IDENT> <value> got nothing");
         vecRelease(tokens);
         return NULL;
     }
@@ -1863,6 +1939,11 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     do {
         iters++;
         if (!lex(l, &next)) break;
+
+        if (!tokenPunctIs(&next,'\n') && next.line == def_line) {
+            if (!val_col) val_col = next.col;
+            val_end = l->ptr - l->line_start_ptr + 1;
+        }
 
         if (next.tk_type == TK_IDENT) {
             if ((macro = mapGetLen(macro_defs,next.start,next.len)) != NULL) {
@@ -1904,8 +1985,13 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
         return NULL;
     }
 
+    /* Point at the value, or at the `#define` if it ran onto
+     * another line (a multi-line string) */
+    s64 err_col = val_col ? val_col : def_col;
+    s64 err_len = val_col ? val_end - val_col : 7;
+
     if (tk_type == -1) {
-        lexReport(l,
+        lexReportAt(l, def_line, err_col, err_len,
                 "Error while parsing #define %s; #define must be a numerical expression or a string",
                 ident->data);
         vecRelease(tokens);
@@ -1939,9 +2025,10 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
             macro_proccessor->current_recovery = NULL;
             cctrlDiagClear(macro_proccessor);
             free(ring);
-            lexReport(l, "#define %s: the value must be a constant expression "
-                      "or a string, made of literals and other macros",
-                      ident->data);
+            lexReportAt(l, def_line, err_col, err_len,
+                        "#define %s: the value must be a constant expression "
+                        "or a string, made of literals and other macros",
+                        ident->data);
             vecRelease(tokens);
             return NULL;
         }
@@ -1961,8 +2048,9 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
                 expanded->start = strndup(start->start,start->len);
                 expanded->len = start->len;
             } else if (ast && ast->kind != TK_STR && ast->kind != AST_STRING) {
-                lexReport(l, "#define %s expected string but got: %s",
-                          ident->data, astKindToString(ast->kind));
+                lexReportAt(l, def_line, err_col, err_len,
+                            "#define %s expected string but got: %s",
+                            ident->data, astKindToString(ast->kind));
                 vecRelease(tokens);
                 return NULL;
             } else if (ast && ast->kind == AST_STRING) {
@@ -1970,7 +2058,8 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
                 expanded->start = strndup(ast->sval->data,ast->sval->len);
                 expanded->len = ast->sval->len;
             } else {
-                lexReport(l, "failed to parse #define %s", ident->data);
+                lexReportAt(l, def_line, err_col, err_len,
+                            "failed to parse #define %s", ident->data);
                 vecRelease(tokens);
                 return NULL;
             }
@@ -1997,15 +2086,17 @@ void lexUndef(Map *macro_defs, Lexer *l) {
     Lexeme next;
     char tmp[256];
     int tmp_len = 0;
-    int line = l->lineno;
+    LexPos dir = lexDirectivePos(l), at;
 
     if (!lex(l, &next)) {
-        lexReport(l, "Syntax is: #undef <TK_IDENT>");
+        lexReportAt(l, dir.line, dir.col, dir.len,
+                    "Syntax is: #undef <TK_IDENT>");
         return;
     }
     if (next.tk_type != TK_IDENT) {
-        lexDropDirective(l, line, &next);
-        lexReport(l, "Syntax is: #undef <TK_IDENT>");
+        at = lexDropDirective(l, &dir, &next);
+        lexReportAt(l, at.line, at.col, at.len,
+                    "Syntax is: #undef <TK_IDENT>");
         return;
     }
     tmp_len = snprintf(tmp,sizeof(tmp),"%.*s",
@@ -2078,6 +2169,12 @@ int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
     should_collect = 0;
     in_defined = 0;
     macro_tokens = lexemeVecNew();
+    /* The directive (tok_start still holds it) and, once read, the span
+     * of the condition on its line: the errors below are found after
+     * the whole line has been read. */
+    s64 dir_line = l->tok_start_line, dir_col = l->tok_start_col;
+    s64 dir_len = (s64)strlen(directive);
+    s64 cond_col = 0, cond_end = 0;
 
     /* An if must be on one line a \n determines the end of a define */
     l->flags |= CCF_ACCEPT_NEWLINES;
@@ -2085,11 +2182,16 @@ int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
     if (!lex(l,&next)) {
         l->flags &= ~CCF_ACCEPT_NEWLINES;
         vecRelease(macro_tokens);
-        lexReport(l, "a %s must evaluate some expression", directive);
+        lexReportAt(l, dir_line, dir_col, dir_len,
+                    "a %s must evaluate some expression", directive);
         return 0;
     }
 
     while (!tokenPunctIs(&next,'\n') && !tokenPunctIs(&next,'\0')){ 
+        if (next.line == dir_line) {
+            if (!cond_col) cond_col = next.col;
+            cond_end = l->ptr - l->line_start_ptr + 1;
+        }
         if (tokenPunctIs(&next,'\\')) {
             if (!lex(l,&next)) break;
             if (!tokenPunctIs(&next,'\n')) {
@@ -2164,9 +2266,11 @@ int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
      * single-token expression (`#if 1`, `#if FLAG`) is legal. */
     if (macro_tokens->size == 0) {
         vecRelease(macro_tokens);
-        lexReport(l, "a %s must evaluate some expression", directive);
+        lexReportAt(l, dir_line, dir_col, dir_len,
+                    "a %s must evaluate some expression", directive);
         return 0;
     }
+    s64 cond_len = cond_end - cond_col;
 
     start = macro_tokens->entries[0];
     end = macro_tokens->entries[macro_tokens->size-1];
@@ -2199,8 +2303,12 @@ int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
                          extra->len, extra->start);
                 free(ring);
                 vecRelease(macro_tokens);
-                lexReport(l, "%s: unexpected '%s' after the condition",
-                          directive, extra_str);
+                /* At the token itself unless it came from a macro */
+                int own = extra->line == dir_line && extra->col > 0;
+                lexReportAt(l, dir_line, own ? extra->col : cond_col,
+                            own ? extra->len : cond_len,
+                            "%s: unexpected '%s' after the condition",
+                            directive, extra_str);
                 return 0;
             }
         }
@@ -2233,8 +2341,9 @@ int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
 
 bad_condition:
     vecRelease(macro_tokens);
-    lexReport(l, "%s: the condition must be a constant expression made "
-              "of literals, macros and defined()", directive);
+    lexReportAt(l, dir_line, cond_col, cond_len,
+                "%s: the condition must be a constant expression made "
+                "of literals, macros and defined()", directive);
     return 0;
 }
 
@@ -2407,12 +2516,12 @@ Lexeme *lexToken(Map *macro_defs, Lexer *l) {
                         }
                         l->skip_else = 0;
                     } else {
-                        int line = le.line;
+                        int line = le.line, col = le.col, len = le.len;
                         while ((lexPreProcBoolean(l,macro_defs,&le)) != 1) {
                             int ok = lex(l,&le);
                             if (!ok) {
-                                l->lineno = line;
-                                lexReport(l, "Unterminated #if");
+                                lexReportAt(l, line, col, len,
+                                            "Unterminated #if");
                                 return NULL;
                             }
                         }
@@ -2425,14 +2534,14 @@ Lexeme *lexToken(Map *macro_defs, Lexer *l) {
                 case KW_PP_IF_JIT:
                 case KW_PP_IF_AOT:
                 case KW_PP_IF: {
-                    int line = le.line;
+                    /* Reported at the directive, not at the end of input */
+                    int line = le.line, col = le.col, len = le.len;
                     while ((lexPreProcBoolean(l,macro_defs,&le)) != 1) {
                         int ok = lex(l,&le);
                         if (!ok) {
-                            l->lineno = line;
                             /* At the end of the input: report it and
                              * let the parser finish what it has. */
-                            lexReport(l, "Unterminated #if");
+                            lexReportAt(l, line, col, len, "Unterminated #if");
                             return NULL;
                         }
                     }
@@ -2445,13 +2554,14 @@ Lexeme *lexToken(Map *macro_defs, Lexer *l) {
                 case KW_PP_ERROR: {
                     /* Reported like any other error; the rest of the
                      * line goes and lexing carries on. */
-                    int line = l->lineno;
+                    LexPos dir = lexDirectivePos(l);
                     if (!lex(l,&next)) {
-                        lexReport(l, "#error");
+                        lexReportAt(l, dir.line, dir.col, dir.len, "#error");
                         return NULL;
                     }
-                    lexDropDirective(l, line, &next);
-                    lexReport(l, "%.*s", next.len, next.start);
+                    LexPos at = lexDropDirective(l, &dir, &next);
+                    lexReportAt(l, at.line, at.col, at.len,
+                                "%.*s", next.len, next.start);
                     continue;
                 }
 
