@@ -2063,16 +2063,26 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
                 vecRelease(tokens);
                 return NULL;
             }
-        } else if (tk_type == TK_F64) {
-            expanded->f64 = (f64)evalFloatExpr(ast);
-            expanded->line = start->line;
-        } else if (tk_type == TK_I64 || tk_type == TK_CHAR_CONST) {
-            if (ast) {
-                expanded->i64 = evalIntConstExpr(ast);
+        } else if (tk_type == TK_F64 || tk_type == TK_I64 ||
+                   tk_type == TK_CHAR_CONST) {
+            /* A value that parses but doesn't fold (`(Y + "s")`, a
+             * string among numbers) is reported like a parse error:
+             * evalIntConstExpr/evalFloatExpr would exit with no
+             * location. */
+            int ok = ast != NULL;
+            if (ok && tk_type == TK_F64) {
+                expanded->f64 = (f64)evalFloatExprOrErr(ast, &ok);
+            } else if (ok) {
+                expanded->i64 = evalIntConstExprOrErr(ast, &ok);
                 expanded->isu64 = astIsU64Type(ast->type);
-            } else {
-                printf("Failed to expand: %s\n",ident->data);
-                expanded->i64 = -1;
+            }
+            if (!ok) {
+                lexReportAt(l, def_line, err_col, err_len,
+                            "#define %s: the value must be a constant "
+                            "expression or a string, made of literals and "
+                            "other macros", ident->data);
+                vecRelease(tokens);
+                return NULL;
             }
             expanded->line = start->line;
         }
