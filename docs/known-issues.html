@@ -40,9 +40,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>auto</code> in a range-based <code>for</code> over a container field gets the wrong type</td>
-        <td><code>for (auto it : h.v)</code> where <code>v</code> is an <code>IntVec *</code> field</td>
-        <td>Give the type: <code>for (I64 it : h.v)</code></td></tr>
     <tr><td>Comparing an <code>F64</code> with an integer truncates the float</td>
         <td><code>F64 b = 2.5; b == 2</code> is true</td>
         <td>Compare with a float: <code>b == 2.0</code></td></tr>
