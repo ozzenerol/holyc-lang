@@ -153,22 +153,22 @@ static void jitEmitMovImm(AsmEnc *enc, A64Reg reg, s64 imm) {
     aarch64_enc_mov_imm64(enc, reg, u);
 }
 
-/* Emit `reg += disp` using add/sub imm12 (optionally shifted), or fall
- * back to materialising the offset into x9 and adding the register
- * form. Mirrors aarch64AddSubImm. */
-static void jitAddSubImm(AsmEnc *enc, A64Reg reg, s64 disp) {
-    if (disp == 0) return;
-    int is_sub = disp < 0;
-    u64 mag = (u64)(is_sub ? -disp : disp);
+/* Base register for a `[base, idx]` access with a displacement:
+ * x10 = base + disp, or base itself when disp is 0. Mirrors
+ * aarch64IdxBase: base must not be bumped in place (it may be a live
+ * parameter register, and RMW reuses it for the store), and x9 may
+ * hold a store value, so a large disp goes via x10 too. */
+static A64Reg jitIdxBase(AsmEnc *enc, A64Reg base, s64 disp) {
+    if (disp == 0) return base;
+    u64 mag = (u64)(disp < 0 ? -disp : disp);
     if (mag <= 0xFFF) {
-        if (is_sub) aarch64_enc_sub_imm(enc, 1, reg, reg, (uint32_t)mag);
-        else        aarch64_enc_add_imm(enc, 1, reg, reg, (uint32_t)mag);
-        return;
+        if (disp < 0) aarch64_enc_sub_imm(enc, 1, A_X10, base, (uint32_t)mag);
+        else          aarch64_enc_add_imm(enc, 1, A_X10, base, (uint32_t)mag);
+    } else {
+        jitEmitMovImm(enc, A_X10, disp);
+        aarch64_enc_add_reg(enc, 1, A_X10, base, A_X10);
     }
-    /* Fall back: x9 = disp, then add/sub reg form. */
-    jitEmitMovImm(enc, A_X9, disp);
-    if (is_sub) aarch64_enc_sub_reg(enc, 1, reg, reg, A_X9);
-    else        aarch64_enc_add_reg(enc, 1, reg, reg, A_X9);
+    return A_X10;
 }
 
 /* ---------------- frame load/store ---------------- */
@@ -306,7 +306,7 @@ static void jitDerefLoad(AsmEnc *enc, int size, A64Reg dst, A64Reg base,
     size = jitGprAccessSize(size);
     if (has_idx) {
         int sh = (scale == 8) ? 3 : (scale == 4) ? 2 : (scale == 2) ? 1 : 0;
-        if (disp) jitAddSubImm(enc, base, (s64)disp);
+        base = jitIdxBase(enc, base, (s64)disp);
         /* Register-offset form with optional LSL scale. */
         int scaled = (sh != 0); /* encoder S=1 picks "scale by access width" */
         if (size == 4) {
@@ -370,7 +370,7 @@ static void jitDerefStore(AsmEnc *enc, int size, A64Reg val, A64Reg base,
     size = jitGprAccessSize(size);
     if (has_idx) {
         int sh = (scale == 8) ? 3 : (scale == 4) ? 2 : (scale == 2) ? 1 : 0;
-        if (disp) jitAddSubImm(enc, base, (s64)disp);
+        base = jitIdxBase(enc, base, (s64)disp);
         int scaled = (sh != 0);
         aarch64_enc_ldst_regoff(enc, 0, 0, size, scaled, val, base, idx);
         return;
@@ -1262,6 +1262,7 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
                     int sh = (instr->scale == 8) ? 3 :
                              (instr->scale == 4) ? 2 :
                              (instr->scale == 2) ? 1 : 0;
+                    base = jitIdxBase(enc, base, (s64)instr->disp);
                     aarch64_enc_ldst_regoff(enc, 1, 1, fsz, sh ? 1 : 0,
                                             A_X0 /*d0*/, base, idx);
                 } else if (instr->disp != 0) {
@@ -1310,6 +1311,7 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
                     int sh = (instr->scale == 8) ? 3 :
                              (instr->scale == 4) ? 2 :
                              (instr->scale == 2) ? 1 : 0;
+                    base = jitIdxBase(enc, base, (s64)instr->disp);
                     aarch64_enc_ldst_regoff(enc, 1, 0, fsz, sh ? 1 : 0,
                                             A_X0 /*d0*/, base, idx);
                 } else if (instr->disp != 0) {
