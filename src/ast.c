@@ -264,6 +264,12 @@ Ast *astBinaryOp(AstBinOp operation, Ast *left, Ast *right, int *_is_err) {
 
     ast->kind = AST_BINOP;
     ast->binop = operation;
+    /* As in C, `a = b` used as a value has the type of `a`: the IR converts
+     * and narrows the stored value to that type, and `(c = Mk()).date` needs
+     * the class type rather than the I64 an intrinsic class would give. */
+    if (ast->type && operation == AST_BIN_OP_ASSIGN) {
+        ast->type = left->type;
+    }
     /* A comparison or logical op yields 0/1, never a float: without
      * this `I64 x = f < 1.0;` fptosi's the 0/1 as if it were an F64. */
     if (ast->type && astIsFloatType(ast->type) &&

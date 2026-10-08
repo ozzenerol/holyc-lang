@@ -1538,11 +1538,13 @@ IrValue *irLowerClassRef(IrCtx *ctx, Ast *ast) {
     }
 
     if (cls && (cls->kind == AST_FUNCALL || cls->kind == AST_FUNPTR_CALL ||
-                cls->kind == AST_ASM_FUNCALL))
+                cls->kind == AST_ASM_FUNCALL ||
+                astIsBinOpKind(cls, AST_BIN_OP_ASSIGN)))
     {
         /* Field of a struct-returning call result, e.g. `MakeVec2(..).y`.
          * Evaluating an aggregate call yields the address of its result
-         * buffer; index into it like the pointer-deref case. */
+         * buffer; index into it like the pointer-deref case. An aggregate
+         * assignment `(a = b).y` likewise yields the address of `a`. */
         IrValue *base = irExpr(ctx, cls);
         IrValue *addr = base;
         if (offset != 0) {

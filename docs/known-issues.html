@@ -55,9 +55,6 @@ works as shown.</p>
     <tr><td>A postfix cast inside a <code>#define</code> crashes hcc</td>
         <td><code>#define X (5(U64) % 3)</code>, then use <code>X</code></td>
         <td>Cast outside the macro, or use a variable</td></tr>
-    <tr><td>An assignment used as a value has type <code>I64</code>, not the class</td>
-        <td><code>(c = Mk()).date</code> where <code>c</code> is a <code>CDate</code>: "Expected as class"</td>
-        <td>Assign first, then read: <code>c = Mk(); c.date</code></td></tr>
   </tbody>
 </table>
 
