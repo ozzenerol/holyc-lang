@@ -418,16 +418,16 @@ static int jitIdxReg(JitFnCtx *ctx, IrInstr *instr, X86Reg *out) {
 /* ---------------- condition codes ----------------
  *
  * The float column follows ucomisd, whose flags use unsigned-int
- * semantics (b/be/a/ae). NaN sets CF=ZF=PF=1; we treat IR cmps as
- * loose-ordered (matches the AOT backend and aarch64). */
+ * semantics. NaN (unordered) sets CF=ZF=PF=1, so to get C's ordered
+ * semantics jitEmitFCmp turns LT/LE into a swapped GT/GE (a/ae are
+ * false when CF=1) and EQ/NE also consult PF (matches the AOT
+ * backend; aarch64's fcmp conditions are already ordered). */
 
 static int jitCcFor(IrCmpKind cmp, int is_float) {
     if (is_float) {
         switch (cmp) {
             case IR_CMP_EQ: return X86_CC_E;
             case IR_CMP_NE: return X86_CC_NE;
-            case IR_CMP_LT: return X86_CC_B;
-            case IR_CMP_LE: return X86_CC_BE;
             case IR_CMP_GT: return X86_CC_A;
             case IR_CMP_GE: return X86_CC_AE;
             default: loggerPanic("jit-x86_64: bad float cmp %d\n", cmp);
@@ -456,6 +456,29 @@ static int jitCcInvFor(IrCmpKind cmp, int is_float) {
 static void jitEmitSetCC(AsmEnc *enc, IrCmpKind cmp, int is_float) {
     x86_64_enc_setcc_al(enc, jitCcFor(cmp, is_float));
     x86_64_enc_movzbq_al_rax(enc);
+    if (is_float && (cmp == IR_CMP_EQ || cmp == IR_CMP_NE)) {
+        /* Unordered sets ZF too: EQ also needs PF=0, NE accepts PF=1. */
+        int eq = cmp == IR_CMP_EQ;
+        x86_64_enc_mov_reg_reg(enc, R_RCX, R_RAX);
+        x86_64_enc_setcc_al(enc, eq ? X86_CC_NP : X86_CC_P);
+        x86_64_enc_movzbq_al_rax(enc);
+        x86_64_enc_alu_reg_reg(enc, eq ? '&' : '|', R_RAX, R_RCX);
+    }
+}
+
+/* ucomiss/ucomisd of instr->r1 against instr->r2. LT/LE are emitted
+ * as the swapped GT/GE so an unordered (NaN) compare is false; returns
+ * the cmp kind the flags now encode. */
+static IrCmpKind jitEmitFCmp(JitFnCtx *ctx, IrInstr *instr, IrCmpKind cmp) {
+    AsmEnc *enc = &ctx->jit->enc;
+    int is_dbl = jitFpDbl(instr->r1);
+    int swap = cmp == IR_CMP_LT || cmp == IR_CMP_LE;
+    jitLoadFirstSrcFpr(ctx, instr->r1);
+    jitLoadToFpr(ctx, instr->r2, 1 /* xmm1 */);
+    if (is_dbl) x86_64_enc_ucomisd(enc, swap ? 1 : 0, swap ? 0 : 1);
+    else        x86_64_enc_ucomiss(enc, swap ? 1 : 0, swap ? 0 : 1);
+    if (!swap) return cmp;
+    return cmp == IR_CMP_LT ? IR_CMP_GT : IR_CMP_GE;
 }
 
 /* ---------------- phi materialisation ---------------- */
@@ -1169,12 +1192,8 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
         }
 
         case IR_FCMP: {
-            int is_dbl = jitFpDbl(instr->r1);
-            jitLoadFirstSrcFpr(ctx, instr->r1);
-            jitLoadToFpr(ctx, instr->r2, 1 /* xmm1 */);
-            if (is_dbl) x86_64_enc_ucomisd(enc, 0, 1);
-            else        x86_64_enc_ucomiss(enc, 0, 1);
-            jitEmitSetCC(enc, instr->extra.cmp_kind, 1);
+            IrCmpKind kind = jitEmitFCmp(ctx, instr, instr->extra.cmp_kind);
+            jitEmitSetCC(enc, kind, 1);
             jitSpillDst(ctx, instr, R_RAX);
             break;
         }
@@ -1185,10 +1204,15 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
             IrBlock *f = instr->extra.cmp_br.fallthrough_block;
             int is_float = instr->r1 && irIsFloat(instr->r1->type);
             if (is_float) {
-                jitLoadFirstSrcFpr(ctx, instr->r1);
-                jitLoadToFpr(ctx, instr->r2, 1 /* xmm1 */);
-                if (jitFpDbl(instr->r1)) x86_64_enc_ucomisd(enc, 0, 1);
-                else                     x86_64_enc_ucomiss(enc, 0, 1);
+                kind = jitEmitFCmp(ctx, instr, kind);
+                if (kind == IR_CMP_EQ || kind == IR_CMP_NE) {
+                    /* EQ/NE need two flags (ZF and PF): materialise
+                     * the 0/1 and branch on that instead. */
+                    jitEmitSetCC(enc, kind, 1);
+                    x86_64_enc_test_reg_reg(enc, R_RAX, R_RAX);
+                    kind = IR_CMP_NE;
+                    is_float = 0;
+                }
             } else {
                 jitLoadFirstSrc(ctx, instr->r1);
                 s64 imm;
