@@ -350,10 +350,18 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
         }
 
         while (1) {
-            next_type = parsePointerType(cc,base_type);
-            tok_name = cctrlTokenGet(cc);
+            /* Checked before parsePointerType, whose rewind at the end of
+             * input would step back onto the type and report that. */
+            if (cctrlTokenPeek(cc) == NULL) {
+                tok_name = NULL;
+            } else {
+                next_type = parsePointerType(cc,base_type);
+                tok_name = cctrlTokenGet(cc);
+            }
             if (!tok_name) {
-                cctrlRaiseException(cc, "<type> <variable_name | (> expected got NULL while parsing class %s",
+                /* Nothing left to recover into; report it once. */
+                cc->current_recovery = outer_recovery;
+                cctrlRaiseException(cc, "Unexpected end of input while parsing class %s",
                         cls_str);
             }
             if (tok_name->tk_type != TK_IDENT && !tokenPunctIs(tok_name, '(')) {
@@ -392,6 +400,7 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
             } else if (tokenPunctIs(tok,';')) {
                 break;
             } else if (!tok) {
+                cc->current_recovery = outer_recovery;
                 cctrlRaiseException(cc, "Unexpected end of input while parsing class %s",
                         cls_str);
             } else {
@@ -509,12 +518,16 @@ Map *parseClassOffsets(Cctrl *cc,
             free(cls_field);
         }
 
+        /* Reported without unwinding: the class still gets its field
+         * map, so later uses of it don't cascade into "X is incomplete"
+         * errors. The error stops the compile once parsing ends. */
         if (offset > base_size) {
-            cctrlRaiseException(cc,
+            AoStr *msg = cctrlMessagePrintF(cc, CCTRL_ERROR,
                     "Fields of intrinsic class %s take %d bytes, more than "
                     "the %d bytes of its base type %s",
                     clsname ? clsname->data : "<anonymous>",
                     offset, base_size, astTypeToString(intrinsic_base));
+            cctrlDiagPush(cc, cctrlMakeDiag(cc, CCTRL_ERROR, msg, NULL));
         }
 
         return fields_dict;
@@ -2787,8 +2800,14 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             switch (name->i64) {
                 case KW_CLASS:
                     if (!astIsIntType(type)) {
-                        cctrlRaiseException(cc,"Can only make intrinsic types from integer types, got %s",
+                        /* Reported without unwinding, and the class is
+                         * defined as an ordinary one, so its uses don't
+                         * cascade into more errors. */
+                        AoStr *msg = cctrlMessagePrintF(cc, CCTRL_ERROR,
+                                "Can only make intrinsic types from integer types, got %s",
                                 astTypeToString(type));
+                        cctrlDiagPush(cc, cctrlMakeDiag(cc, CCTRL_ERROR, msg, NULL));
+                        type = NULL;
                     }
                     parseClassDef(cc,type);
                     cctrlTokenExpect(cc,';');
