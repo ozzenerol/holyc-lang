@@ -62,20 +62,20 @@ Terry is 53 years old
    42|42   |00042
 ff FF A 3.142
 </pre>
-<p>A bare string has no special treatment for <code>%</code>, so
-<code>"100%\n";</code> without arguments prints as written.</p>
-<div class="warn"><p><strong><code>%d</code> prints 32 bits in print statements.</strong> Print
-statements go through C's <code>printf</code>, where <code>%d</code> is a 32-bit
-<code>int</code>. Use <code>%ld</code> for values outside ±2,147,483,647:</p>
+<p>The string is always a format, even without arguments, so write
+<code>%%</code> for a literal percent sign: <code>"100%%\n";</code> prints
+<code>100%</code>.</p>
+<p>As in TempleOS, <code>%d</code>, <code>%i</code>, <code>%u</code>, <code>%x</code>,
+<code>%X</code> and <code>%o</code> print the full 64-bit value, so there is no need for
+C's <code>%ld</code> (which also works):</p>
 <pre data-run><code>U0 Main()
 {
   I64 big = 5000000000;
   "%d vs %ld\n", big, big;
 }
 </code></pre>
-<pre class="output">705032704 vs 5000000000
+<pre class="output">5000000000 vs 5000000000
 </pre>
-<p><code>StrPrint</code> (see <a href="library.html#strings">strings</a>) treats <code>%d</code> as 64-bit.</p></div>
 
 <h2>Types</h2>
 <table>

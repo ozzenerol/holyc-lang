@@ -24,9 +24,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>%d</code> in print statements is 32-bit</td>
-        <td><code>"%d", 5000000000;</code> prints 705032704</td>
-        <td>Use <code>%ld</code>, or <code>StrPrint</code>, whose <code>%d</code> is 64-bit</td></tr>
     <tr><td><code>StrPrint</code> and friends exit on <code>%f</code></td>
         <td><code>StrPrint(NULL, "%f", 1.5)</code> prints "Floats not supported" and exits</td>
         <td>Format floats with a print statement</td></tr>

@@ -984,6 +984,77 @@ Ast *parseFunctionArguments(Cctrl *cc, char *fname, int len, s64 terminator) {
     }
 }
 
+/* Rewrite a print statement's format literal so integer conversions with
+ * no length modifier read 64 bits: `%d` -> `%lld`, `%-5x` -> `%-5llx`.
+ * In HolyC `%d` is an I64 but the statement lowers to C's printf, where
+ * it is a 32-bit int. Explicit modifiers (`%ld`, `%hd`) and every other
+ * conversion are copied untouched. Works on the raw source text, so
+ * escape pairs are skipped whole. Returns NULL if nothing changed. */
+static AoStr *parsePrintFormatTo64(AoStr *fmt, int *added) {
+    AoStr *out = NULL;
+    int i = 0;
+    int copied = 0; /* source chars already appended to `out` */
+    int len = fmt->len;
+    char *s = fmt->data;
+    *added = 0;
+
+    while (i < len) {
+        if (s[i] == '\\' && i + 1 < len) {
+            i += 2;
+            continue;
+        }
+        if (s[i] != '%') {
+            i++;
+            continue;
+        }
+        if (i + 1 < len && s[i+1] == '%') {
+            i += 2;
+            continue;
+        }
+        int j = i + 1;
+        while (j < len && strchr("-+ #0123456789.*'", s[j])) j++;
+        if (j < len && strchr("diuxXo", s[j])) {
+            if (!out) out = aoStrNew();
+            aoStrCatLen(out, s + copied, j - copied);
+            aoStrCatLen(out, "ll", 2);
+            copied = j;
+            *added += 2;
+        }
+        i = j;
+    }
+    if (out) {
+        aoStrCatLen(out, s + copied, len - copied);
+    }
+    return out;
+}
+
+/* A string literal used as a statement, `"fmt", args...;`, is a call to
+ * C's printf. When the format is a literal its integer conversions are
+ * made 64-bit to match HolyC's `%d` (see parsePrintFormatTo64) and the
+ * call is flagged so the IR widens narrow integer arguments to match.
+ * A non-literal format is passed through as written. */
+Ast *parsePrintStatement(Cctrl *cc) {
+    Ast *call = parseFunctionArguments(cc,"printf",6,';');
+    if (cc->flags & CCTRL_TRANSPILING) return call;
+    if (call->kind != AST_FUNCALL || !call->args || call->args->size == 0)
+        return call;
+
+    Ast *fmt = call->args->entries[0];
+    if (fmt->kind != AST_STRING || !fmt->sval) return call;
+
+    int added = 0;
+    AoStr *wide = parsePrintFormatTo64(fmt->sval, &added);
+    if (wide) {
+        /* String literals are interned and shared, so make a new one
+         * rather than editing this one in place. */
+        call->args->entries[0] = cctrlGetOrSetString(cc, wide->data,
+                wide->len, fmt->real_len + added);
+        aoStrRelease(wide);
+    }
+    call->flags |= AST_FLAG_PRINT_STMT;
+    return call;
+}
+
 /* parse either a function call or a variable being used */
 static Ast *parseIdentifierOrFunction(Cctrl *cc, 
                                       char *name, 

@@ -468,6 +468,17 @@ IrValue *irFnCallTo(IrCtx *ctx, Ast *ast, IrValue *preallocated_buffer) {
              * does not leak onto a value shared with other instructions. */
             ir_arg->byval_struct_type = ast_arg->type;
         }
+        /* A print statement's `%d` reads 64 bits (see
+         * parsePrintStatement), so a narrow integer must arrive sign- or
+         * zero-extended rather than with stale upper bits. */
+        if ((ast->flags & AST_FLAG_PRINT_STMT) && i > 0 && ast_arg->type &&
+            (ast_arg->type->kind == AST_TYPE_INT ||
+             ast_arg->type->kind == AST_TYPE_CHAR) &&
+            ast_arg->type->size < 8)
+        {
+            ir_arg = irWidenToTargetWidth(ctx, ir_arg, ast_arg->type,
+                                          ast_int_type);
+        }
         vecPush(args, ir_arg);
     }
 
