@@ -5,13 +5,55 @@ a way to reproduce it and a workaround. The other pages avoid them, so every exa
 works as shown.</p>
 
 <h2>Compiler</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>A function pointer with named parameters doesn't parse outside a function</td>
+        <td><code>I64 (*g)(I64 a, I64 b) = &amp;Add;</code> at file scope: "Identifier expected"</td>
+        <td>Declare it inside a function, or assign it in <code>Main</code></td></tr>
+    <tr><td><code>||</code> rejects a pointer next to a call returning <code>Bool</code></td>
+        <td><code>if (p || T())</code> where <code>T</code> returns <code>Bool</code></td>
+        <td>Compare the pointer: <code>p != NULL || T()</code></td></tr>
+    <tr><td>Extra tokens after an <code>#if</code> condition are ignored</td>
+        <td><code>#if 0 1</code> is the same as <code>#if 0</code>, with no error</td>
+        <td>Check the <code>#if</code> lines</td></tr>
+    <tr><td>Hex letters after a decimal number are ignored</td>
+        <td><code>I64 x = 123abc;</code> compiles, and <code>x</code> is 123</td>
+        <td>None needed; just don't write it</td></tr>
+    <tr><td>A postfix cast inside a <code>#define</code> crashes hcc</td>
+        <td><code>#define X (5(U64) % 3)</code>, then use <code>X</code></td>
+        <td>Cast outside the macro, or use a variable</td></tr>
+    <tr><td>An assignment used as a value has type <code>I64</code>, not the class</td>
+        <td><code>(c = Mk()).date</code> where <code>c</code> is a <code>CDate</code>: "Expected as class"</td>
+        <td>Assign first, then read: <code>c = Mk(); c.date</code></td></tr>
+  </tbody>
+</table>
 
 <h2>JIT and code generation</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>Reading a whole <code>I64 class</code> through a pointer gives the pointer</td>
+        <td><code>CDate *pp = a; CDate d = pp[2];</code> (also <code>*pp</code>)</td>
+        <td>Copy the fields: <code>d.date = pp[2].date; d.time = pp[2].time;</code></td></tr>
+    <tr><td>Returning an integer from an <code>F64</code> function doesn't convert it</td>
+        <td><code>F64 Conv(I64 u) { return u; }</code>: <code>Conv(3)</code> is 0.0</td>
+        <td>Assign to an <code>F64</code> first: <code>F64 r = u; return r;</code></td></tr>
+    <tr><td>Default arguments are ignored when calling through a class field function pointer</td>
+        <td><code>class C { I64 (*f)(I64 a, I64 b=10); };</code> <code>c.f(1)</code> passes garbage for <code>b</code></td>
+        <td>Pass every argument</td></tr>
+  </tbody>
+</table>
 
 <h2>Standard library</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td><code>CatPrint</code> returns a new string and never frees the one you pass</td>
+        <td><code>s = CatPrint(s, "%d", i);</code> in a loop leaks every old <code>s</code></td>
+        <td>Keep the old pointer and <code>Free</code> it after the call</td></tr>
+  </tbody>
+</table>
 
 <h2>Reporting</h2>
 <p>Please report bugs on <a href="https://github.com/ozzenerol/holyc-lang/issues">GitHub</a>.

@@ -48,7 +48,7 @@ is not, so leaking one goes unreported, and a block of yours that the library re
 <h2 id="strings">Strings</h2>
 <h3>Building strings</h3>
 <p><code>StrPrint(NULL, fmt, ...)</code> returns a newly allocated formatted string, and
-<code>CatPrint</code> appends to one. Unlike print statements, their <code>%d</code> is a
+<code>CatPrint(s, fmt, ...)</code> returns a new string made of <code>s</code> followed by the formatted text. Unlike print statements, their <code>%d</code> is a
 full 64-bit integer. <code>%f</code>, <code>%e</code> and <code>%g</code> print a float the
 way C's <code>printf</code> does, with the same rounding.</p>
 <pre data-run><code>
