@@ -1,5 +1,12 @@
-/* TempleOS look: white desktop, VGA blue text, blue window borders,
- * the 16-colour VGA palette and a pixel font. */
+/* TempleOS look: white desktop, blue window borders, title-bar headings
+ * and the 16-colour VGA palette.
+ *
+ * Readability: running text is a proportional sans (IBM Plex Sans, the
+ * sibling of the IBM Plex Mono used for code) in a dark navy rather than
+ * saturated VGA blue, which stays for the chrome (bars, borders, headings).
+ * The VT323 pixel font is kept only for large decorative text (the page
+ * title, the logo wordmark); small chrome uses Plex Mono, which keeps the
+ * terminal feel without the blur of a pixel font at small sizes. */
 :root {
   --vga-black: #000000;
   --vga-blue: #0000aa;
@@ -19,8 +26,9 @@
   --vga-white: #ffffff;
 
   --bg: var(--vga-white);
-  --text: var(--vga-blue);
-  --muted: var(--vga-dgray);
+  --text: #16163a;      /* body text: dark navy, ~15:1 on white */
+  --heading: var(--vga-blue);
+  --muted: #4a4a60;
   --border: var(--vga-blue);
   --bar-bg: var(--vga-blue);
   --bar-text: var(--vga-white);
@@ -38,21 +46,26 @@
   --pp: var(--vga-lblue);
   --warn: var(--vga-red);
   --note: var(--vga-cyan);
+  --inline-code: var(--vga-purple);
   --pixel: "VT323", "Courier New", monospace;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --measure: 70ch;      /* longest line of running text */
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: var(--vga-black);
-    --text: var(--vga-lgray);
-    --muted: var(--vga-lgray);
+    --bg: #0c0c14;      /* not quite black */
+    --text: #d6d6e0;    /* soft off-white, ~14:1 */
+    --heading: #e8e8ff;
+    --muted: #a6a6b8;
     --border: var(--vga-lblue);
     --bar-bg: var(--vga-blue);
     --bar-text: var(--vga-white);
     --link: var(--vga-lcyan);
-    --code-bg: #000022;
-    --code-text: var(--vga-white);
+    --inline-code: var(--vga-lpurple);
+    --code-bg: #05051e;
+    --code-text: #ececf4;
     --output-bg: #000000;
     --output-text: var(--vga-lgreen);
     --kw: var(--vga-lpurple);
@@ -67,15 +80,17 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: var(--vga-black);
-  --text: var(--vga-lgray);
-  --muted: var(--vga-lgray);
+  --bg: #0c0c14;      /* not quite black */
+  --text: #d6d6e0;    /* soft off-white, ~14:1 */
+  --heading: #e8e8ff;
+  --muted: #a6a6b8;
   --border: var(--vga-lblue);
   --bar-bg: var(--vga-blue);
   --bar-text: var(--vga-white);
   --link: var(--vga-lcyan);
-  --code-bg: #000022;
-  --code-text: var(--vga-white);
+  --inline-code: var(--vga-lpurple);
+  --code-bg: #05051e;
+  --code-text: #ececf4;
   --output-bg: #000000;
   --output-text: var(--vga-lgreen);
   --kw: var(--vga-lpurple);
@@ -96,8 +111,10 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.6 var(--mono);
+  font: 17px/1.65 var(--sans);
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
@@ -115,8 +132,10 @@ a:hover { background: var(--link); color: var(--bg); text-decoration: none; }
   background: var(--bar-bg);
   color: var(--bar-text);
   border-bottom: 2px solid var(--vga-black);
-  font-family: var(--pixel);
-  font-size: 22px;
+  font-family: var(--mono);
+  font-size: 14.5px;
+  font-weight: 500;
+  min-height: 46px;
 }
 
 .brand {
@@ -126,7 +145,9 @@ a:hover { background: var(--link); color: var(--bg); text-decoration: none; }
   color: var(--vga-yellow);
   text-decoration: none;
   white-space: nowrap;
-  font-size: 24px;
+  font-family: var(--pixel);   /* the wordmark: large and decorative */
+  font-size: 28px;
+  line-height: 1;
 }
 
 .brand:hover { background: none; color: var(--vga-white); }
@@ -135,7 +156,7 @@ a:hover { background: var(--link); color: var(--bg); text-decoration: none; }
 .pages { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
 
 .pages a {
-  padding: 0 8px;
+  padding: 3px 8px;
   color: var(--bar-text);
   text-decoration: none;
 }
@@ -150,7 +171,7 @@ a:hover { background: var(--link); color: var(--bg); text-decoration: none; }
   width: 34px;
   height: 30px;
   cursor: pointer;
-  font: 20px var(--pixel);
+  font: 16px/1 var(--mono);
 }
 
 .theme:hover, .menu:hover { background: var(--vga-cyan); }
@@ -173,7 +194,8 @@ a:hover { background: var(--link); color: var(--bg); text-decoration: none; }
   max-height: calc(100vh - 84px);
   overflow-y: auto;
   border: 2px solid var(--border);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .toc:empty { display: none; }
@@ -182,45 +204,53 @@ a:hover { background: var(--link); color: var(--bg); text-decoration: none; }
 .toc ol { list-style: none; margin: 0; padding: 0; }
 .toc > ol { padding: 6px 4px 8px; }
 .toc ol ol { padding-left: 12px; }
-.toc a { display: block; padding: 1px 6px; color: var(--text); text-decoration: none; }
+.toc a { display: block; padding: 2px 6px; color: var(--text); text-decoration: none; }
 .toc a:hover { background: var(--vga-cyan); color: var(--vga-white); }
 .toc a.active { background: var(--vga-blue); color: var(--vga-white); }
 .toc .toc-title {
   background: var(--bar-bg);
   color: var(--bar-text);
-  font: 20px var(--pixel);
+  font: 600 13px/1.9 var(--mono);
   padding: 0 8px;
 }
 
 main { min-width: 0; max-width: 800px; }
 
-h1, h2, h3 { font-family: var(--pixel); font-weight: 400; }
-h1 { font-size: 46px; line-height: 1.05; margin: 0 0 10px; }
+/* Running text keeps to a comfortable line length; code blocks, tables
+   and the reference listings may use the full column. */
+main p, main li, .lede { max-width: var(--measure); }
+
+h1, h2, h3 { color: var(--heading); }
+/* The page title is the one place the pixel font stays: it is large and
+   short, so it reads as decoration. */
+h1 { font: 400 50px/1.05 var(--pixel); margin: 0 0 12px; }
+h2, h3 { font-family: var(--mono); font-weight: 600; }
 
 /* Section headings look like a window title bar. */
 h2 {
-  font-size: 30px;
-  line-height: 1.1;
-  margin: 40px 0 14px;
-  padding: 2px 10px;
+  font-size: 21px;
+  line-height: 1.35;
+  margin: 44px 0 16px;
+  padding: 4px 12px;
   background: var(--bar-bg);
   color: var(--bar-text);
   border: 2px solid var(--vga-black);
 }
 
-h3 { font-size: 25px; margin: 26px 0 6px; border-bottom: 2px dotted var(--border); }
+h3 { font-size: 18.5px; line-height: 1.4; margin: 30px 0 8px; padding-bottom: 2px; border-bottom: 2px dotted var(--border); }
 h2 a.anchor, h3 a.anchor { color: inherit; text-decoration: none; margin-left: 8px; opacity: 0; }
 h2:hover a.anchor, h3:hover a.anchor { opacity: .8; }
 h2 a.anchor:hover, h3 a.anchor:hover { background: none; }
 
-.lede { color: var(--text); font-size: 16px; margin-top: 0; }
+.lede { color: var(--text); font-size: 18px; margin-top: 0; }
 
-code { font-family: var(--mono); font-size: .95em; }
+code { font-family: var(--mono); font-size: .9em; }
+:not(pre) > code { line-height: 1; }
 
 /* Inline code only; code blocks keep the block's colours. */
-:not(pre) > code { color: var(--vga-purple); }
-:root[data-theme="dark"] :not(pre) > code { color: var(--vga-lpurple); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) :not(pre) > code { color: var(--vga-lpurple); } }
+:not(pre) > code { color: var(--inline-code); }
+h2 code, h3 code { font-size: .95em; }
+h2 :not(pre) > code { color: inherit; }
 
 pre {
   position: relative;
@@ -230,9 +260,9 @@ pre {
   box-shadow: 4px 4px 0 var(--border);
   padding: 12px 14px;
   overflow-x: auto;
-  font-size: 14px;
-  line-height: 1.5;
-  margin: 14px 4px 16px 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  margin: 16px 4px 18px 0;
 }
 
 pre code { font-size: inherit; }
@@ -248,9 +278,11 @@ pre.output {
 pre.output::before {
   content: "Output";
   display: block;
-  font: 18px/1 var(--pixel);
+  font: 600 12px/1 var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
   color: var(--vga-yellow);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .copy {
@@ -260,8 +292,8 @@ pre.output::before {
   border: 2px solid var(--border);
   background: var(--code-bg);
   color: var(--code-text);
-  font: 16px/1 var(--pixel);
-  padding: 2px 8px;
+  font: 500 12px/1 var(--mono);
+  padding: 4px 8px;
   cursor: pointer;
   opacity: 0;
 }
@@ -276,21 +308,23 @@ pre:hover .copy, .copy:focus { opacity: 1; }
 .tok-com { color: var(--com); }
 .tok-pp { color: var(--pp); font-weight: 600; }
 
-table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; border: 2px solid var(--border); }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15.5px; line-height: 1.55; border: 2px solid var(--border); }
 td code { overflow-wrap: anywhere; }
-th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-th { background: var(--bar-bg); color: var(--bar-text); font: 19px var(--pixel); }
+th, td { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--bar-bg); color: var(--bar-text); font: 600 14px/1.5 var(--mono); }
 
 .note, .warn {
   border: 2px solid var(--note);
-  padding: 8px 12px;
-  margin: 16px 0;
+  padding: 10px 14px;
+  margin: 18px 0;
 }
 
 .note::before, .warn::before {
   display: block;
-  font: 20px/1 var(--pixel);
-  margin-bottom: 4px;
+  font: 600 12.5px/1 var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
 }
 
 .note::before { content: "Note"; color: var(--note); }
@@ -301,7 +335,7 @@ th { background: var(--bar-bg); color: var(--bar-text); font: 19px var(--pixel);
 /* Home page hero: the logo beside the title. */
 .hero { display: flex; align-items: center; gap: 24px; margin-bottom: 8px; }
 .hero img { width: 120px; height: auto; flex: none; }
-.hero h1 { font-size: 64px; margin: 0; }
+.hero h1 { font-size: 72px; margin: 0; }
 .hero p { margin: 6px 0 0; }
 
 .cards {
@@ -323,11 +357,11 @@ th { background: var(--bar-bg); color: var(--bar-text); font: 19px var(--pixel);
   display: block;
   background: var(--bar-bg);
   color: var(--bar-text);
-  font: 400 21px var(--pixel);
+  font: 600 15px/1.8 var(--mono);
   padding: 1px 10px;
 }
 
-.card span { display: block; padding: 8px 10px 10px; font-size: 14px; }
+.card span { display: block; padding: 8px 12px 12px; font-size: 15.5px; line-height: 1.55; }
 .card:hover { background: var(--vga-cyan); color: var(--vga-white); }
 .card:hover strong { background: var(--vga-black); }
 
@@ -344,22 +378,24 @@ th { background: var(--bar-bg); color: var(--bar-text); font: 19px var(--pixel);
 
 #filter:focus { outline: 2px solid var(--vga-yellow); outline-offset: 0; }
 .modules ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.modules a { display: inline-block; padding: 0 8px; border: 2px solid var(--border); text-decoration: none; color: var(--text); font: 19px var(--pixel); }
+.modules a { display: inline-block; padding: 0 8px; border: 2px solid var(--border); text-decoration: none; color: var(--text); font: 500 14px/1.7 var(--mono); }
 .modules a:hover { background: var(--vga-blue); color: var(--vga-white); }
-.count { font-size: 15px; color: var(--vga-red); }
+.count { font: 14px var(--mono); color: var(--muted); }
 .decl { border-bottom: 1px dotted var(--border); padding: 8px 0; }
 .decl pre { margin: 6px 4px 6px 0; box-shadow: none; border-width: 1px; }
 .decl-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.decl-name { font-weight: 700; color: var(--text); text-decoration: none; }
-.kind, .tag { font: 16px/1.2 var(--pixel); color: var(--vga-white); background: var(--vga-cyan); padding: 0 6px; }
-.tag { background: var(--vga-brown); }
-.doc { margin: 4px 0 0; white-space: pre-line; font-size: 14px; }
+.decl-name { font: 600 15.5px var(--mono); color: var(--heading); text-decoration: none; }
+.kind, .tag { font: 500 12px/1.6 var(--mono); color: var(--vga-white); background: var(--vga-cyan); padding: 0 6px; }
+.kind { color: var(--vga-black); }   /* white on VGA cyan is only 2.9:1 */
+.tag { background: var(--vga-brown); color: var(--vga-white); }
+.doc { margin: 4px 0 0; white-space: pre-line; font-size: 15.5px; line-height: 1.6; color: var(--muted); }
 .consts td:first-child { white-space: nowrap; }
 
 footer {
   background: var(--bar-bg);
   color: var(--bar-text);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.6;
   text-align: center;
   padding: 10px 16px;
   border-top: 2px solid var(--vga-black);
@@ -374,8 +410,11 @@ footer code { color: var(--vga-lcyan); }
   .menu { display: block; margin-left: auto; }
   .pages { display: none; position: absolute; top: 100%; left: 0; right: 0; flex-direction: column; background: var(--bar-bg); padding: 6px 16px; border-bottom: 2px solid var(--vga-black); }
   .pages.open { display: flex; }
-  h1 { font-size: 38px; }
+  body { font-size: 16.5px; }
+  h1 { font-size: 42px; }
+  h2 { font-size: 19px; }
+  .pages a { padding: 6px 8px; font-size: 15px; }
   .hero { gap: 16px; }
   .hero img { width: 84px; }
-  .hero h1 { font-size: 48px; }
+  .hero h1 { font-size: 56px; }
 }
