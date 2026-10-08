@@ -161,8 +161,22 @@ static IrValue *irNarrowToTargetWidth(IrCtx *ctx,
     if (irIsFloat(val->type)) return val;
     IrValueType narrow_ty = irConvertType(target_ty);
     if (val->kind == IR_VAL_CONST_INT) {
-        if (narrow_ty != val->type) {
-            return irConstInt(narrow_ty, val->as._i64);
+        /* Truncate the literal itself (sign- or zero-extending it back
+         * to 64 bits by the target's signedness): the store narrows on
+         * its own, but `(u8 = 300)` must also yield 44, not 300, where
+         * the assignment's value is used. */
+        s64 num = val->as._i64;
+        if (astIsIntType(target_ty) && target_ty->size < 8) {
+            int bits = target_ty->size * 8;
+            u64 mask = (1ULL << bits) - 1;
+            u64 low = (u64)num & mask;
+            if (target_ty->issigned && ((low >> (bits - 1)) & 1)) {
+                low |= ~mask;
+            }
+            num = (s64)low;
+        }
+        if (narrow_ty != val->type || num != val->as._i64) {
+            return irConstInt(narrow_ty, num);
         }
         return val;
     }
