@@ -186,7 +186,10 @@ public U8 *FileRead(U8 *path, I64 *_size=NULL)
   s = MAlloc(len+100);
   size = 0;
 
-  while ((rbytes = read(fd,s+size,len)) != 0) {
+  /* Ask only for what is left: a `len`-byte read at `s+size` runs past
+   * the buffer, which qemu-user rejects with EFAULT when that crosses
+   * the end of the heap. Stop on an error rather than adding -1. */
+  while (size < len && (rbytes = read(fd,s+size,len-size)) > 0) {
     size += rbytes;
   }
 
