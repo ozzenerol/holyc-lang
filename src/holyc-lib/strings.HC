@@ -481,15 +481,18 @@ public U0 OutStr(U8 *instr,U8 **_buf,U8 **_dst,I64 len,I64 flags)
   else
     i=StrLen(instr);
   dst = *_dst;
-  buf = *_buf;
-  dst_len = dst-buf;
-  size = MSize(buf);
+  /* No _buf: the caller's buffer is not ours to MSize/ReAlloc */
+  if (_buf) {
+    buf = *_buf;
+    dst_len = dst-buf;
+    size = MSize(buf);
 
-  if (i >= (size - dst_len)) {
-    buf = ReAlloc(buf,((size*10)+i)*sizeof(U8));
-    *_buf = buf;
-    *_dst = buf + dst_len;
-    dst = *_dst;
+    if (i >= (size - dst_len)) {
+      buf = ReAlloc(buf,((size*10)+i)*sizeof(U8));
+      *_buf = buf;
+      *_dst = buf + dst_len;
+      dst = *_dst;
+    }
   }
   if (flags&PRTF_TRUNCATE && i>len)
     i=len;
@@ -783,6 +786,166 @@ U8 *MPrintQ(U8 *ptr,I64 flags = 0)
   return buf;
 }
 
+/* Digit buffer for an exact F64 decimal expansion: up to 309 integer digits
+ * sit before F64_DIG_POINT, up to 1074 fraction digits from it. */
+#define F64_DIG_POINT 320
+#define F64_DIG_LEN   1408
+
+static U0 F64DigRound(U8 *dig, I64 *_lo, I64 hi, I64 cut)
+{ // Round the digits to dig[..cut) to nearest, ties to even, like C's printf
+  I64 i;
+  Bool up = FALSE;
+  if (cut >= hi) return;
+  if (dig[cut] > 5) {
+    up = TRUE;
+  } else if (dig[cut] == 5) {
+    i = cut + 1;
+    while (i < hi && !dig[i]) i++;
+    up = i < hi || dig[cut-1] & 1;
+  }
+  for (i = cut; i < hi; ++i) {
+    dig[i] = 0;
+  }
+  if (up) {
+    i = cut - 1;
+    while (dig[i] == 9) {
+      dig[i--] = 0;
+    }
+    dig[i]++;
+    if (i < *_lo) *_lo = i;
+  }
+}
+
+static U8 *F64ToFmtStr(U64 bits, I64 prec, I64 conv)
+{ // %f, %e or %g of the F64 with bit pattern `bits`, without the sign.
+  // Works on the exact decimal value of the double, so it rounds like C.
+  U8 *dig, *out, *o;
+  I64 ex = (bits >> 52) & 0x7FF, lo, hi, cut, i, s, v, carry, fz, x;
+  U64 mant = bits & 0xFFFFFFFFFFFFF;
+  Bool strip = FALSE;
+
+  if (ex == 0x7FF) {
+    if (mant) return StrNew("nan");
+    return StrNew("inf");
+  }
+  if (prec < 0) prec = 6;
+  if (conv == 'g' && prec == 0) prec = 1;
+  if (ex) {
+    mant |= 0x10000000000000;
+    ex -= 1075;
+  } else {
+    ex = -1074;
+  }
+
+  /* value = mant * 2^ex, as decimal digits in dig[lo..hi) */
+  dig = CAlloc(F64_DIG_LEN);
+  lo = hi = F64_DIG_POINT;
+  while (mant) {
+    dig[--lo] = mant % 10;
+    mant /= 10;
+  }
+  while (ex > 0) { // multiply by 2^s
+    s = ex;
+    if (s > 28) s = 28;
+    carry = 0;
+    for (i = hi - 1; i >= lo; --i) {
+      v = dig[i];
+      v = (v << s) + carry;
+      dig[i] = v % 10;
+      carry = v / 10;
+    }
+    while (carry) {
+      dig[--lo] = carry % 10;
+      carry /= 10;
+    }
+    ex -= s;
+  }
+  while (ex < 0) { // divide by 2^s, every step adds s fraction digits
+    s = -ex;
+    if (s > 28) s = 28;
+    carry = 0;
+    for (i = lo; i < hi; ++i) {
+      v = carry * 10 + dig[i];
+      dig[i] = v >> s;
+      carry = v & ((1 << s) - 1);
+    }
+    while (carry) {
+      v = carry * 10;
+      dig[hi++] = v >> s;
+      carry = v & ((1 << s) - 1);
+    }
+    ex += s;
+  }
+
+  fz = lo;
+  while (fz < hi && !dig[fz]) fz++;
+  if (conv == 'f') {
+    cut = F64_DIG_POINT + prec;
+  } else if (conv == 'e') {
+    cut = fz + prec + 1;
+  } else {
+    cut = fz + prec;
+  }
+  F64DigRound(dig, &lo, hi, cut);
+  fz = lo;
+  while (fz < hi && !dig[fz]) fz++;
+  x = 0; // decimal exponent of the first significant digit
+  if (fz < hi) x = F64_DIG_POINT - 1 - fz;
+
+  if (conv == 'g') {
+    strip = TRUE;
+    if (x < prec && x >= -4) {
+      conv = 'f';
+      prec = prec - 1 - x;
+    } else {
+      conv = 'e';
+      prec--;
+    }
+  }
+
+  out = o = MAlloc(prec + F64_DIG_POINT + 16);
+  if (conv == 'f') {
+    i = lo;
+    if (i > F64_DIG_POINT - 1) i = F64_DIG_POINT - 1;
+    while (i < F64_DIG_POINT - 1 && !dig[i]) i++;
+    while (i < F64_DIG_POINT) *o++ = dig[i++] + '0';
+    cut = F64_DIG_POINT + prec;
+  } else {
+    *o++ = '0';
+    if (fz < hi) o[-1] += dig[fz];
+    i = fz + 1;
+    cut = i + prec;
+  }
+  if (prec) {
+    *o++ = '.';
+    while (i < cut) {
+      *o = '0';
+      if (i < hi) *o += dig[i];
+      o++;
+      i++;
+    }
+    if (strip) {
+      while (o[-1] == '0') o--;
+      if (o[-1] == '.') o--;
+    }
+  }
+  if (conv == 'e') {
+    *o++ = 'e';
+    if (x < 0) {
+      *o++ = '-';
+      x = -x;
+    } else {
+      *o++ = '+';
+    }
+    if (x >= 100) *o++ = x / 100 + '0';
+    *o++ = x / 10 % 10 + '0';
+    *o++ = x % 10 + '0';
+  }
+  *o = '\0';
+  Free(dig);
+  return out;
+}
+
 U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
 {// @TempleOS - Not a 1:1 yet
   if (!fmt) return NULL;
@@ -793,8 +956,8 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
   U8 **grow;
   CDate cdt;
 
-  /* Growth (SPutChar's MSize/Free dance) is only legal on a buffer WE
-   * MAlloc'd. A caller-provided dst may live on the stack or mid-array,
+  /* Growth (SPutChar's and OutStr's MSize/Free dance) is only legal on a
+   * buffer WE MAlloc'd. A caller-provided dst may live on the stack or mid-array,
    * where MSize reads garbage and Free aborts - so, as in TempleOS, the
    * caller's buffer is trusted to be big enough and never grown. */
   if (_dst == NULL) {
@@ -828,6 +991,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
       dec_len = -1;
       if (*fmt == '.') {
         fmt++;
+        dec_len = 0;
         while ('0'<=*fmt<='9') {
           dec_len = dec_len * 10 + *fmt++ -'0';
         }
@@ -849,7 +1013,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
         case 'Q': {
           strarg = argv[sp++](U8*);
           strarg = MPrintQ(strarg,flags);
-          OutStr(strarg,&dst,&ptr,tlen,flags);
+          OutStr(strarg,grow,&ptr,tlen,flags);
           Free(strarg);
           break;
         }
@@ -857,7 +1021,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
         case 'T': {
           cdt = argv[sp++](CDate);
           strarg = MPrintTime(cdt);
-          OutStr(strarg,&dst,&ptr,tlen,flags);
+          OutStr(strarg,grow,&ptr,tlen,flags);
           Free(strarg);
           break;
         }
@@ -865,82 +1029,61 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
         case 'D': {
           cdt = argv[sp++](CDate);
           strarg = MPrintDate(cdt);
-          OutStr(strarg,&dst,&ptr,tlen,flags);
+          OutStr(strarg,grow,&ptr,tlen,flags);
           Free(strarg);
           break;
         }
 
-        /* Presently there is only F64 */
+        /* Presently there is only F64, %f/%e/%g as C prints them */
+        case 'e':
+        case 'g':
         case 'f': {
-          "Floats not supported\n";
-          Exit(1);
-          F64 n;
-          U64 m;
-          I64 k = 0, idx = 0;
-          farg = argv[sp++](F64); // XXX: this should require a cast?
-          if (farg < 0) {
+          uintarg = argv[sp++](U64); // the F64's bits
+          strarg = F64ToFmtStr(uintarg,dec_len,*(fmt-1));
+          len = StrLen(strarg);
+          if (uintarg >> 63) {
             flags |= PRTF_NEG;
-            farg=-farg;
+            len++;
           }
-
-          if (dec_len < 0) {
-            dec_len = 0;
+          /* No zero padding for inf/nan, '-' wins over '0' */
+          if (flags & PRTF_LEFT_JUSTIFY || !('0' <= *strarg <= '9')) {
+            flags &= ~PRTF_PAD_ZERO;
           }
-          idx = dec_len;
-          // F64 m;
-          n = log10(farg);
-
-          if (n > 17) {
-            n -= 17;
-            farg *=pow(10.0,-n);
-          } else {
-            n = 0;
-          }
-          m = round(farg)(U64);
-          if (dec_len) {
-            buf[k++]='.';
-          }
-
-          while (idx-- && k < sizeof(buf)-8) {
-            if (n) {
-              n--;
-              buf[k++] = '0';
-            } else {
-              buf[k++]= (m % 10) + '0';
+          if (!(flags & (PRTF_PAD_ZERO|PRTF_LEFT_JUSTIFY))) {
+            for (I64 idx = len; idx < tlen; ++idx) {
+              SPutChar(&ptr,CH_SPACE,grow);
             }
           }
-          if (dec_len) {
-            buf[k++] = '.';
-          }
-
-          do {
-            if (n) {
-              n--;
-              buf[k++] = '0';
-            } else {
-              buf[k++] = (m % 10) + '0';
-            }
-          } while (k<sizeof(buf)-8);
-
           if (flags & PRTF_NEG) {
             SPutChar(&ptr,'-',grow);
           }
-          for (I64 i = k-1;i>=0;--i) {
-            SPutChar(&ptr,buf[i],grow);
+          if (flags & PRTF_PAD_ZERO) {
+            for (I64 idx = len; idx < tlen; ++idx) {
+              SPutChar(&ptr,'0',grow);
+            }
           }
+          for (tmp = strarg; *tmp; ++tmp) {
+            SPutChar(&ptr,*tmp,grow);
+          }
+          if (flags & PRTF_LEFT_JUSTIFY) {
+            for (I64 idx = len; idx < tlen; ++idx) {
+              SPutChar(&ptr,CH_SPACE,grow);
+            }
+          }
+          Free(strarg);
           break;
         }
 
         case 's': {
           strarg = argv[sp++](U8 *);
-          OutStr(strarg,&dst,&ptr,dec_len,flags);
+          OutStr(strarg,grow,&ptr,dec_len,flags);
           break;
         }
         
         case 'F': { // a file
           tmp = argv[sp++](U8 *);
           strarg = FileRead(tmp,&len);
-          OutStr(strarg,&dst,&ptr,dec_len,flags);
+          OutStr(strarg,grow,&ptr,dec_len,flags);
           Free(strarg);
           break;
         }
@@ -951,7 +1094,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
             buf[i] = uintarg >> ((i*8) & 0xFF);
           }
           buf[8] = '\0';
-          OutStr(buf,&dst,&ptr,tlen,flags);
+          OutStr(buf,grow,&ptr,tlen,flags);
           break;
         }
 
@@ -961,7 +1104,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
             buf[i] = ToUpper(uintarg >> ((i*8) & 0xFF));
           }
           buf[8] = '\0';
-          OutStr(buf,&dst,&ptr,tlen,flags);
+          OutStr(buf,grow,&ptr,tlen,flags);
           break;
         }
 
@@ -1049,7 +1192,7 @@ place_hex:
         case 'p': {
           uintarg = argv[sp++](U64);
           len = StrIntToHex(buf,uintarg);
-          OutStr(buf,&dst,&ptr,tlen,flags);
+          OutStr(buf,grow,&ptr,tlen,flags);
           break;
         }
 
