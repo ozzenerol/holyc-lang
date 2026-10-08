@@ -81,7 +81,7 @@ Bool TestXNotAfterZero(U0)
 {
   return CompileFailsWith(
 "U0 Main() { I64 x = 12x5; }
-", "invalid character 'x' in number");
+", "'x' can only appear in the 0x prefix of a hex literal");
 }
 
 Bool TestFloatLetters(U0)
