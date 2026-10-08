@@ -46,9 +46,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>StrPrint</code> ignores the width of <code>%s</code> and mixes up its precision</td>
-        <td><code>StrPrint(NULL, "[%5s][%.2s]", "ab", "abcd")</code> gives <code>[ab][abcd]</code></td>
-        <td>Pad and cut strings yourself, or use a print statement</td></tr>
     <tr><td><code>StrMapDelete</code> corrupts the table</td>
         <td>Deleting from a large map can crash; it isn't declared in <code>tos.HH</code></td>
         <td>Don't delete from maps; rebuild the map without the key</td></tr>

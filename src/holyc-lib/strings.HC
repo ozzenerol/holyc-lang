@@ -456,7 +456,7 @@ public U0 SPutChar(U8 **_dst,U8 ch,U8 **_buf)
   if (_buf) {
     buf=*_buf;
     i=dst-buf;
-    if (i>=MSize(buf)) {
+    if (i+1>=MSize(buf)) { /* room for ch and the '\0' after it */
       buf=MAlloc(i<<1+1);
       MemCpy(buf,*_buf,i);
       Free(*_buf);
@@ -469,11 +469,14 @@ public U0 SPutChar(U8 **_dst,U8 ch,U8 **_buf)
   *_dst=dst;
 }
 
-public U0 OutStr(U8 *instr,U8 **_buf,U8 **_dst,I64 len,I64 flags)
+public U0 OutStr(U8 *instr,U8 **_buf,U8 **_dst,I64 len,I64 flags,
+                 I64 prec=-1)
 {// @TempleOS
  // instr -> in string
  // _buf  -> the underlying buffer 
  // _dst  -> where the string will go
+ // len   -> the minimum width, padded with spaces
+ // prec  -> if >= 0 at most this many chars of instr are written, as C's %.Ns
   I64 i,j,size,dst_len;
   U8 *buf,*dst;
   if (!instr)
@@ -496,17 +499,17 @@ public U0 OutStr(U8 *instr,U8 **_buf,U8 **_dst,I64 len,I64 flags)
   }
   if (flags&PRTF_TRUNCATE && i>len)
     i=len;
-  if (flags&PRTF_LEFT_JUSTIFY) {
-    for (j=0;j<i;j++)
-      SPutChar(_dst,*instr++,_buf);
-    for (j=0;j<len-i;j++)
+  if (prec>=0 && i>prec)
+    i=prec;
+  /* All writes go through _dst: SPutChar may move the buffer */
+  if (!(flags&PRTF_LEFT_JUSTIFY))
+    for (j=i;j<len;j++)
       SPutChar(_dst,CH_SPACE,_buf);
-  } else {
-    for (j=0;j<len-i;j++)
-      SPutChar(&dst,CH_SPACE,_buf);
-    for (j=len-i;j<len;j++)
-      SPutChar(_dst,*instr++,_buf);
-  }
+  for (j=0;j<i;j++)
+    SPutChar(_dst,*instr++,_buf);
+  if (flags&PRTF_LEFT_JUSTIFY)
+    for (j=i;j<len;j++)
+      SPutChar(_dst,CH_SPACE,_buf);
 }
 
 public I64 StrOcc(U8 *src, I64 ch)
@@ -704,8 +707,8 @@ public U64 U64ToStr(U8 *dst, U64 num, I64 len=5000)
 I64 StrIntToHex(U8 *dst, I64 num)
 {
   U8 *hex_str="0123456789ABCDEF";
-  I64 i = (sizeof(U64) * 2) + 3, len = 2;
-  dst[i-1] = '\0';
+  I64 i = (sizeof(U64) * 2) + 1, len = 2; /* "0x" + 16 digits */
+  dst[i+1] = '\0';
   while (i >= 2) {
     len++;
     dst[i] = hex_str[num & 0xF];
@@ -987,6 +990,10 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
       if (*fmt == '*') {
         fmt++;
         tlen = argv[sp++](U64);
+        if (tlen < 0) { /* as in C, a negative '*' width left-justifies */
+          flags|=PRTF_LEFT_JUSTIFY;
+          tlen = -tlen;
+        }
       }
       dec_len = -1;
       if (*fmt == '.') {
@@ -1076,14 +1083,14 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
 
         case 's': {
           strarg = argv[sp++](U8 *);
-          OutStr(strarg,grow,&ptr,dec_len,flags);
+          OutStr(strarg,grow,&ptr,tlen,flags&~PRTF_TRUNCATE,dec_len);
           break;
         }
         
         case 'F': { // a file
           tmp = argv[sp++](U8 *);
           strarg = FileRead(tmp,&len);
-          OutStr(strarg,grow,&ptr,dec_len,flags);
+          OutStr(strarg,grow,&ptr,tlen,flags&~PRTF_TRUNCATE,dec_len);
           Free(strarg);
           break;
         }
@@ -1126,6 +1133,9 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
           if (idx) {
             flags |= PRTF_NEG;
           }
+          if (flags & PRTF_LEFT_JUSTIFY) { /* '-' wins over '0' */
+            flags &= ~PRTF_PAD_ZERO;
+          }
 
           if (flags & PRTF_TRUNCATE && len + idx>tlen) {
             len = tlen-idx;
@@ -1139,8 +1149,12 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
               SPutChar(&ptr,'0',grow);
             }
           } else {
-            for (;idx < tlen-len; ++idx) {
-              SPutChar(&ptr,CH_SPACE,grow);
+            if (flags & PRTF_LEFT_JUSTIFY) {
+              aux_fmt_num = tlen-len-idx; /* pad after the digits */
+            } else {
+              for (;idx < tlen-len; ++idx) {
+                SPutChar(&ptr,CH_SPACE,grow);
+              }
             }
             if (flags&PRTF_NEG) {
               SPutChar(&ptr,'-',grow);
@@ -1148,6 +1162,9 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
           }
           for (idx = len - 1; idx >= 0; --idx) {
             SPutChar(&ptr,buf[idx],grow);
+          }
+          for (idx = 0; idx < aux_fmt_num; ++idx) {
+            SPutChar(&ptr,CH_SPACE,grow);
           }
           break;
         }
@@ -1174,7 +1191,9 @@ place_hex:
             len = tlen;
           }
 
-          if (flags & PRTF_PAD_ZERO) {
+          if (flags & PRTF_LEFT_JUSTIFY) {
+            aux_fmt_num = tlen-len; /* pad after the digits */
+          } else if (flags & PRTF_PAD_ZERO) {
             for (I64 idx = 0; idx < tlen-len; ++idx) {
               SPutChar(&ptr,'0',grow);
             }
@@ -1185,6 +1204,9 @@ place_hex:
           }
           for (I64 idx = len - 1; idx >= 0; --idx) {
             SPutChar(&ptr,buf[idx],grow);
+          }
+          for (I64 idx = 0; idx < aux_fmt_num; ++idx) {
+            SPutChar(&ptr,CH_SPACE,grow);
           }
           break;
         }

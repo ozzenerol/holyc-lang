@@ -673,7 +673,8 @@ public U8 *StrTrimEnd(U8 *str, I64 str_len=-1, I64 *_new_len=NULL);
 public Bool IsDotZ(U8 *filename);
 public Bool IsDotC(U8 *filename);
 public U0 SPutChar(U8 **_dst, U8 ch, U8 **_buf);
-public U0 OutStr(U8 *instr, U8 **_buf, U8 **_dst, I64 len, I64 flags);
+public U0 OutStr(U8 *instr, U8 **_buf, U8 **_dst, I64 len, I64 flags,
+                 I64 prec = -1);
 public I64 StrOcc(U8 *src, I64 ch);
 public U8 *StrFirstOcc(U8 *src, U8 *marker);
 public U8 *StrLastOcc(U8 *src, U8 *marker);
