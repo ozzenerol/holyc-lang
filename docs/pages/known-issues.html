@@ -8,9 +8,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>Reading a field straight off a returned <code>I64</code>-based class crashes</td>
-        <td><code>Now().date</code> (<code>CDate</code> is an <code>I64 class</code>)</td>
-        <td>Copy it first: <code>CDate c = Now(); c.date</code></td></tr>
     <tr><td><code>auto</code> in a range-based <code>for</code> over a container field gets the wrong type</td>
         <td><code>for (auto it : h.v)</code> where <code>v</code> is an <code>IntVec *</code> field</td>
         <td>Give the type: <code>for (I64 it : h.v)</code></td></tr>
