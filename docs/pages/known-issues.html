@@ -8,9 +8,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>||</code> rejects a pointer next to a call returning <code>Bool</code></td>
-        <td><code>if (p || T())</code> where <code>T</code> returns <code>Bool</code></td>
-        <td>Compare the pointer: <code>p != NULL || T()</code></td></tr>
     <tr><td>Extra tokens after an <code>#if</code> condition are ignored</td>
         <td><code>#if 0 1</code> is the same as <code>#if 0</code>, with no error</td>
         <td>Check the <code>#if</code> lines</td></tr>
