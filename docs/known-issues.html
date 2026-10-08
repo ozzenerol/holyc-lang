@@ -37,13 +37,58 @@ a way to reproduce it and a workaround. The other pages avoid them, so every exa
 works as shown.</p>
 
 <h2>Compiler</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td><code>sizeof</code> of an <code>I64 class</code> is 16, not 8</td>
+        <td><code>sizeof(CDate)</code> is 16</td>
+        <td>Don't rely on its size; copy the fields you need</td></tr>
+    <tr><td>Float literals with an exponent are misread</td>
+        <td><code>F64 a = 1e3;</code> is 1.0; <code>1.0e-7</code> is -7.0</td>
+        <td>Write the decimal form (<code>1000.0</code>, <code>0.0000001</code>) or compute it (<code>1.0 / 10000000</code>)</td></tr>
+    <tr><td><code>&gt;&gt;</code>, <code>/</code> and <code>%</code> on <code>U64</code> behave as signed</td>
+        <td><code>0xC004000000000000 &gt;&gt; 63</code> is all ones; <code>(1 &lt;&lt; 63) % 3</code> is wrong</td>
+        <td>Mask after shifting (<code>(w &gt;&gt; 63) &amp; 1</code>); avoid dividing values with the top bit set</td></tr>
+    <tr><td>Reading a field straight off a returned <code>I64</code>-based class crashes</td>
+        <td><code>Now().date</code> (<code>CDate</code> is an <code>I64 class</code>)</td>
+        <td>Copy it first: <code>CDate c = Now(); c.date</code></td></tr>
+    <tr><td><code>auto</code> in a range-based <code>for</code> over a container field gets the wrong type</td>
+        <td><code>for (auto it : h.v)</code> where <code>v</code> is an <code>IntVec *</code> field</td>
+        <td>Give the type: <code>for (I64 it : h.v)</code></td></tr>
+    <tr><td>Comparing an <code>F64</code> with an integer truncates the float</td>
+        <td><code>F64 b = 2.5; b == 2</code> is true</td>
+        <td>Compare with a float: <code>b == 2.0</code></td></tr>
+    <tr><td>A bad <code>#if</code> expression gives an error without a file or line</td>
+        <td><code>#if 1 +</code>: "Unexpected end of input Parsing macro:1"</td>
+        <td>Check the <code>#if</code> lines</td></tr>
+  </tbody>
+</table>
 
 <h2>JIT and code generation</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>Calling a variadic (<code>...</code>) function through a function pointer passes the wrong arguments in the JIT and on arm64</td>
+        <td><code>I64 (*sp)(U8 *t, ...) = &amp;Sum; sp("a", 1, 2, 3);</code> under <code>-jit</code></td>
+        <td>Call the function directly, or compile on x86_64</td></tr>
+    <tr><td><code>-Memsafe</code> reports leaks and double frees in correct code</td>
+        <td>Three <code>MAlloc</code>s and three <code>Free</code>s report one allocation never freed</td>
+        <td>Use valgrind on a compiled binary instead</td></tr>
+  </tbody>
+</table>
 
 <h2>Standard library</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td><code>StrPrint</code> ignores the width of <code>%s</code> and mixes up its precision</td>
+        <td><code>StrPrint(NULL, "[%5s][%.2s]", "ab", "abcd")</code> gives <code>[ab][abcd]</code></td>
+        <td>Pad and cut strings yourself, or use a print statement</td></tr>
+    <tr><td><code>StrMapDelete</code> corrupts the table</td>
+        <td>Deleting from a large map can crash; it isn't declared in <code>tos.HH</code></td>
+        <td>Don't delete from maps; rebuild the map without the key</td></tr>
+  </tbody>
+</table>
 
 <h2>Reporting</h2>
 <p>Please report bugs on <a href="https://github.com/ozzenerol/holyc-lang/issues">GitHub</a>.
