@@ -866,6 +866,13 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
                 *err = 1;
                 return -1;
             }
+            /* Only a leading `0x` is a hex prefix: `12x5` is not 0x125. */
+            if (ptr != start + 1 || *start != '0') {
+                lexNumWarning(l, "line %d: invalid character 'x' in number\n",
+                              l->lineno);
+                *err = 1;
+                return -1;
+            }
             *ishex = 1;
             break;
         case '-':
@@ -887,7 +894,7 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             break;
         /* Anything else is invalid */
         default:
-            if (*ptr == 'f') {
+            if (*ptr == 'f' && !*ishex) {
                 if (*(ptr+1) != '\0' && *(ptr+1) == '3' && 
                    *(ptr+2) != '\0' && *(ptr+2) == '2') {
                     ptr += 2;
@@ -899,8 +906,12 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
                     *isfloat = 1;
                     break;
                 }
-            } else if (!isHex(*ptr)) {
-                lexNumWarning(l, "line %d: Number errored with char: '%c'\n",l->lineno,*ptr);
+            }
+            /* Letters are only digits in a hex literal: `123abc` used
+             * to be read as 123 (strtoull stops at the `a`). */
+            if (!isNum(*ptr) && !(*ishex && isHex(*ptr))) {
+                lexNumWarning(l, "line %d: invalid character '%c' in number\n",
+                              l->lineno,*ptr);
                 *err = 1;
                 return -1;
             }
@@ -1138,12 +1149,24 @@ int lexNumeric(Lexer *l, int _isfloat) {
     ishex = isbin = isfloat = err = 0;
     char *start = l->ptr - 1;
     numlen = countNumberLen(l, start, &isfloat, &ishex, &isbin, &err);
+    /* C's `U` suffix on an integer (`0x0800U`, as copied from C
+     * headers) is accepted and has no effect on the value. */
+    if (!err && !isfloat && (start[numlen] == 'U' || start[numlen] == 'u')) {
+        numlen++;
+    }
+    /* Any other letter straight after the literal (`0x12G`, `0b101z`,
+     * `1.5g`) is an invalid suffix, not the start of the next token. */
+    if (!err && (isalpha(start[numlen]) || start[numlen] == '_')) {
+        lexNumWarning(l, "line %d: invalid suffix '%c' on number\n",
+                      l->lineno, start[numlen]);
+        err = 1;
+    }
     if (err) {
         /* Step over the whole malformed literal (`1e+`, `0b12`) so the
          * error underlines all of it and lexing resumes after it,
          * instead of on its tail (`e`, `b12` as stray identifiers). */
         char *end = start + 1;
-        while (!isNumTerminator(*end) ||
+        while (!isNumTerminator(*end) || isalpha(*end) || *end == '_' ||
                ((*end == '+' || *end == '-') &&
                 (end[-1] == 'e' || end[-1] == 'E'))) {
             end++;
