@@ -8,6 +8,7 @@
 #define HT_DELETED 0x7fffffffffffffff
 #define HT_PROBE_1 1
 #define HT_PROBE_3 3
+#define HT_MIN_CAPACITY 8
 
 class IntMapNode
 {
@@ -64,9 +65,20 @@ U64 RoundUpToNextPowerOf2(U64 v)
   return v;
 }
 
+static U64 HtCapacity(U64 capacity)
+{/* The probe loops use `idx & mask`, so the capacity, the mask and the size
+  * of the entries array must all be the same power of two. Round any
+  * requested size up to one (and to at least HT_MIN_CAPACITY, which also
+  * keeps 0 and 1 from producing a zero mask or a zero threshold). */
+  if (capacity < HT_MIN_CAPACITY) {
+    capacity = HT_MIN_CAPACITY;
+  }
+  return RoundUpToNextPowerOf2(capacity);
+}
+
 public Bool IntMapSet(IntMap *map, I64 key, U0 *value);
 public Bool IntMapHas(IntMap *map, I64 key);
-public IntMap *IntMapNew(U64 capacity=1<<8);
+public IntMap *IntMapNew(U64 capacity=32);
 public U0 IntMapSetFreeValue(IntMap *map, U0 (*_free_value)(U0 *value));
 public U0 IntMapRelease(IntMap *map);
 public Bool IntMapResize(IntMap *map);
@@ -79,7 +91,8 @@ U64 IntMapHashFunction(I64 key, U64 mask)
 IntMap *IntMapNew(U64 capacity)
 {
   IntMap *map = MAlloc(sizeof(IntMap));
-  map->capacity = RoundUpToNextPowerOf2(capacity);
+  capacity = HtCapacity(capacity);
+  map->capacity = capacity;
   map->mask = capacity-1;
   map->size = 0;
   map->indexes = IntVecNew();
@@ -346,7 +359,7 @@ public U8 *IntMapKeysToString(IntMap *map)
 
 
 public Bool StrMapSet(StrMap *map, I64 key, U0 *value);
-public StrMap *StrMapNew(U64 capacity=1<<8);
+public StrMap *StrMapNew(U64 capacity=32);
 public U0 StrMapSetFreeValue(StrMap *map, U0 (*_free_value)(U0 *value));
 public U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key));
 public U0 StrMapRelease(StrMap *map);
@@ -355,7 +368,8 @@ public Bool StrMapResize(StrMap *map);
 StrMap *StrMapNew(U64 capacity)
 {
   StrMap *map = MAlloc(sizeof(StrMap));
-  map->capacity = RoundUpToNextPowerOf2(capacity);
+  capacity = HtCapacity(capacity);
+  map->capacity = capacity;
   map->mask = capacity-1;
   map->size = 0;
   map->indexes = IntVecNew();
