@@ -1494,6 +1494,11 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
                 }
                 var_arg_start += 1;
             }
+            /* Through a pointer to a HolyC `...` function. */
+            if (instr->flags & IRCG_CALL_HOLYC_VA) {
+                holyc_variadic = 1;
+                var_arg_start = instr->extra.va_named_count + 1;
+            }
 
             u64 n = args ? args->size : 0;
             u8 *is_stack = n ? calloc(n, 1) : NULL;
