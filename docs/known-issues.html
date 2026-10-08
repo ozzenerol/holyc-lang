@@ -71,9 +71,6 @@ works as shown.</p>
     <tr><td>Calling a variadic (<code>...</code>) function through a function pointer passes the wrong arguments in the JIT and on arm64</td>
         <td><code>I64 (*sp)(U8 *t, ...) = &amp;Sum; sp("a", 1, 2, 3);</code> under <code>-jit</code></td>
         <td>Call the function directly, or compile on x86_64</td></tr>
-    <tr><td><code>-Memsafe</code> reports leaks and double frees in correct code</td>
-        <td>Three <code>MAlloc</code>s and three <code>Free</code>s report one allocation never freed</td>
-        <td>Use valgrind on a compiled binary instead</td></tr>
   </tbody>
 </table>
 
