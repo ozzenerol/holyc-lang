@@ -1923,6 +1923,9 @@ Ast *parseUnaryExpr(Cctrl *cc) {
             }
             case AST_UN_OP_DEREF:   type = operand->type->ptr; break;
             case AST_UN_OP_BIT_NOT: type = ast_int_type; break;
+            /* 0/1 whatever the operand: typed as the operand, `!f` on
+             * an F64 was converted back from a float and read as 0. */
+            case AST_UN_OP_LOG_NOT: type = ast_int_type; break;
             default:                type = operand->type; break;
         }
 

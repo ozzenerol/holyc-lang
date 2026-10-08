@@ -94,6 +94,21 @@ IrInstr *irICmp(IrValue *result,
     return instr;
 }
 
+/* `val EQ/NE 0` for a value used as a truth value (a branch condition,
+ * `!`, a `&&` / `||` operand). A float is compared against 0.0 as a
+ * float, as in C: -0.0 is false and NaN is true (NE is unordered-or-
+ * not-equal on every backend). Comparing it as an int tested its raw
+ * bits, or only some of them. */
+static IrInstr *irTruthCmp(IrValue *result, IrCmpKind kind, IrValue *val) {
+    if (irIsFloat(val->type)) {
+        IrInstr *instr = irInstrNew(IR_FCMP, result, val,
+                                    irConstFloat(val->type, 0.0));
+        instr->extra.cmp_kind = kind;
+        return instr;
+    }
+    return irICmp(result, kind, val, irConstInt(IR_TYPE_I8, 0));
+}
+
 IrInstr *irBranch(IrFunction *func,
                   IrBlock *block,
                   IrValue *cond,
@@ -114,9 +129,8 @@ IrInstr *irBranch(IrFunction *func,
         }
         
         if (!isa_bool) {
-            IrValue *zero = irConstInt(IR_TYPE_I8, 0);
             IrValue *bool_cond = irTmp(IR_TYPE_I8, 1);
-            IrInstr *cmp = irICmp(bool_cond, IR_CMP_NE, cond, zero);
+            IrInstr *cmp = irTruthCmp(bool_cond, IR_CMP_NE, cond);
             listAppend(block->instructions, cmp);
             cond = bool_cond;
         }
@@ -531,9 +545,9 @@ IrValue *irLowerFnCall(IrCtx *ctx, Ast *ast) {
  * be turned into 0/1 before it flows into the phi: passing it raw would
  * truncate it (`0 || 256` was false, `T() && p` false for a pointer whose
  * low byte is 0) or leak its value (`0 || 5` gave 5). A comparison or a
- * nested logical op already yields 0/1. Floats are left as they were. */
+ * nested logical op already yields 0/1. A float is compared against
+ * 0.0 (`0 || 0.5` was 0: the raw float went into the phi). */
 static IrValue *irLogicalOperandToBool(IrCtx *ctx, IrValue *val) {
-    if (irIsFloat(val->type)) return val;
     if (!listEmpty(ctx->cur_block->instructions)) {
         IrInstr *last = (IrInstr *)ctx->cur_block->instructions->prev->value;
         if (last->dst == val &&
@@ -542,8 +556,7 @@ static IrValue *irLogicalOperandToBool(IrCtx *ctx, IrValue *val) {
         }
     }
     IrValue *bool_val = irTmp(IR_TYPE_I8, 1);
-    irBlockAddInstr(ctx, irICmp(bool_val, IR_CMP_NE, val,
-                                irConstInt(IR_TYPE_I8, 0)));
+    irBlockAddInstr(ctx, irTruthCmp(bool_val, IR_CMP_NE, val));
     return bool_val;
 }
 
@@ -1747,11 +1760,10 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
     }
     if (astIsUnOpKind(ast, AST_UN_OP_LOG_NOT)) {
         /* Logical NOT: result is 1 if operand is zero, else 0.
-         * Lower as ICMP_EQ with 0. */
+         * Lower as a compare EQ with 0 (0.0 for a float). */
         IrValue *v = irExpr(ctx, ast->operand);
         IrValue *dst = irTmp(IR_TYPE_I64, 8);
-        IrValue *zero = irConstInt(IR_TYPE_I64, 0);
-        irBlockAddInstr(ctx, irICmp(dst, IR_CMP_EQ, v, zero));
+        irBlockAddInstr(ctx, irTruthCmp(dst, IR_CMP_EQ, v));
         return dst;
     }
     /* Slice supports ++/-- on int / pointer locals and on int /
