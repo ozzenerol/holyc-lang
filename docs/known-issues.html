@@ -86,9 +86,6 @@ works as shown.</p>
     <tr><td><code>STDOUT</code> is 0 and <code>STDIN</code> is 2 in <code>tos.HH</code></td>
         <td><code>Write(STDOUT, ...)</code> writes to stdin, which only works on a terminal</td>
         <td>Use the numbers: 1 for stdout, 2 for stderr</td></tr>
-    <tr><td>Libraries built with <code>-lib</code> can't be loaded by the JIT</td>
-        <td><code>#link &lt;mylib&gt;</code> under <code>-jit</code>: "failed to load library"</td>
-        <td>Symlink <code>libmylib.so</code> to <code>libmylib.so.0.0.1</code></td></tr>
   </tbody>
 </table>
 
