@@ -288,11 +288,29 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
     }
 
     fields_list = listNew();
+    /* For the diagnostics; an anonymous class/union has no tag. */
+    char *cls_str = name ? name->data : "<anonymous>";
+
+    /* Per-field recovery point, like the per-statement one in
+     * parseCompoundStatementInternal: a bad field is reported, the
+     * tokens are skipped to the next `;` (or the closing `}`) and
+     * parsing carries on. The class is then completed with the fields
+     * that did parse instead of being left registered without a field
+     * map, which crashed the first member access. */
+    jmp_buf field_recovery;
+    jmp_buf *outer_recovery = cc->current_recovery;
+    Map *volatile class_scope = cc->localenv;
+    cc->current_recovery = &field_recovery;
 
     while (1) {
+        if (setjmp(field_recovery) != 0) {
+            cc->localenv = class_scope;
+            cctrlSyncStatement(cc);
+        }
         /* Peek not a consume */
         tok_name = cctrlTokenPeek(cc);
         if (tok_name == NULL) {
+            cc->current_recovery = outer_recovery;
             cctrlRaiseException(cc,
                     "Unexpected end of input in class/union body");
         }
@@ -324,17 +342,11 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
                     cctrlRaiseException(cc,"Unexpected keyword: `%.*s` while parsing class %s",
                             tok_name->len,
                             tok_name->start,
-                            name->data);
+                            cls_str);
             }
         } else {
-            if (name) {
-                cctrlRaiseException(cc,"Unexpected type `%.*s` while parsing class %s",
-                        tok_name->len, tok_name->start, name->data);
-            } else {
-                cctrlRewindUntilStrMatch(cc,tok_name->start,tok_name->len,NULL);
-                cctrlRaiseException(cc,"Unexpected type `%.*s` while parsing annoymous class",
-                        tok_name->len, tok_name->start);
-            }
+            cctrlRaiseException(cc,"Unexpected type `%.*s` while parsing class %s",
+                    tok_name->len, tok_name->start, cls_str);
         }
 
         while (1) {
@@ -342,12 +354,14 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
             tok_name = cctrlTokenGet(cc);
             if (!tok_name) {
                 cctrlRaiseException(cc, "<type> <variable_name | (> expected got NULL while parsing class %s",
-                        name->data);
+                        cls_str);
             }
             if (tok_name->tk_type != TK_IDENT && !tokenPunctIs(tok_name, '(')) {
-                cctrlRewindUntilPunctMatch(cc,tok_name->i64,NULL);
+                /* Back onto the bad token so the diagnostic points at it
+                 * and the recovery skips from there. */
+                cctrlTokenRewind(cc);
                 cctrlRaiseException(cc, "Unexpected character `%.*s` while parsing class %s",
-                        tok_name->len,tok_name->start,name->data);
+                        tok_name->len,tok_name->start,cls_str);
             } else if (tokenPunctIs(tok_name, '(')) {
                 next_type = parseFunctionPointerType(cc,&fnptr_name,&fnptr_name_len,next_type);
                 field_name = aoStrDupRaw(fnptr_name,fnptr_name_len);
@@ -377,13 +391,17 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
                 continue;
             } else if (tokenPunctIs(tok,';')) {
                 break;
+            } else if (!tok) {
+                cctrlRaiseException(cc, "Unexpected end of input while parsing class %s",
+                        cls_str);
             } else {
-                cctrlRewindUntilPunctMatch(cc,tok->i64,NULL);
-                cctrlRaiseException(cc, "Unexpected token '%.*s' while parsing class %s",
-                        tok->len, tok->start, name->data);
+                cctrlTokenRewind(cc);
+                cctrlRaiseException(cc, "Unexpected token '%.*s' while parsing class %s, perhaps you meant to terminate the field with `;`?",
+                        tok->len, tok->start, cls_str);
            }
         }
     }
+    cc->current_recovery = outer_recovery;
     cctrlTokenExpect(cc,'}');
     size = 0;
     size = computeSize(fields_list);

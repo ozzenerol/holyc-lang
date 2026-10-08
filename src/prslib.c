@@ -1373,6 +1373,13 @@ Ast *parseGetClassField(Cctrl *cc, Ast *cls) {
     if (type->fields == NULL && astIsDeref(cls)) {
         type = cls->operand->type;
     }
+    /* A class that was only forward declared (`class Foo;`) has no
+     * field map to look the member up in. */
+    if (type->fields == NULL) {
+        cctrlRewindUntilStrMatch(cc, tok->start, tok->len, NULL);
+        cctrlRaiseException(cc,"Cannot access `%.*s`, %s is incomplete",
+                tok->len, tok->start, astTypeToString(cls->type));
+    }
     AstType *field = mapGetLen(type->fields, tok->start, tok->len);
     if (!field) {
         cctrlRewindUntilStrMatch(cc, tok->start, tok->len, NULL);
