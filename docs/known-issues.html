@@ -40,9 +40,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>sizeof</code> of an <code>I64 class</code> is 16, not 8</td>
-        <td><code>sizeof(CDate)</code> is 16</td>
-        <td>Don't rely on its size; copy the fields you need</td></tr>
     <tr><td>Reading a field straight off a returned <code>I64</code>-based class crashes</td>
         <td><code>Now().date</code> (<code>CDate</code> is an <code>I64 class</code>)</td>
         <td>Copy it first: <code>CDate c = Now(); c.date</code></td></tr>

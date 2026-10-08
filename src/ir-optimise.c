@@ -758,6 +758,14 @@ static IrInstr *irFindScalingProducer(Map *defs, IrValue *v, u8 *scale) {
     return NULL;
 }
 
+/* Width in bytes of the memory access a LOAD_DEREF / STORE_DEREF /
+ * RMW_DEREF performs (values wider than a register move 8 bytes). */
+static int irMemAccessSize(IrInstr *use) {
+    u32 size = use->op == IR_LOAD_DEREF ? irValueByteSize(use->dst)
+                                        : irValueByteSize(use->r1);
+    return (size == 1 || size == 2 || size == 4) ? (int)size : 8;
+}
+
 /* Fold IADD/ISUB into the addressing mode of its single mem-op
  * consumer. Two folds, tried in order per IADD:
  *   - const disp: `iadd t, ptr, k_imm` (or `isub ptr, k`) -> set
@@ -841,6 +849,14 @@ static int irFuseIaddIntoMemAddressing(IrFunction *fn) {
                 else if ((scaler = irFindScalingProducer(defs, I->r1, &scale)) &&
                          irTmpUseCount(uses, I->r1) == 1) base = I->r2;
                 else scaler = NULL;
+                /* AArch64's register-offset form can only shift the index
+                 * by the access size (`ldr w0, [x1, x2, lsl #2]`), so an
+                 * index scaled by a different stride - a 4-byte field of
+                 * an 8-byte array element, `arr[i].date` on a CDate
+                 * array - must stay an explicit shift + add. */
+                if (scaler && scale != 1 && scale != irMemAccessSize(use)) {
+                    scaler = NULL;
+                }
                 if (scaler && irLocIsScratchClobbered(base) &&
                     ((use_node && irRangeClobbersScratch(cur, use_node)) ||
                      irLocClobberedBy(use, base, IR_CLOBBER_BEFORE_R1)))

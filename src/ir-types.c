@@ -327,7 +327,18 @@ IrValueType irConvertType(AstType *type) {
         case AST_TYPE_ARRAY:   return IR_TYPE_ARRAY;
         case AST_TYPE_POINTER: return IR_TYPE_PTR;
         case AST_TYPE_FUNC:    return IR_TYPE_FUNCTION;
-        case AST_TYPE_CLASS:   return IR_TYPE_STRUCT;
+        case AST_TYPE_CLASS:
+            /* An intrinsic class (`I64 class CDate`) is a value of its base
+             * integer type, sized like it. */
+            if (type->is_intrinsic) {
+                switch (type->size) {
+                    case 1: return IR_TYPE_I8;
+                    case 2: return IR_TYPE_I16;
+                    case 4: return IR_TYPE_I32;
+                    default: return IR_TYPE_I64;
+                }
+            }
+            return IR_TYPE_STRUCT;
         case AST_TYPE_UNION:   return IR_TYPE_STRUCT;
         case AST_TYPE_VIS_MODIFIER:
             loggerPanic("Type visibility modifier is not a type!\n");

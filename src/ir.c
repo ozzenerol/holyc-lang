@@ -1333,7 +1333,8 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
  * `ty` is the value's source AST type. Returns the (possibly widened) value. */
 static IrValue *irPromoteNarrowInt(IrCtx *ctx, IrValue *v, AstType *ty) {
     if (ty &&
-        (ty->kind == AST_TYPE_INT || ty->kind == AST_TYPE_CHAR) &&
+        (ty->kind == AST_TYPE_INT || ty->kind == AST_TYPE_CHAR ||
+         astIsIntrinsicClass(ty)) &&
         ty->size > 0 && ty->size < 8)
     {
         IrValue *wide = irTmp(IR_TYPE_I64, 8);
@@ -1377,9 +1378,9 @@ IrValue *irLowerLVar(IrCtx *ctx, Ast *ast) {
      * value held by its slot can't be mutated by aliasing, so the
      * consumer can read the slot operand directly and we skip emitting
      * the IR_LOAD tmp entirely. Intrinsic classes still go through the
-     * load: they carry a class type at the AST level which we coerce to
-     * I64 here, and downstream type-based logic relies on that
-     * coercion. */
+     * load: they carry a class type at the AST level which is loaded as
+     * its base integer type here (see irConvertType), and downstream
+     * type-based logic relies on that coercion. */
     IrValue *result;
     if (!is_intrinsic_class &&
         ctx->escape_set &&
@@ -1387,22 +1388,16 @@ IrValue *irLowerLVar(IrCtx *ctx, Ast *ast) {
     {
         result = local_var;
     } else {
-        IrValueType ir_value_type = is_intrinsic_class
-            ? IR_TYPE_I64 : irConvertType(ast->type);
-
-        int load_size = is_intrinsic_class ? 8 : ast_ty->size;
-        IrValue *ir_load_dest = irTmp(ir_value_type, load_size);
+        IrValue *ir_load_dest = irTmp(irConvertType(ast->type), ast_ty->size);
         IrInstr *load_instr = irLoad(ir_load_dest, local_var);
         irBlockAddInstr(ctx, load_instr);
         result = ir_load_dest;
     }
 
-    /* C integer promotion for narrow reads (see irPromoteNarrowInt).
-     * Intrinsic classes are coerced to I64 above and must not be re-extended. */
-    if (!is_intrinsic_class) {
-        result = irPromoteNarrowInt(ctx, result, ast_ty);
-    }
-    return result;
+    /* C integer promotion for narrow reads (see irPromoteNarrowInt); an
+     * intrinsic class narrower than 8 bytes (`U16 class`) widens per its
+     * base type's signedness. */
+    return irPromoteNarrowInt(ctx, result, ast_ty);
 }
 
 IrValue *irLowerGlobal(IrCtx *ctx, Ast *ast) {
