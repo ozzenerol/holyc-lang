@@ -1385,7 +1385,9 @@ static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
     int len = strlen(class_ref->field);
     Vec *argv = parseArgv(cc,class_ref,')',class_ref->field,len);
     parseFunctionArgumentCheck(cc,class_ref,argv,class_ref->field,len);
+    parseFlattenDefaultArgs(class_ref, argv);
     parseAddEmptyVarArgCount(class_ref, argv);
+    parseCoerceArgs(class_ref, argv);
     return astFunctionPtrCall(
             class_ref->type->rettype,
             class_ref->field,
