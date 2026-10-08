@@ -173,7 +173,7 @@ static U0 JsonAdvanceToTerminator(JsonParser *p, U8 terminator)
   }
 }
 
-static I64 CountNumberLen(JsonParser *p, U8 *ptr, Bool *is_hex)
+static I64 CountNumberLen(JsonParser *p, U8 *ptr, Bool *is_hex, Bool *is_exp)
 {
   U8 *start = ptr;
   I32 seen_e = 0, seen_dec = 0, seen_X = 0;
@@ -226,6 +226,8 @@ static I64 CountNumberLen(JsonParser *p, U8 *ptr, Bool *is_hex)
     return JsonAdvanceToError(p, ptr - start, JSON_INVALID_NUMBER);
   }
 
+  /* `1e+15` has no `.` but is still a float */
+  *is_exp = seen_e;
   return ptr - start;
 }
 
@@ -260,9 +262,9 @@ static U0 JsonParseNumber(JsonParser *p)
   auto ptr = p->buffer + p->offset;
   I64 res;
   U8 *endptr = NULL;
-  Bool is_hex = FALSE;
+  Bool is_hex = FALSE, is_exp = FALSE;
   I32 neg = 0, dec_idx = -1, mantissa = 0;
-  I32 num_len = CountNumberLen(p, ptr,&is_hex);
+  I32 num_len = CountNumberLen(p, ptr,&is_hex,&is_exp);
 
   if (*ptr == '-') {
     neg = 1;
@@ -285,7 +287,7 @@ static U0 JsonParseNumber(JsonParser *p)
 
   mantissa = CountMantissa(ptr, &dec_idx);
 
-  if (dec_idx == -1) {
+  if (dec_idx == -1 && !is_exp) {
     if (neg) --ptr; /* let strtoll do the hard work */
     if (is_hex) {
       res = strtoll(ptr,&endptr,16);

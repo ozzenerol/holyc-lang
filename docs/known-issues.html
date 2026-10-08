@@ -43,9 +43,6 @@ works as shown.</p>
     <tr><td><code>sizeof</code> of an <code>I64 class</code> is 16, not 8</td>
         <td><code>sizeof(CDate)</code> is 16</td>
         <td>Don't rely on its size; copy the fields you need</td></tr>
-    <tr><td>Float literals with an exponent are misread</td>
-        <td><code>F64 a = 1e3;</code> is 1.0; <code>1.0e-7</code> is -7.0</td>
-        <td>Write the decimal form (<code>1000.0</code>, <code>0.0000001</code>) or compute it (<code>1.0 / 10000000</code>)</td></tr>
     <tr><td><code>&gt;&gt;</code>, <code>/</code> and <code>%</code> on <code>U64</code> behave as signed</td>
         <td><code>0xC004000000000000 &gt;&gt; 63</code> is all ones; <code>(1 &lt;&lt; 63) % 3</code> is wrong</td>
         <td>Mask after shifting (<code>(w &gt;&gt; 63) &amp; 1</code>); avoid dividing values with the top bit set</td></tr>
