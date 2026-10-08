@@ -136,9 +136,6 @@ Syntax highlighting for Vim is in <code>src/syntax-highlighting/hc.vim</code>.</
 <code>$HOME/.local/lib</code>. Mark the functions it exports <code>public</code>. To use
 the library, declare its functions (usually in a <code>.HH</code> header you
 <code>#include</code>) and add <code>#link &lt;mylib&gt;</code>.</p>
-<div class="note"><p>This works for compiled programs. The JIT can't load these libraries yet,
-because it looks for <code>libmylib.so</code> and <code>-lib</code> installs only
-<code>libmylib.so.0.0.1</code>. Adding a <code>libmylib.so</code> symlink works around it.</p></div>
 
 <h2>The transpiler</h2>
 <pre><code>hcc -transpile main.HC &amp;gt; main.c</code></pre>

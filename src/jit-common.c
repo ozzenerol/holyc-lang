@@ -430,7 +430,10 @@ static void jitLoadLibtos(Cctrl *cc) {
  * asm_jit_dlsym_resolver. `name_form` entries came from `#link <name>`
  * and are probed with the linker's lib prefix + both platforms'
  * suffixes (dlopen inspects the file, not the extension, so trying
- * both is harmless); paths load verbatim. Returns 1 on success. */
+ * both is harmless); paths load verbatim. The versioned names are
+ * what `hcc -lib <name>` installs (lib<name>.0.0.1.dylib /
+ * lib<name>.so.0.0.1, no unversioned link - see hccLibInit in
+ * main.c), so they are probed too. Returns 1 on success. */
 static int jitDlopenLib(Cctrl *cc, const char *name, int name_form) {
     if (!name_form) {
         return dlopen(name, RTLD_LAZY | RTLD_GLOBAL) != NULL;
@@ -439,7 +442,9 @@ static int jitDlopenLib(Cctrl *cc, const char *name, int name_form) {
     /* Bare names first: dyld / ld.so search their own default paths
      * (DYLD_LIBRARY_PATH / LD_LIBRARY_PATH, the dyld shared cache,
      * the ldconfig cache, ...). */
-    static const char *const fmts[] = { "lib%s.dylib", "lib%s.so", "%s" };
+    static const char *const fmts[] = {
+        "lib%s.dylib", "lib%s.so", "lib%s.0.0.1.dylib", "lib%s.so.0.0.1", "%s"
+    };
     char buf[1024];
     for (size_t i = 0; i < sizeof(fmts)/sizeof(fmts[0]); ++i) {
         snprintf(buf, sizeof(buf), fmts[i], name);
@@ -477,6 +482,10 @@ static int jitDlopenLib(Cctrl *cc, const char *name, int name_form) {
         char *lib = tprintf("%s/lib%s.dylib", dirs[d], name);
         if (dlopen(lib, RTLD_LAZY | RTLD_GLOBAL)) return 1;
         lib = tprintf("%s/lib%s.so", dirs[d], name);
+        if (dlopen(lib, RTLD_LAZY | RTLD_GLOBAL)) return 1;
+        lib = tprintf("%s/lib%s.0.0.1.dylib", dirs[d], name);
+        if (dlopen(lib, RTLD_LAZY | RTLD_GLOBAL)) return 1;
+        lib = tprintf("%s/lib%s.so.0.0.1", dirs[d], name);
         if (dlopen(lib, RTLD_LAZY | RTLD_GLOBAL)) return 1;
     }
     return 0;
@@ -518,7 +527,8 @@ static void jitLoadSharedObjects(Cctrl *cc) {
             setAdd(loaded, name->data);
             if (!jitDlopenLib(cc, name->data, 1)) {
                 fprintf(stderr, "hcc: #link: failed to load library '%s' "
-                        "(probed lib%s.{dylib,so} in the dynamic linker's "
+                        "(probed lib%s.{dylib,so,0.0.1.dylib,so.0.0.1} in the "
+                        "dynamic linker's "
                         "default paths, %s/lib, /opt/homebrew/lib, "
                         "/usr/local/lib and the system lib dirs)\n",
                         name->data, name->data,
