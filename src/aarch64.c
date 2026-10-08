@@ -707,12 +707,47 @@ static int aarch64IsLogicalImm(s64 imm, int is_64) {
     return 0;
 }
 
-static const char *aarch64IdxReg(IrCgCtx *ctx, IrInstr *instr) {
-    if (!instr->idx || !instr->scale) return NULL;
-    if (instr->idx->loc.kind == IR_LOC_REG && instr->idx->loc.as.reg)
-        return instr->idx->loc.as.reg->data;
-    aarch64LoadToReg(ctx, instr->idx, "x2");
-    return "x2";
+/* Register `v` already lives in (a param still in its arg reg, a
+ * fused tmp), or NULL if it has to be loaded. */
+static const char *aarch64HomeReg(IrValue *v) {
+    if (v && v->loc.kind == IR_LOC_REG && v->loc.as.reg)
+        return v->loc.as.reg->data;
+    return NULL;
+}
+
+/* Resolve a mem op's address `addr` and its SIB idx (NULL when there
+ * is none) to registers. A register-resident operand is used in
+ * place; one that has to be loaded goes in x1 or x2, whichever the
+ * OTHER operand is not sitting in, so loading one never overwrites
+ * the other - `I64 Ai(I64 *p, I64 i) { return p[i]; }` reloaded p
+ * into x1 over i (`ldr x0, [x1, x1, lsl #3]`). With `x0_busy` the
+ * caller writes x0 while it still needs the address (RMW's load of
+ * the old value), so an operand living in x0 is copied out first. */
+static void aarch64AddrRegs(IrCgCtx *ctx, IrInstr *instr, IrValue *addr,
+                            int x0_busy, const char **base_out,
+                            const char **idx_out)
+{
+    int has_idx = instr->idx && instr->scale;
+    const char *base = aarch64HomeReg(addr);
+    const char *idx = has_idx ? aarch64HomeReg(instr->idx) : NULL;
+    if (x0_busy && base && !strcmp(base, "x0")) base = NULL;
+    if (x0_busy && idx && !strcmp(idx, "x0")) idx = NULL;
+    if (!base) {
+        base = (idx && !strcmp(idx, "x1")) ? "x2" : "x1";
+        if (addr->kind == IR_VAL_GLOBAL) {
+            aarch64GlobalAddr(ctx->cc, ctx->buf,
+                    asmNormaliseGlobalLabel(ctx->cc,
+                        addr->as.global.name)->data, base);
+        } else {
+            aarch64LoadToReg(ctx, addr, base);
+        }
+    }
+    if (has_idx && !idx) {
+        idx = !strcmp(base, "x2") ? "x1" : "x2";
+        aarch64LoadToReg(ctx, instr->idx, idx);
+    }
+    *base_out = base;
+    *idx_out = idx;
 }
 
 /* Condition codes for branches. AArch64 uses the same suffixes as
@@ -1339,15 +1374,8 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                 }
                 break;
             }
-            const char *base_reg = "x1";
-            if (instr->r1 && instr->r1->loc.kind == IR_LOC_REG &&
-                instr->r1->loc.as.reg)
-            {
-                base_reg = instr->r1->loc.as.reg->data;
-            } else {
-                aarch64LoadToReg(ctx, instr->r1, "x1");
-            }
-            const char *idx_reg = aarch64IdxReg(ctx, instr);
+            const char *base_reg, *idx_reg;
+            aarch64AddrRegs(ctx, instr, instr->r1, 0, &base_reg, &idx_reg);
             if (instr->dst && irIsFloat(instr->dst->type)) {
                 /* AArch64 LDR for FP supports the same indexed form. */
                 const char *fr = aarch64Fpr((int)irValueByteSize(instr->dst), 0);
@@ -1400,15 +1428,8 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                 }
                 break;
             }
-            const char *base_reg = "x1";
-            int addr_in_reg = instr->dst &&
-                              instr->dst->loc.kind == IR_LOC_REG &&
-                              instr->dst->loc.as.reg;
-            if (addr_in_reg) base_reg = instr->dst->loc.as.reg->data;
-            const char *idx_reg = aarch64IdxReg(ctx, instr);
-            if (!addr_in_reg) {
-                aarch64LoadToReg(ctx, instr->dst, "x1");
-            }
+            const char *base_reg, *idx_reg;
+            aarch64AddrRegs(ctx, instr, instr->dst, 0, &base_reg, &idx_reg);
             if (instr->r1 && irIsFloat(instr->r1->type)) {
                 const char *fr = aarch64Fpr((int)irValueByteSize(instr->r1), 0);
                 aarch64LoadFirstSrcFpr(ctx, instr, instr->r1);
@@ -1450,19 +1471,8 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
         case IR_RMW_DEREF: {
             /* AArch64 has no memory-destination ops. Lower to
              * load-modify-store on the same address. */
-            const char *base_reg = "x1";
-            int addr_in_reg = instr->dst &&
-                              instr->dst->loc.kind == IR_LOC_REG &&
-                              instr->dst->loc.as.reg;
-            if (addr_in_reg) base_reg = instr->dst->loc.as.reg->data;
-            else if (instr->dst && instr->dst->kind == IR_VAL_GLOBAL) {
-                const char *sym = asmNormaliseGlobalLabel(ctx->cc,
-                        instr->dst->as.global.name)->data;
-                aarch64GlobalAddr(ctx->cc, ctx->buf, sym, "x1");
-            } else {
-                aarch64LoadToReg(ctx, instr->dst, "x1");
-            }
-            const char *idx_reg = aarch64IdxReg(ctx, instr);
+            const char *base_reg, *idx_reg;
+            aarch64AddrRegs(ctx, instr, instr->dst, 1, &base_reg, &idx_reg);
             u32 sz = irValueByteSize(instr->r1);
             aarch64DerefLoad(ctx->buf, sz, "x0", base_reg, idx_reg,
                              instr->scale, instr->disp);

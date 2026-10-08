@@ -715,6 +715,40 @@ static int irLocIsReg(IrValue *v) {
     return v && v->loc.kind == IR_LOC_REG && v->loc.as.reg;
 }
 
+/* The SIB scale fold moves the read of the index (`scaler->r1`) from
+ * the scaler down to the consumer `use`. True if a register-resident
+ * index may not survive that move: an op in between - other than the
+ * scaler and the IADD `I`, which the fold turns into NOPs - clobbers
+ * its register (any call; for a scratch-homed index, a param still in
+ * x1, any op that writes that register), or the scaler is not earlier
+ * in this block. `void R(I64 *p, I64 i) { p[i] += 7; }` read i out of
+ * x1 at the store after the load had reloaded p into x1. */
+static int irIdxMoveClobbers(List *head, IrInstr *scaler, IrInstr *I,
+                             List *use_node)
+{
+    IrValue *idx = scaler->r1;
+    if (!irLocIsReg(idx)) return 0;
+    if (!use_node) return 1;
+    List *p = head->next;
+    while (p != head && (IrInstr *)p->value != scaler) p = p->next;
+    if (p == head) return 1;
+    for (p = p->next; p != use_node; p = p->next) {
+        if (p == head) return 1;
+        IrInstr *J = (IrInstr *)p->value;
+        if (J == I) continue;
+        switch (J->op) {
+        case IR_NOP: case IR_JMP: case IR_PHI:
+        case IR_LABEL: case IR_ALLOCA:
+            continue;
+        default:
+            break;
+        }
+        if (J->op == IR_CALL || J->op == IR_ASM) return 1;
+        if (irLocClobberedBy(J, idx, IR_CLOBBER_AFTER)) return 1;
+    }
+    return 0;
+}
+
 /* TMP id -> defining instruction. Skips ops that don't "produce"
  * their dst (STORE/STORE_DEREF/RMW_DEREF write to memory; BR/RET
  * pass a value via dst). */
@@ -867,6 +901,9 @@ static int irFuseIaddIntoMemAddressing(IrFunction *fn) {
                     (irLocIsReg(base) || irLocIsReg(scaler->r1)) &&
                     irRangeHasCall(cur, use_node))
                 {
+                    scaler = NULL;
+                }
+                if (scaler && irIdxMoveClobbers(l, scaler, I, use_node)) {
                     scaler = NULL;
                 }
                 if (scaler) {
