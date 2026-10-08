@@ -2536,9 +2536,17 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                     }
                     type = parseFullType(cc);
                     name = cctrlTokenGet(cc);
-                    
-                    ast = parseFunctionOrDef(cc,type,name->start,name->len,1);
-                    ast->flags |= AST_FLAG_INLINE;
+
+                    /* `inline` is only a hint: compile the function as an
+                     * ordinary one so it can be called normally, recursed
+                     * into, have its address taken and use default
+                     * arguments. The transpiler keeps the flag so it can
+                     * re-emit the keyword. */
+                    int is_inline = !!(cc->flags & CCTRL_TRANSPILING);
+                    ast = parseFunctionOrDef(cc,type,name->start,name->len,is_inline);
+                    if (is_inline) {
+                        ast->flags |= AST_FLAG_INLINE;
+                    }
                     ast->line = name->line;
                     ast->col = name->col;
                     return ast;
