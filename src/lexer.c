@@ -791,6 +791,15 @@ static void lexSkipCodeComment(Lexer *l) {
     }
 }
 
+/* The CCF_PERMISSIVE re-lexer (error-line colouring) sees the same
+ * malformed literal again: only the real lexer should warn about it. */
+#define lexNumWarning(l, ...)                     \
+    do {                                          \
+        if (!((l)->flags & CCF_PERMISSIVE)) {     \
+            loggerWarning(__VA_ARGS__);           \
+        }                                         \
+    } while (0)
+
 static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
                           int *isbin, int *err) {
     char *start = ptr;
@@ -802,7 +811,7 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
         ptr += 2;
         while (!isNumTerminator(*ptr) && !(*ptr == '.' && *(ptr + 1) == '.')) {
             if (*ptr != '0' && *ptr != '1') {
-                loggerWarning("line %d: invalid binary digit: '%c'\n",
+                lexNumWarning(l, "line %d: invalid binary digit: '%c'\n",
                               l->lineno, *ptr);
                 *err = 1;
                 return -1;
@@ -810,7 +819,7 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             ptr++;
         }
         if (ptr - start == 2) {
-            loggerWarning("line %d: binary literal has no digits\n", l->lineno);
+            lexNumWarning(l, "line %d: binary literal has no digits\n", l->lineno);
             *err = 1;
             return -1;
         }
@@ -822,19 +831,35 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
         switch (*ptr) {
         case 'e':
         case 'E':
+            /* In a hex literal `e`/`E` is a digit (`0x1E3`). Otherwise it
+             * starts an exponent: `1e3`, `1.5E-7`, `.5e+2` are all F64
+             * literals. The sign is part of the exponent (it is a number
+             * terminator everywhere else) and at least one digit must
+             * follow, so `1e` / `1e+` are errors rather than `1`. */
             if (!*ishex) {
                 if (seen_e) {
-                    loggerWarning("line %d: Hex and seen e\n", l->lineno);
+                    lexNumWarning(l, "line %d: number has more than one "
+                                  "exponent\n", l->lineno);
                     *err = 1;
                     return -1;
                 }
                 seen_e = 1;
+                *isfloat = 1;
+                if (*(ptr + 1) == '+' || *(ptr + 1) == '-') {
+                    ptr++;
+                }
+                if (!isNum(*(ptr + 1))) {
+                    lexNumWarning(l, "line %d: exponent has no digits\n",
+                                  l->lineno);
+                    *err = 1;
+                    return -1;
+                }
             }
             break;
         case 'x':
         case 'X':
             if (*ishex) {
-                loggerWarning("line %d: seen x\n", l->lineno);
+                lexNumWarning(l, "line %d: seen x\n", l->lineno);
                 *err = 1;
                 return -1;
             }
@@ -850,7 +875,8 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             if (*(ptr + 1) == '.') {
                 return ptr - start;
             }
-            if (*isfloat) {
+            /* No `.` after an exponent (`1e3.5`), nor a second one. */
+            if (*isfloat || seen_e) {
                 *err = 1;
                 return -1;
             }
@@ -871,7 +897,7 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
                     break;
                 }
             } else if (!isHex(*ptr)) {
-                loggerWarning("line %d: Number errored with char: '%c'\n",l->lineno,*ptr);
+                lexNumWarning(l, "line %d: Number errored with char: '%c'\n",l->lineno,*ptr);
                 *err = 1;
                 return -1;
             }
@@ -883,14 +909,14 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
     /* Floating point hex does not exist */
     if (*isfloat && *ishex) {
         *err = 1;
-        loggerWarning("line %d: LEX error is float and ishex\n",l->lineno);
+        lexNumWarning(l, "line %d: LEX error is float and ishex\n",l->lineno);
         return -1;
     }
 
     /* Exponent hex does not exist */
     if (*ishex && seen_e) {
         *err = 1;
-        loggerWarning("line %d: lexer seen_e and ishex\n", l->lineno);
+        lexNumWarning(l, "line %d: lexer seen_e and ishex\n", l->lineno);
         return -1;
     }
 
@@ -1110,6 +1136,24 @@ int lexNumeric(Lexer *l, int _isfloat) {
     char *start = l->ptr - 1;
     numlen = countNumberLen(l, start, &isfloat, &ishex, &isbin, &err);
     if (err) {
+        /* Step over the whole malformed literal (`1e+`, `0b12`) so the
+         * error underlines all of it and lexing resumes after it,
+         * instead of on its tail (`e`, `b12` as stray identifiers). */
+        char *end = start + 1;
+        while (!isNumTerminator(*end) ||
+               ((*end == '+' || *end == '-') &&
+                (end[-1] == 'e' || end[-1] == 'E'))) {
+            end++;
+        }
+        l->cur_strlen = end - start;
+        l->ptr = end;
+        /* The CCF_PERMISSIVE lexer only re-lexes a line to colour an
+         * error report. It must not raise (it has no Cctrl, so lexRaise
+         * would exit() and swallow the real diagnostic). Hand the text
+         * back as a plain token so the report shows it verbatim. */
+        if (l->flags & CCF_PERMISSIVE) {
+            return TK_IDENT;
+        }
         return -1;
     }
 
@@ -1417,6 +1461,7 @@ static int lexCore(Lexer *l, Lexeme *le) {
                     if ((tk_type = lexNumeric(l,0)) == -1) {
                         lexRaise(l, "malformed numeric literal");
                     }
+                    le->start = start;
                     le->len = l->ptr - start;
                     le->tk_type = tk_type;
                     le->line = l->lineno;
