@@ -388,6 +388,28 @@ static IrValue *irEmitRuntimeCall1(IrCtx *ctx, const char *fname,
 }
 
 
+/* A call through a pointer to a HolyC `...` function: the parser put the
+ * implicit argc right after the named arguments (parseArgv /
+ * parseAddEmptyVarArgCount), and the callee reads argc and the extras
+ * the HolyC way. The backends find that out from the callee's name on a
+ * direct call; here there is none, so record it from the pointer's type. */
+static void irMarkVariadicPtrCall(IrInstr *call, Ast *ref) {
+    Vec *params = NULL;
+    if (ref->type && ref->type->kind == AST_TYPE_FUNC) {
+        params = ref->type->params;
+    } else if (ref->kind == AST_FUNPTR) {
+        params = ref->params;
+    }
+    for (u64 i = 0; params && i < params->size; ++i) {
+        Ast *param = vecGet(Ast *, params, i);
+        if (param && param->kind == AST_VAR_ARGS) {
+            call->flags |= IRCG_CALL_HOLYC_VA;
+            call->extra.va_named_count = (int)i;
+            return;
+        }
+    }
+}
+
 IrValue *irFnCallTo(IrCtx *ctx, Ast *ast, IrValue *preallocated_buffer) {
     /* Is this returning a struct from the stack? */
     int agg_return = irRetTypeIsAggregate(ast->type);
@@ -442,6 +464,7 @@ IrValue *irFnCallTo(IrCtx *ctx, Ast *ast, IrValue *preallocated_buffer) {
         ir_call_args->as.array.label = NULL;
         IrValue *ptr = irExpr(ctx, ast->ref);
         ir_call_instr->r2 = ptr;
+        irMarkVariadicPtrCall(ir_call_instr, ast->ref);
     } else {
         ir_call_args->as.array.label = ast->fname;
     }

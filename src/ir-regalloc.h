@@ -16,6 +16,12 @@
  * so this flag is informational. */
 #define IRCG_CALL_AGG_RETURN (1u << 1)
 
+/* Set on an indirect IR_CALL through a pointer to a HolyC `...`
+ * function. There is no callee name for the backend to look up, so
+ * IrInstr.extra.va_named_count carries the number of named parameters
+ * (the index of the implicit argc in the call's args). */
+#define IRCG_CALL_HOLYC_VA (1u << 2)
+
 /* Where in an instruction's emission a clobber question is asked.
  * Both backends materialise r1 into their first scratch register and
  * r2 into the second, so a forwarded value's survival depends on how

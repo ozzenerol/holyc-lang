@@ -1809,6 +1809,11 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                     if (callee_va && named_count > 0) named_count--;
                 }
             }
+            /* Through a pointer to a HolyC `...` function. */
+            if (instr->flags & IRCG_CALL_HOLYC_VA) {
+                callee_va = 1;
+                named_count = instr->extra.va_named_count;
+            }
             /* Two different variadic ABIs converge at this call site:
              *
              *  - HolyC-defined variadic callees read argc and the
@@ -1828,7 +1833,7 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
             int apple_target =
                 ctx->cc->target == TARGET_AARCH64_APPLE_DARWIN;
             int holyc_variadic =
-                callee_va && callee && callee->kind != AST_EXTERN_FUNC;
+                callee_va && (!callee || callee->kind != AST_EXTERN_FUNC);
             int extern_variadic =
                 callee_va && callee && callee->kind == AST_EXTERN_FUNC;
             int force_va_stack =

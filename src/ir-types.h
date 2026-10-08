@@ -317,6 +317,9 @@ struct IrInstr {
          * emit time. NULL when the asm body is pure text (read it
          * from r1's IR_VAL_CONST_STR). */
         List *asm_fragments;
+        /* IR_CALL with IRCG_CALL_HOLYC_VA: number of named parameters
+         * of the HolyC variadic callee. */
+        int va_named_count;
     } extra;
 };
 
