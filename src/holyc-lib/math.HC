@@ -76,30 +76,9 @@ _ABS::
     NEG     RAX
     CMOVL   RAX, RDI /* will discard the negate if the value was greater than 0 */
     RET
-
-/* Non recursive greatest common divisor function */
-_GCD::
-    TEST    RSI, RSI
-    MOV     RAX, RDI
-    JNE     @@02
-    JMP     @@01
-@@03:
-    MOV     RDX, RSI
-@@02:
-    CQTO
-    IDIV    RSI
-    TEST    RDX, RDX
-    MOV     RAX, RSI
-    JNE     @@03
-    MOVQ    RAX, RSI
-    RET
-@@01:
-    MOV RAX, RDI
-    RET
 }
 
 public _extern _ABS U64 Abs(I64 num);
-public _extern _GCD U64 Gcd(I64 a, I64 b);
 #endif
 
 #ifdef IS_ARM_64
@@ -109,17 +88,26 @@ public U64 Abs(I64 num)
   return num;
 }
 
+#endif
+
+/* Greatest common divisor (Euclid). Negative inputs use their absolute
+ * values and the result is never negative: Gcd(0, n) == |n| and
+ * Gcd(0, 0) == 0. Gcd(I64_MIN, 0) is 2^63, which only fits as a U64.
+ * The loop runs on non-positive values because -|x| always fits in an
+ * I64 while |I64_MIN| does not. */
 public U64 Gcd(I64 a, I64 b)
 {
   I64 t;
+  if (a > 0) a = -a;
+  if (b > 0) b = -b;
   while (b != 0) {
-    t = b;
-    b = a % b;
-    a = t;
+    if (b == -1) return 1; /* I64_MIN % -1 traps in IDIV */
+    t = a % b;
+    a = b;
+    b = t;
   }
-  return a;
+  return -a;
 }
-#endif
 
 F64 Pow(F64 a, I64 b)
 {
