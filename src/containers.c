@@ -817,28 +817,32 @@ Map *mapNewWithParent(Map *parent, u64 capacity, MapType *type) {
     return map;
 }
 
+/* A DELETED node is a tombstone: it is reusable, but the probe chain
+ * runs through it, so the key may still be further on. Only a FREE
+ * node ends the chain. Returns the matching node, else the first
+ * tombstone seen, else the FREE node. */
 static u64 mapGetNextIdx(Map *map, void *key, int *_is_free) {
     u64 hash = map->type->hash(key);
     u64 idx = hash & map->mask;
+    u64 tombstone = ULONG_MAX;
     MapNode *cur = &map->entries[idx];
     *_is_free = 1;
 
-    /* A free node is one that is either free or previously deleted */
-    while (1) {
-        if (cur->flags & (MAP_FLAG_FREE | MAP_FLAG_DELETED)) {
-            break;
+    while (!(cur->flags & MAP_FLAG_FREE)) {
+        if (cur->flags & MAP_FLAG_DELETED) {
+            if (tombstone == ULONG_MAX) tombstone = idx;
         }
         /* This means we have found a node with the same key we are trying to
          * add*/
-        else if (cur->flags & MAP_FLAG_TAKEN && map->type->match(cur->key, key)) {
+        else if (map->type->match(cur->key, key)) {
             *_is_free = 0;
-            break;
+            return idx;
         }
         idx = (idx + 1) & map->mask;
         cur = &map->entries[idx];
     }
 
-    return idx;
+    return tombstone != ULONG_MAX ? tombstone : idx;
 }
 
 static u64 mapGetIdx(Map *map, void *key, int *_ok) {
@@ -846,10 +850,9 @@ static u64 mapGetIdx(Map *map, void *key, int *_ok) {
     u64 idx = hash & map->mask;
     MapNode *cur = &map->entries[idx];
 
-    /* We are only interested in TAKEN nodes */
-    while (cur->flags & MAP_FLAG_TAKEN) {
-        /* We know something is in this position as it is flagged as TAKEN */
-        if (map->type->match(cur->key, key)) {
+    /* Skip tombstones, a FREE node ends the probe chain */
+    while (!(cur->flags & MAP_FLAG_FREE)) {
+        if ((cur->flags & MAP_FLAG_TAKEN) && map->type->match(cur->key, key)) {
             *_ok = 1;
             return idx;
         }
@@ -867,28 +870,26 @@ static u64 mapGetCStringNextIdx(Map *map,
 {
     u64 hash = mapCStringHashLen(key, key_len);
     u64 idx = hash & map->mask;
+    u64 tombstone = ULONG_MAX;
     MapNode *cur = &map->entries[idx];
     *_is_free = 1;
 
-    /* A free node is one that is either free or previously deleted */
-    while (1) {
-        if (cur->flags & (MAP_FLAG_FREE | MAP_FLAG_DELETED)) {
-            break;
+    /* See mapGetNextIdx - tombstones do not end the probe chain */
+    while (!(cur->flags & MAP_FLAG_FREE)) {
+        if (cur->flags & MAP_FLAG_DELETED) {
+            if (tombstone == ULONG_MAX) tombstone = idx;
         }
         /* This means we have found a node with the same key we are trying to
          * add*/
-        else if (cur->flags & MAP_FLAG_TAKEN &&
-                 cur->key_len == key_len &&
-                 !memcmp(cur->key, key, key_len))
-        {
+        else if (cur->key_len == key_len && !memcmp(cur->key, key, key_len)) {
             *_is_free = 0;
-            break;
+            return idx;
         }
         idx = (idx + 1) & map->mask;
         cur = &map->entries[idx];
     }
 
-    return idx;
+    return tombstone != ULONG_MAX ? tombstone : idx;
 }
 
 
@@ -901,10 +902,10 @@ static u64 mapGetCStringIdx(Map *map,
     u64 idx = hash & map->mask;
     MapNode *cur = &map->entries[idx];
 
-    /* We are only interested in TAKEN nodes */
-    while (cur->flags & MAP_FLAG_TAKEN) {
-        /* We know something is in this position as it is flagged as TAKEN */
-        if (cur->key_len == key_len && !memcmp(cur->key, key, key_len)) {
+    /* Skip tombstones, a FREE node ends the probe chain */
+    while (!(cur->flags & MAP_FLAG_FREE)) {
+        if ((cur->flags & MAP_FLAG_TAKEN) &&
+            cur->key_len == key_len && !memcmp(cur->key, key, key_len)) {
             *_ok = 1;
             return idx;
         }
@@ -915,9 +916,20 @@ static u64 mapGetCStringIdx(Map *map,
     return 0;
 }
 
+/* `indexes` holds every slot used since the last resize: the live
+ * entries plus the tombstones mapRemove leaves behind. Counting both
+ * keeps a FREE slot around to end every probe chain. */
+static int mapNeedsResize(Map *map) {
+    return map->indexes->size >= map->threashold;
+}
+
 static int mapResize(Map *map) {
     int is_free;
-    u64 new_capacity = map->capacity << 1;
+    /* Mostly tombstones (add/remove churn): rehash at the same size
+     * to clear them rather than growing forever. */
+    u64 new_capacity = map->size >= map->threashold / 2
+                     ? map->capacity << 1
+                     : map->capacity;
     u64 new_mask = new_capacity - 1;
     Vec *old_index_entries = map->indexes;
     u64 indexes_size = map->indexes->size;
@@ -990,7 +1002,7 @@ static int mapResize(Map *map) {
 }
 
 int mapAddLen(Map *map, char *key, s64 key_len, void *value) {
-    if (map->size >= map->threashold) {
+    if (mapNeedsResize(map)) {
         if (!mapResize(map)) {
             /* This means we have run out of memory */
             return 0;
@@ -1020,7 +1032,7 @@ int mapAddLen(Map *map, char *key, s64 key_len, void *value) {
 }
 
 int mapAdd(Map *map, void *key, void *value) {
-    if (map->size >= map->threashold) {
+    if (mapNeedsResize(map)) {
         if (!mapResize(map)) {
             /* This means we have run out of memory */
             return 0;
@@ -1046,7 +1058,7 @@ int mapAdd(Map *map, void *key, void *value) {
 }
 
 int mapAddOrErr(Map *map, void *key, void *value) {
-    if (map->size >= map->threashold) {
+    if (mapNeedsResize(map)) {
         if (!mapResize(map)) {
             /* This means we have run out of memory */
             return 0;
@@ -1188,12 +1200,18 @@ void mapClear(Map *map) {
     mapIterInit(map, &it);
     while (mapIterNext(&it)) {
         MapNode *n = it.node;
-        n->flags = MAP_FLAG_FREE;
         if (map->type->value_release) map->type->value_release(n->value);
         if (map->type->key_release) map->type->key_release(n->key);
         n->key = NULL;
         n->value = NULL;
         n->key_len = 0;
+    }
+    /* Free the tombstones too: once `indexes` is cleared a reused
+     * DELETED slot would never be pushed back and iteration would
+     * miss it. */
+    for (u64 i = 0; i < map->indexes->size; ++i) {
+        u64 idx = (unsigned long)vecGetAt(map->indexes, i);
+        map->entries[idx].flags = MAP_FLAG_FREE;
     }
     map->size = 0;
     vecClear(map->indexes);

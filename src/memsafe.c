@@ -12,6 +12,13 @@
  * versa. The tracked pointer is the payload - exactly what HolyC code
  * holds. */
 
+#if defined(__linux__)
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* dladdr */
+#endif
+#include <dlfcn.h>
+#include <malloc.h> /* malloc_usable_size */
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,10 +49,20 @@ static int memsafe_round = 0;    /* attribution tag; <= 0 omitted */
 
 /* Recently-freed ring: bounds how long a double free stays
  * classifiable. Beyond it the pointer falls through to the zone
- * check, i.e. untracked behaviour. */
+ * check, i.e. untracked behaviour. The ring is also a quarantine: a
+ * block is only handed back to libc when it drops off the ring, so
+ * nothing (least of all an untracked libtos-internal MAlloc) can
+ * reuse an address the ring still holds, and a ring hit is always a
+ * real double free. */
 #define MEMSAFE_RING 256
 static MemsafeEntry memsafe_ring[MEMSAFE_RING];
 static int memsafe_ring_next = 0;
+
+#if defined(__linux__)
+/* [lo, hi) of the main thread's stack, read once at init. */
+static uintptr_t memsafe_stack_lo = 0;
+static uintptr_t memsafe_stack_hi = 0;
+#endif
 
 void memsafeSetRound(int round) {
     memsafe_round = round;
@@ -138,8 +155,9 @@ static MemsafeEntry *memsafeRingFind(void *p) {
     return NULL;
 }
 
-/* Untrack a live pointer, recording it in the recently-freed ring.
- * Returns 1 if it was live. */
+/* Untrack a live pointer, moving it into the recently-freed ring and
+ * releasing whichever block that pushes out. Returns 1 if it was
+ * live; the caller must NOT free it. */
 static int memsafeRetire(void *p) {
     if (memsafe_live == NULL || p == NULL) return 0;
     u64 key = (u64)(uintptr_t)p;
@@ -149,7 +167,9 @@ static int memsafeRetire(void *p) {
     e->free_round = memsafe_round;
     memset(e->free_site, 0, sizeof(e->free_site));
     memsafeCallSites(e->free_site, 2);
-    memsafe_ring[memsafe_ring_next] = *e;
+    MemsafeEntry *slot = &memsafe_ring[memsafe_ring_next];
+    if (slot->ptr) free((u8 *)slot->ptr - 8);
+    *slot = *e;
     memsafe_ring_next = (memsafe_ring_next + 1) % MEMSAFE_RING;
     free(e);
     return 1;
@@ -173,8 +193,6 @@ static void memsafeReportDoubleFree(void *p, MemsafeEntry *r) {
     fflush(stderr);
 }
 
-/* Linux shouts there is an unused function */
-#if defined(__APPLE__)
 static void memsafeReportWildFree(void *p) {
     uintptr_t here[2] = { 0, 0 };
     memsafeCallSites(here, 2);
@@ -183,6 +201,44 @@ static void memsafeReportWildFree(void *p) {
     memsafePrintSite(stderr, here, 2);
     fprintf(stderr, " - ignored\n");
     fflush(stderr);
+}
+
+#if defined(__linux__)
+/* glibc can't be asked whether an arbitrary pointer is a heap block,
+ * so rule out what certainly isn't one: a MAlloc payload sits 8 past
+ * a 16-aligned malloc block, and never on the stack, in a loaded
+ * image's data, or in the JIT's code/globals. Anything else is taken
+ * to be a block MAlloc'd inside libtos, which we can't see. */
+static int memsafeIsWild(void *p) {
+    uintptr_t a = (uintptr_t)p;
+    if ((a & 15) != 8) return 1;
+    if (a >= memsafe_stack_lo && a < memsafe_stack_hi) return 1;
+    Dl_info info;
+    if (dladdr(p, &info)) return 1;
+    if (memsafe_jit) {
+        if (hccJitFindChunk(memsafe_jit, p)) return 1;
+        listForEach(memsafe_jit->globals_arenas) {
+            uintptr_t lo = (uintptr_t)it->value;
+            if (a >= lo && a < lo + malloc_usable_size(it->value)) return 1;
+        }
+    }
+    return 0;
+}
+
+static void memsafeFindStack(void) {
+    FILE *f = fopen("/proc/self/maps", "r");
+    if (f == NULL) return;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        unsigned long lo, hi;
+        if (strstr(line, "[stack]") &&
+            sscanf(line, "%lx-%lx", &lo, &hi) == 2) {
+            memsafe_stack_lo = lo;
+            memsafe_stack_hi = hi;
+            break;
+        }
+    }
+    fclose(f);
 }
 #endif
 
@@ -205,10 +261,7 @@ static void *memsafeCAlloc(u64 size) {
 
 static void memsafeFree(void *p) {
     if (p == NULL) return;
-    if (memsafeRetire(p)) {
-        free((u8 *)p - 8);
-        return;
-    }
+    if (memsafeRetire(p)) return;
     MemsafeEntry *r = memsafeRingFind(p);
     if (r) {
         memsafeReportDoubleFree(p, r);
@@ -224,7 +277,10 @@ static void memsafeFree(void *p) {
     }
     memsafeReportWildFree(p);
 #else
-    /* No safe way to probe an arbitrary pointer on Linux. */
+    if (memsafeIsWild(p)) {
+        memsafeReportWildFree(p);
+        return;
+    }
     free((u8 *)p - 8);
 #endif
 }
@@ -312,6 +368,9 @@ void memsafeReportLeaks(FILE *f) {
 void memsafeInit(HccJit *jit) {
     if (jit == NULL) return;
     memsafe_jit = jit;
+#if defined(__linux__)
+    if (memsafe_stack_hi == 0) memsafeFindStack();
+#endif
     if (memsafe_live == NULL)
         memsafe_live = mapNew(64, &map_uint_to_uint_type);
     /* host_symbols wins over dlsym, so these shadow the libtos dylib's

@@ -118,6 +118,10 @@ if (HCC_ENABLE_JIT)
     # Vendored (antirez/linenoise) - don't hold it to our warning bar.
     set_source_files_properties(linenoise/linenoise.c
                                 PROPERTIES COMPILE_FLAGS "-w")
+    # memsafe names a report's call site by walking the frame-pointer
+    # chain from its wrappers back into JIT code; -O2 drops it.
+    set_source_files_properties(memsafe.c
+                                PROPERTIES COMPILE_FLAGS "-fno-omit-frame-pointer")
 endif()
 
 add_executable(hcc ${SOURCES} ${HEADERS})
