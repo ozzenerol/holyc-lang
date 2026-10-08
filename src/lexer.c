@@ -248,16 +248,12 @@ Lexeme *lexemeNewOp(char *start, int len, s64 op, int line) {
 
 static Cctrl *macro_proccessor = NULL;
 
-/* User-visible lex error. Routes through the diagnostic
- * accumulator when the lexer has a Cctrl back-pointer; otherwise
- * falls back to the loggerPanic-style stderr print + exit for
- * standalone lexer instances (re-lexer, macro stub). */
-__noreturn static void lexRaise(Lexer *l, const char *fmt, ...) {
-    va_list ap;
+/* Queue a user-visible lex error on the lexer's Cctrl; with no
+ * Cctrl back-pointer (re-lexer, macro stub) print it and exit, the
+ * loggerPanic-style fallback. */
+static void lexReportVa(Lexer *l, const char *fmt, va_list ap) {
     if (l && l->cc) {
-        va_start(ap, fmt);
         char *body = mprintVa((char *)fmt, ap, NULL);
-        va_end(ap);
 
         AoStr *bold = aoStrNew();
         aoStrCatColoured(bold, ESC_BOLD, body);
@@ -280,14 +276,30 @@ __noreturn static void lexRaise(Lexer *l, const char *fmt, ...) {
         d->end_line = (int)line;
         d->end_col = (int)(col + len);
         cctrlDiagPush(l->cc, d);
-        cctrlTerminate(l->cc);
+        return;
     }
     fprintf(stderr, "\033[0;31mERROR: \033[0m");
-    va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
-    va_end(ap);
     exit(EXIT_FAILURE);
+}
+
+/* Report a lex error and keep lexing. Only for errors that leave the
+ * lexer on a clean boundary (a #define whose line has been consumed). */
+static void lexReport(Lexer *l, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    lexReportVa(l, fmt, ap);
+    va_end(ap);
+}
+
+/* Report a lex error and longjmp to the parser's recovery point. */
+__noreturn static void lexRaise(Lexer *l, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    lexReportVa(l, fmt, ap);
+    va_end(ap);
+    cctrlTerminate(l->cc);
 }
 
 void lexInit(Lexer *l, char *source, int flags) {
@@ -1690,6 +1702,11 @@ static void lexDefineSkipLine(Lexer *l) {
     while (*l->ptr && *l->ptr != '\n') l->ptr++;
 }
 
+/* Errors here are reported with lexReport, not lexRaise: each one
+ * leaves the rest of the define's line consumed, so lexing can carry on
+ * with the macro left undefined. A longjmp would land in whatever
+ * construct the parser was in when its token ring refilled (a class
+ * body, say), abandoning it halfway and leaving its tail to misparse. */
 Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     int tk_type,iters;
     Lexeme next,*start,*end,*expanded,*macro;
@@ -1702,13 +1719,17 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     /* <ident> <value> */
     if (!lex(l, &next) || tokenPunctIs(&next,'\n') || tokenPunctIs(&next,'\0')) {
         l->flags &= ~CCF_ACCEPT_NEWLINES;
-        lexRaise(l, "Syntax is: #define <TK_IDENT> <value> got nothing");
+        lexReport(l, "Syntax is: #define <TK_IDENT> <value> got nothing");
+        vecRelease(tokens);
+        return NULL;
     }
     if (next.tk_type != TK_IDENT) {
         lexDefineSkipLine(l);
-        lexRaise(l,
+        lexReport(l,
                 "Syntax is: #define <TK_IDENT> <value> got %s",
                 lexemeToString(&next));
+        vecRelease(tokens);
+        return NULL;
     }
 
     /* `#define NAME(` with no space before the `(` is a C-style
@@ -1719,8 +1740,10 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
         char *eol = next.start;
         while (*eol && *eol != '\n' && *eol != '\r') eol++;
         lexDefineSkipLine(l);
-        lexRaise(l, "function-like macros are not supported: #define %.*s",
-                 (int)(eol - next.start), next.start);
+        lexReport(l, "function-like macros are not supported: #define %.*s",
+                  (int)(eol - next.start), next.start);
+        vecRelease(tokens);
+        return NULL;
     }
 
     ident = aoStrDupRaw(next.start, next.len);
@@ -1770,9 +1793,11 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
     }
 
     if (tk_type == -1) {
-        lexRaise(l,
+        lexReport(l,
                 "Error while parsing #define %s; #define must be a numerical expression or a string",
                 ident->data);
+        vecRelease(tokens);
+        return NULL;
     }
 
     if (start == end) {
@@ -1794,7 +1819,7 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
         macro_proccessor->token_buffer->capacity = ring_cap;
 
         /* A parse error in the value (`#define X (1+`, `#define X (a+1)`
-         * with `a` not a macro) lands here and is re-raised against the
+         * with `a` not a macro) lands here and is reported against the
          * define's line, instead of exiting from inside the stub. */
         jmp_buf recovery;
         macro_proccessor->current_recovery = &recovery;
@@ -1802,9 +1827,11 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
             macro_proccessor->current_recovery = NULL;
             cctrlDiagClear(macro_proccessor);
             free(ring);
-            lexRaise(l, "#define %s: the value must be a constant expression "
-                     "or a string, made of literals and other macros",
-                     ident->data);
+            lexReport(l, "#define %s: the value must be a constant expression "
+                      "or a string, made of literals and other macros",
+                      ident->data);
+            vecRelease(tokens);
+            return NULL;
         }
         Ast *ast = parseExpr(macro_proccessor,16);
         macro_proccessor->current_recovery = NULL;
@@ -1816,14 +1843,18 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
                 expanded->start = strndup(start->start,start->len);
                 expanded->len = start->len;
             } else if (ast && ast->kind != TK_STR && ast->kind != AST_STRING) {
-                lexRaise(l, "#define %s expected string but got: %s",
-                        ident->data, astKindToString(ast->kind));
+                lexReport(l, "#define %s expected string but got: %s",
+                          ident->data, astKindToString(ast->kind));
+                vecRelease(tokens);
+                return NULL;
             } else if (ast && ast->kind == AST_STRING) {
                 /* Copy as we will free the AST which will free the string*/
                 expanded->start = strndup(ast->sval->data,ast->sval->len);
                 expanded->len = ast->sval->len;
             } else {
-                lexRaise(l, "failed to parse #define %s", ident->data);
+                lexReport(l, "failed to parse #define %s", ident->data);
+                vecRelease(tokens);
+                return NULL;
             }
         } else if (tk_type == TK_F64) {
             expanded->f64 = (f64)evalFloatExpr(ast);
