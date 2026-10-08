@@ -73,12 +73,17 @@ that allocated or freed the block. Only blocks your code gets from <code>MAlloc<
 <code>CAlloc</code> and <code>ReAlloc</code> are tracked: a string or container the standard
 library allocates for you (<code>StrNew</code>, <code>StrPrint</code>, <code>PtrVecNew</code>, ...)
 is not, so leaking one goes unreported, and a block of yours that the library resizes
-(<code>CatLenPrint</code>) is reported as never freed.</p>
+(<code>CatPrint</code>, <code>CatLenPrint</code>) is reported as never freed.</p>
 
 <h2 id="strings">Strings</h2>
 <h3>Building strings</h3>
 <p><code>StrPrint(NULL, fmt, ...)</code> returns a newly allocated formatted string, and
-<code>CatPrint(s, fmt, ...)</code> returns a new string made of <code>s</code> followed by the formatted text. Unlike print statements, their <code>%d</code> is a
+<code>CatPrint(s, fmt, ...)</code> appends the formatted text to the heap string <code>s</code>
+and returns it, so write <code>s = CatPrint(s, fmt, ...)</code>: when <code>s</code> is full it
+is grown, which may move it and frees the old block. <code>s</code> must come from
+<code>MAlloc</code>, <code>StrNew</code>, <code>StrPrint(NULL, ...)</code> or an earlier
+<code>CatPrint</code>, or be <code>NULL</code> to start a new string; never pass a string
+literal or a stack buffer. Unlike print statements, their <code>%d</code> is a
 full 64-bit integer. <code>%f</code>, <code>%e</code> and <code>%g</code> print a float the
 way C's <code>printf</code> does, with the same rounding.</p>
 <pre data-run><code>U0 Main()

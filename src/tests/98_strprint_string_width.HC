@@ -111,9 +111,8 @@ I32 Main()
 
   /* 8: CatPrint */
   c = MStrPrint("[%3s]", "a");
-  m = CatPrint(c, "[%-4s][%4.2s]", "bc", "def");
+  m = CatPrint(c, "[%-4s][%4.2s]", "bc", "def"); /* takes over c */
   if (!StrCmp(m, "[  a][bc  ][  de]")) correct++;
-  Free(c);
   Free(m);
 
   /* 9: a NULL string prints nothing, but still takes its width */
