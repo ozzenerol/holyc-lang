@@ -50,9 +50,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>Reading a whole <code>I64 class</code> through a pointer gives the pointer</td>
-        <td><code>CDate *pp = a; CDate d = pp[2];</code> (also <code>*pp</code>)</td>
-        <td>Copy the fields: <code>d.date = pp[2].date; d.time = pp[2].time;</code></td></tr>
     <tr><td>Returning an integer from an <code>F64</code> function doesn't convert it</td>
         <td><code>F64 Conv(I64 u) { return u; }</code>: <code>Conv(3)</code> is 0.0</td>
         <td>Assign to an <code>F64</code> first: <code>F64 r = u; return r;</code></td></tr>
