@@ -417,6 +417,20 @@ Set *irCgComputeReferencedBlocks(IrFunction *fn) {
 static int irFnValueIsReferenced(IrFunction *fn, IrValue *target);
 static int irFnLocalSlotNeeded(IrFunction *fn, IrValue *local);
 
+/* True when the function returns its aggregate through a hidden
+ * out-pointer, which then needs an 8-byte pointer slot at `ast_func->loff`.
+ * Must mirror irRetIsIndirect in ir.c: only a >16-byte aggregate is
+ * returned indirectly. A <=16-byte one is returned in registers and its
+ * IR return value is a struct-sized IR_ALLOCA, which gets its own sized
+ * slot in irCgAllocAllTmps. Binding that alloca to the 8-byte pointer
+ * slot instead would make it overlap the locals above it. */
+static int irCgHasHiddenOutPtr(Ast *ast_func) {
+    AstType *rt = ast_func->type ? ast_func->type->rettype : NULL;
+    return rt &&
+        (rt->kind == AST_TYPE_CLASS || rt->kind == AST_TYPE_UNION) &&
+        !rt->is_intrinsic && rt->size > 16;
+}
+
 /* Bind every variable known to the IR (params + alloca'd locals) to its
  * AST-driven loff. Walk the AST function's params and locals lists; the
  * eligibility predicate guarantees they're plain AST_LVAR ints. */
@@ -424,12 +438,7 @@ void irCgBindAstLoffs(IrRaCtx *ra, Ast *ast_func) {
     /* Hidden out-pointer param for struct-by-value return: the layout
      * pass stashed its loff on `ast_func->loff` and the IR-side
      * IR_VAL_PARAM lives on `ra->func->return_value`. */
-    AstType *rt = ast_func->type ? ast_func->type->rettype : NULL;
-    int has_hidden_out_ptr = rt &&
-        (rt->kind == AST_TYPE_CLASS || rt->kind == AST_TYPE_UNION) &&
-        !rt->is_intrinsic && rt->size > 0;
-
-    if (has_hidden_out_ptr && ra->func->return_value) {
+    if (irCgHasHiddenOutPtr(ast_func) && ra->func->return_value) {
         irCgSetLoff(ra, irVarId(ra->func->return_value), ast_func->loff);
     }
 
@@ -592,10 +601,7 @@ int irCgComputeAstLayout(Ast *ast_func, IrFunction *ir_func) {
     }
 
     int param_total = 0;
-    AstType *rt = ast_func->type ? ast_func->type->rettype : NULL;
-    int has_hidden_out_ptr = rt &&
-        (rt->kind == AST_TYPE_CLASS || rt->kind == AST_TYPE_UNION) &&
-        !rt->is_intrinsic && rt->size > 0;
+    int has_hidden_out_ptr = irCgHasHiddenOutPtr(ast_func);
     if (has_hidden_out_ptr) {
         param_total += 8;
     }
