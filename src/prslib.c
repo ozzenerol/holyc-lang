@@ -425,6 +425,10 @@ Ast *findFunctionDecl(Cctrl *cc, char *fname, int len) {
             decl->kind == AST_FUN_PROTO || decl->kind == AST_ASM_FUNC_BIND) {
             return decl;
         }
+        /* Global function pointer `T (*name)(...)` */
+        if (decl->kind == AST_GVAR && decl->type->kind == AST_TYPE_FUNC) {
+            return decl;
+        }
     } else if (cc->localenv && (decl = mapGetLen(cc->localenv,fname,len)) != NULL) {
         if (decl->kind == AST_FUNPTR || decl->kind == AST_LVAR) {
             return decl;
@@ -986,6 +990,7 @@ Ast *parseFunctionArguments(Cctrl *cc, char *fname, int len, s64 terminator) {
 
     switch (maybe_fn->kind) {
         case AST_LVAR:
+        case AST_GVAR:
         case AST_FUNPTR:
             return astFunctionPtrCall(rettype,fname,len,argv,maybe_fn);
 
