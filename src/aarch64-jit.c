@@ -195,8 +195,7 @@ static JFrameForm jitFrameForm(AsmEnc *enc, int loff, int size) {
 }
 
 /* Width of a GPR memory access for a `size`-byte value. A slot wider
- * than a register (an intrinsic `I64 class` such as CDate is sized 16)
- * holds its value in the low 8 bytes. ldur/stur and the scaled form
+ * than a register holds its value in the low 8 bytes. ldur/stur and the scaled form
  * already treat such widths as 8, but the register-offset encoder
  * rejects them and emits nothing, so normalise up front. Mirrors the
  * default case of aarch64.c's frame and deref accesses. */

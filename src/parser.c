@@ -29,7 +29,7 @@ Ast *parseDeclOrStatement(Cctrl *cc);
 Ast *parseCompoundStatement(Cctrl *cc);
 Ast *parseTryStatement(Cctrl *cc);
 Ast *parseThrowStatement(Cctrl *cc);
-AstType *parseClassDef(Cctrl *cc, int is_intrinsic);
+AstType *parseClassDef(Cctrl *cc, AstType *intrinsic_base);
 AstType *parseUnionDef(Cctrl *cc);
 
 /* TempleOS-style `reg <REG>` / `noreg` modifier after a decl type.
@@ -315,7 +315,7 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
                     continue;
                 }
                 case KW_CLASS: {
-                    AstType *cls = parseClassDef(cc,0);
+                    AstType *cls = parseClassDef(cc,NULL);
                     listAppend(fields_list, clsFieldNew(cls,cls->clsname));
                     cctrlTokenExpect(cc,';');
                     continue;
@@ -443,7 +443,7 @@ Map *parseClassOffsets(Cctrl *cc,
                        List *fields,
                        AstType *base_class,
                        AoStr *clsname,
-                       int is_intrinsic)
+                       AstType *intrinsic_base)
 {
     int offset;
     AstType *field;
@@ -471,9 +471,15 @@ Map *parseClassOffsets(Cctrl *cc,
         return fields_dict;
     }
 
-    if (is_intrinsic) {
-        *aligned_size = 16;
-        *out_align = 8;
+    /* An intrinsic class (`I64 class CDate { U32 time; I32 date; };`) is
+     * a value of its base integer type whose fields overlay its bytes, as
+     * in TempleOS: it has the base type's size and alignment, and the
+     * fields are packed from offset 0. The backends move these values in
+     * one integer register, so the fields have to fit inside it. */
+    if (intrinsic_base) {
+        int base_size = intrinsic_base->size;
+        *aligned_size = base_size;
+        *out_align = base_size;
         listForEach(fields) {
             ClsField *cls_field = (ClsField *)it->value;
             field = cls_field->type;
@@ -482,6 +488,15 @@ Map *parseClassOffsets(Cctrl *cc,
             if (cls_field->field_name) {
                 mapAdd(fields_dict,cls_field->field_name->data,field);
             }
+            free(cls_field);
+        }
+
+        if (offset > base_size) {
+            cctrlRaiseException(cc,
+                    "Fields of intrinsic class %s take %d bytes, more than "
+                    "the %d bytes of its base type %s",
+                    clsname ? clsname->data : "<anonymous>",
+                    offset, base_size, astTypeToString(intrinsic_base));
         }
 
         return fields_dict;
@@ -562,8 +577,9 @@ Map *parseUnionOffsets(Cctrl *cc, int *real_size, int *out_align, List *fields) 
 AstType *parseClassOrUnion(Cctrl *cc, Map *env,
         int is_class,
         u32 (*computeSize)(List *),
-        int is_intrinsic)
+        AstType *intrinsic_base)
 {
+    int is_intrinsic = intrinsic_base != NULL;
     AoStr *tag = NULL;
     int aligned_size = 0;
     int aligned = 1;
@@ -634,7 +650,7 @@ AstType *parseClassOrUnion(Cctrl *cc, Map *env,
     }
 
     if (is_class) {
-        fields_dict = parseClassOffsets(cc,&aligned_size,&aligned,fields,base_class,tag,is_intrinsic);
+        fields_dict = parseClassOffsets(cc,&aligned_size,&aligned,fields,base_class,tag,intrinsic_base);
     } else {
         fields_dict = parseUnionOffsets(cc,&aligned_size,&aligned,fields);
     }
@@ -644,6 +660,7 @@ AstType *parseClassOrUnion(Cctrl *cc, Map *env,
         prev->fields = fields_dict;
         prev->size = aligned_size;
         prev->alignment = (u32)aligned;
+        if (intrinsic_base) prev->issigned = intrinsic_base->issigned;
         /* A forward-declared tag now has its full definition HERE -
          * repoint the provenance at it. */
         if (tag_line > 0) {
@@ -663,6 +680,7 @@ AstType *parseClassOrUnion(Cctrl *cc, Map *env,
         ref = astClassType(NULL,tag,aligned_size,is_intrinsic);
     }
     ref->alignment = (u32)aligned;
+    if (intrinsic_base) ref->issigned = intrinsic_base->issigned;
     if (!is_class) ref->kind = AST_TYPE_UNION;
     ref->line = tag_line;
     ref->col = tag_col;
@@ -673,12 +691,12 @@ AstType *parseClassOrUnion(Cctrl *cc, Map *env,
     return ref;
 }
 
-AstType *parseClassDef(Cctrl *cc, int is_intrinsic) {
-    return parseClassOrUnion(cc,cc->clsdefs,1,CalcClassSize,is_intrinsic);
+AstType *parseClassDef(Cctrl *cc, AstType *intrinsic_base) {
+    return parseClassOrUnion(cc,cc->clsdefs,1,CalcClassSize,intrinsic_base);
 }
 
 AstType *parseUnionDef(Cctrl *cc) {
-    AstType *_union = parseClassOrUnion(cc,cc->uniondefs,0,CalcUnionSize,0);
+    AstType *_union = parseClassOrUnion(cc,cc->uniondefs,0,CalcUnionSize,NULL);
     _union->kind = AST_TYPE_UNION;
     return _union;
 }
@@ -2594,7 +2612,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                     break;
                 
                 case KW_CLASS:
-                    parseClassDef(cc,0);
+                    parseClassDef(cc,NULL);
                     cctrlTokenExpect(cc,';');
                     continue;
 
@@ -2750,7 +2768,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                         cctrlRaiseException(cc,"Can only make intrinsic types from integer types, got %s",
                                 astTypeToString(type));
                     }
-                    parseClassDef(cc,1);
+                    parseClassDef(cc,type);
                     cctrlTokenExpect(cc,';');
                     continue;
                 default: {
