@@ -719,7 +719,9 @@ static void jitEmitSysvParamPrologue(JitFnCtx *ctx) {
     int ngp = 0, nsse = 0;
 
     AstType *rt = ast->type ? ast->type->rettype : NULL;
-    if (jitIsByvalStruct(rt) && rt->size > 0) ngp = 1; /* hidden ret ptr */
+    /* Only an INDIRECT (>16-byte) struct return uses a hidden out-pointer
+     * in rdi; a <=16-byte aggregate comes back in registers. */
+    if (jitIsByvalStruct(rt) && rt->size > 16) ngp = 1; /* hidden ret ptr */
     int incoming_off = 0;
 
     for (u64 i = 0; i < ast->params->size; ++i) {

@@ -959,8 +959,12 @@ static void a64JitRetChunkStore(void *be, int is_fp, int reg, int off, int size)
     else loggerPanic("jit-aarch64: %d-byte ret chunk not supported\n", size);
 }
 
+/* Spill from x0, not x9: jitFrameStore uses x9 as the offset scratch for
+ * slots beyond stur range, which would clobber the buffer address. */
 static void a64JitSpillStructDst(void *be, IrInstr *instr) {
-    jitSpillDst((JitFnCtx *)be, instr, A_X9);
+    JitFnCtx *ctx = (JitFnCtx *)be;
+    aarch64_enc_mov_reg(&ctx->jit->enc, A_X0, A_X9);
+    jitSpillDst(ctx, instr, A_X0);
 }
 
 static void a64JitStashDest(void *be, int sp_off) {

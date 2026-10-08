@@ -43,9 +43,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>On x86_64, a function taking two classes by value and returning a class gives wrong values under <code>-jit</code></td>
-        <td><code>Point Add(Point a, Point b)</code> returns garbage in the JIT; compiled it's correct</td>
-        <td>Pass pointers (<code>Point *a</code>) or compile instead of using the JIT</td></tr>
     <tr><td>Struct copies call <code>memcpy</code> on overlapping memory</td>
         <td>Debug build (<code>./build.sh --debug --test</code>): AddressSanitizer reports <code>memcpy-param-overlap</code> in tests 47, 58 and 63 on x86_64, and 63 on arm64</td>
         <td>None yet. Usually harmless in practice, but undefined behaviour</td></tr>
