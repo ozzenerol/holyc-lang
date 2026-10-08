@@ -264,6 +264,13 @@ Ast *astBinaryOp(AstBinOp operation, Ast *left, Ast *right, int *_is_err) {
 
     ast->kind = AST_BINOP;
     ast->binop = operation;
+    /* A comparison or logical op yields 0/1, never a float: without
+     * this `I64 x = f < 1.0;` fptosi's the 0/1 as if it were an F64. */
+    if (ast->type && astIsFloatType(ast->type) &&
+        (astIsBinOpCmp(ast) || operation == AST_BIN_OP_LOG_AND ||
+         operation == AST_BIN_OP_LOG_OR)) {
+        ast->type = astTypeCopy(ast_int_type);
+    }
     if (operation != AST_BIN_OP_ASSIGN &&
             astConvertArray(left->type)->kind != AST_TYPE_POINTER &&
             astConvertArray(right->type)->kind == AST_TYPE_POINTER) {

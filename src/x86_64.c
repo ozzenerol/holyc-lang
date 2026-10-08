@@ -662,17 +662,14 @@ static const char *x86_64IdxReg(IrCgCtx *ctx, IrInstr *instr) {
 }
 
 /* The float branch uses ucomisd, whose flags follow unsigned-int
- * semantics (b/be/a/ae). NaN sets CF=ZF=PF=1; we treat IR cmps as
- * loose-ordered (matches aarch64's behaviour - the IR_CMP_O* /
- * IR_CMP_UNO / IR_CMP_ORD strict variants aren't currently emitted
- * by the HolyC frontend). */
+ * semantics. NaN (unordered) sets CF=ZF=PF=1, so to get C's ordered
+ * semantics x86_64EmitFCmp turns LT/LE into a swapped GT/GE (a/ae
+ * are false when CF=1) and EQ/NE also consult PF. */
 static const char *x86_64CcFor(IrCmpKind cmp, int is_float) {
     if (is_float) {
         switch (cmp) {
             case IR_CMP_EQ: return "e";
             case IR_CMP_NE: return "ne";
-            case IR_CMP_LT: return "b";
-            case IR_CMP_LE: return "be";
             case IR_CMP_GT: return "a";
             case IR_CMP_GE: return "ae";
             default:        return NULL;
@@ -699,8 +696,6 @@ static const char *x86_64CcInvFor(IrCmpKind cmp, int is_float) {
         switch (cmp) {
             case IR_CMP_EQ: return "ne";
             case IR_CMP_NE: return "e";
-            case IR_CMP_LT: return "ae";
-            case IR_CMP_LE: return "a";
             case IR_CMP_GT: return "be";
             case IR_CMP_GE: return "b";
             default:        return NULL;
@@ -730,10 +725,39 @@ static void x86_64EmitSetCC(IrCgCtx *ctx, IrCmpKind cmp, int is_float) {
         loggerPanic("ir-cg-x86_64: unsupported cmp kind %s\n",
                     irCmpKindToString(cmp));
     }
+    if (is_float && (cmp == IR_CMP_EQ || cmp == IR_CMP_NE)) {
+        /* Unordered sets ZF too: EQ also needs PF=0, NE accepts PF=1. */
+        int eq = cmp == IR_CMP_EQ;
+        aoStrCatFmt(ctx->buf,
+                    "set%s    %%al\n\t"
+                    "set%s   %%cl\n\t"
+                    "%s    %%cl, %%al\n\t"
+                    "movzbq  %%al, %%rax\n\t",
+                    cc, eq ? "np" : "p ", eq ? "andb" : "orb ");
+        return;
+    }
     aoStrCatFmt(ctx->buf,
                 "set%s    %%al\n\t"
                 "movzbq  %%al, %%rax\n\t",
                 cc);
+}
+
+/* ucomiss/ucomisd of instr->r1 against instr->r2. LT/LE are emitted
+ * as the swapped GT/GE so an unordered (NaN) compare is false; returns
+ * the cmp kind the flags now encode. */
+static IrCmpKind x86_64EmitFCmp(IrCgCtx *ctx, IrInstr *instr, IrCmpKind cmp) {
+    const char *op = (int)irValueByteSize(instr->r1) == 4 ? "ucomiss"
+                                                          : "ucomisd";
+    x86_64LoadFirstSrcFpr(ctx, instr, instr->r1);
+    x86_64LoadToFpr(ctx, instr->r2, "xmm1");
+    if (cmp == IR_CMP_LT || cmp == IR_CMP_LE) {
+        /* flags from (xmm1 cmp xmm0): a < b  <=>  b > a */
+        aoStrCatFmt(ctx->buf, "%s %%xmm0, %%xmm1\n\t", op);
+        return cmp == IR_CMP_LT ? IR_CMP_GT : IR_CMP_GE;
+    }
+    /* flags from (xmm0 cmp xmm1) at the operand precision. */
+    aoStrCatFmt(ctx->buf, "%s %%xmm1, %%xmm0\n\t", op);
+    return cmp;
 }
 
 /* XMM register names start with x/X; GPR names never do. */
@@ -1693,14 +1717,8 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
         }
 
         case IR_FCMP: {
-            x86_64LoadFirstSrcFpr(ctx, instr, instr->r1);
-            x86_64LoadToFpr(ctx, instr->r2, "xmm1");
-            /* ucomiss/ucomisd %xmm1, %xmm0 sets flags from
-             * (xmm0 cmp xmm1) at the operand precision. */
-            aoStrCatFmt(ctx->buf, "%s %%xmm1, %%xmm0\n\t",
-                        (int)irValueByteSize(instr->r1) == 4 ? "ucomiss"
-                                                             : "ucomisd");
-            x86_64EmitSetCC(ctx, instr->extra.cmp_kind, 1);
+            IrCmpKind kind = x86_64EmitFCmp(ctx, instr, instr->extra.cmp_kind);
+            x86_64EmitSetCC(ctx, kind, 1);
             x86_64SpillDst(ctx, instr, "rax");
             break;
         }
@@ -1942,11 +1960,15 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
              * setcc + spill since the result lives in EFLAGS for one
              * instruction. */
             if (is_float) {
-                x86_64LoadFirstSrcFpr(ctx, instr, instr->r1);
-                x86_64LoadToFpr(ctx, instr->r2, "xmm1");
-                aoStrCatFmt(ctx->buf, "%s %%xmm1, %%xmm0\n\t",
-                            (int)irValueByteSize(instr->r1) == 4 ? "ucomiss"
-                                                                 : "ucomisd");
+                kind = x86_64EmitFCmp(ctx, instr, kind);
+                if (kind == IR_CMP_EQ || kind == IR_CMP_NE) {
+                    /* EQ/NE need two flags (ZF and PF): materialise
+                     * the 0/1 and branch on that instead. */
+                    x86_64EmitSetCC(ctx, kind, 1);
+                    aoStrCatFmt(ctx->buf, "testq   %%rax, %%rax\n\t");
+                    kind = IR_CMP_NE;
+                    is_float = 0;
+                }
             } else {
                 x86_64LoadFirstSrc(ctx, instr, instr->r1);
                 s64 imm;
