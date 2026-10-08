@@ -379,6 +379,7 @@ th { background: var(--bar-bg); color: var(--bar-text); font: 600 14px/1.5 var(-
 #filter:focus { outline: 2px solid var(--vga-yellow); outline-offset: 0; }
 .modules ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .modules a { display: inline-block; padding: 0 8px; border: 2px solid var(--border); text-decoration: none; color: var(--text); font: 500 14px/1.7 var(--mono); }
+.modules a.active { background: var(--vga-blue); color: var(--vga-white); }
 .modules a:hover { background: var(--vga-blue); color: var(--vga-white); }
 .count { font: 14px var(--mono); color: var(--muted); }
 .decl { border-bottom: 1px dotted var(--border); padding: 8px 0; }
