@@ -86,6 +86,8 @@ U8 *BROKEN_HC;
 U8 *CRASHER_HC;
 U8 *RENAME_HC;
 U8 *STD_HC;
+U8 *REG_HC;
+U8 *UTF_HC;
 
 U0 InitFixtures()
 {
@@ -133,6 +135,29 @@ U0 InitFixtures()
     "  I64 total = LibAdd(3, 4);\n"
     "  p.x = total;\n"
     "  return p.x + Helper(total);\n"
+    "}\n";
+  /* Regressions: hover/completion of locals, fields, macros and
+   * default params; stale symbols across edits and files. */
+  REG_HC =
+    "#include \"lib.HC\"\n"
+    "#define REG_LIMIT 8\n"
+    "I64 Square(I64 n, I64 scale=2)\n"
+    "{\n"
+    "  return n * n * scale;\n"
+    "}\n"
+    "I64 Run()\n"
+    "{\n"
+    "  I64 counter = REG_LIMIT;\n"
+    "  LibPoint p;\n"
+    "  p.x = Square(counter);\n"
+    "  return p.x;\n"
+    "}\n";
+  /* A non-ASCII line: utf-16 columns differ from byte columns. */
+  UTF_HC =
+    "U0 Main()\n"
+    "{\n"
+    "  U8 *s = \"héllo\"; I64 target = 1;\n"
+    "  target++;\n"
     "}\n";
   STD_HC =
     "U0 Go() {\n"
@@ -636,6 +661,9 @@ U0 TestHandshake()
   "handshake\n";
   LspClient *l = LspStart();
   Json *resp = LspRequest(l, "initialize", "{}");
+  Json *enc = JsonSelect(resp, ".result.capabilities.positionEncoding:s");
+  Check("utf-16 positions unless the client offers utf-8",
+        enc != NULL && StrCmp(enc->str, "utf-16") == 0);
   Bool ok = FALSE;
   if (resp != NULL) {
     Json *df = JsonSelect(resp, ".result.capabilities.definitionProvider:b");
@@ -999,6 +1027,77 @@ U0 TestRename()
   Check("clean shutdown", LspClose(l) == 0);
 }
 
+U0 TestRegressions()
+{
+  "regressions\n";
+  LspClient *l = LspStart();
+  U8 *uri = UriOf("reg.HC");
+  LspDidOpen(l, uri, REG_HC);
+  Check("regression fixture is clean", LastPublishClean(l));
+
+  I64 line;
+  I64 chr;
+  PosOf(REG_HC, "Square(counter)", 1, &line, &chr);
+  Json *resp = LspPositionRequest(l, "textDocument/hover", uri, line, chr);
+  Check("hover names every param, defaults included",
+        HoverContains(resp, "Square(I64 n, I64 scale=2)"));
+
+  PosOf(REG_HC, "counter);", 1, &line, &chr);
+  resp = LspPositionRequest(l, "textDocument/hover", uri, line, chr);
+  Check("hover on a local shows its type", HoverContains(resp, "I64 counter"));
+
+  PosOf(REG_HC, "x = Square", 0, &line, &chr);
+  resp = LspPositionRequest(l, "textDocument/hover", uri, line, chr);
+  Check("hover on a field shows class and type",
+        HoverContains(resp, "I64 LibPoint.x"));
+
+  PosOf(REG_HC, "REG_LIMIT;", 1, &line, &chr);
+  resp = LspPositionRequest(l, "textDocument/hover", uri, line, chr);
+  Check("hover on a macro shows its value",
+        HoverContains(resp, "#define REG_LIMIT 8"));
+
+  resp = LspPositionRequest(l, "textDocument/definition", uri, line, chr);
+  I64 dline;
+  I64 dchr;
+  PosOf(REG_HC, "REG_LIMIT 8", 0, &dline, &dchr);
+  Check("definition of a macro jumps to its #define",
+        LocEq(resp, uri, dline, dchr, TRUE));
+
+  PosOf(REG_HC, "counter);", 2, &line, &chr);
+  resp = LspPositionRequest(l, "textDocument/completion", uri, line, chr);
+  Check("completion offers locals", LabelsOk(resp, "co", "counter", NULL));
+
+  /* Rename Square to Cube but keep the call: the old name must not
+   * linger in the compiler and hide the error. */
+  U8 *edited = StrPrint(NULL, "%s", REG_HC);
+  U8 *at = strstr(edited, "Square(I64");
+  MemCpy(at, "Cube  ", 6);
+  LspDidChange(l, uri, edited);
+  LspSettle(l, 700);
+  Check("a removed function no longer resolves", !LastPublishClean(l));
+
+  /* Run() lives in reg.HC, which other.HC doesn't include. */
+  U8 *ouri = UriOf("other.HC");
+  LspDidOpen(l, ouri, "U0 Other() { Run(); }\n");
+  Check("open files don't leak symbols into each other",
+        !LastPublishClean(l));
+
+  U8 *uuri = UriOf("utf.HC");
+  LspDidOpen(l, uuri, UTF_HC);
+  PosOf(UTF_HC, "target++", 0, &line, &chr);
+  resp = LspPositionRequest(l, "textDocument/definition", uuri, line, chr);
+  PosOf(UTF_HC, "target = 1", 0, &dline, &dchr);
+  /* The default client (no positionEncodings) gets utf-16, where the
+   * two-byte é is one unit. */
+  Check("utf-16 columns on a non-ASCII line",
+        LocEq(resp, uuri, dline, dchr - 1, TRUE));
+
+  LspRequest(l, "shutdown", "null", 5000);
+  resp = LspPositionRequest(l, "textDocument/hover", uri, 0, 0);
+  Check("requests after shutdown are refused", IsErrorResult(resp));
+  Check("clean shutdown", LspClose(l) == 0);
+}
+
 U0 TestReferences()
 {
   "references & highlight\n";
@@ -1128,6 +1227,7 @@ I32 Main()
   TestSurvival();
   TestRename();
   TestReferences();
+  TestRegressions();
 
   snprintf(cmd, 256, "rm -rf %s", tmp);
   System(cmd);

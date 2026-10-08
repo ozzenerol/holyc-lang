@@ -1549,7 +1549,17 @@ static char *astParamsToString(Vec *params) {
                 if (!is_last) aoStrCatFmt(str,"..., ");
                 else          aoStrCatFmt(str,"..."); 
             } else {
-                char *label = astLValueToString(param,0);
+                char *label;
+                if (param->kind == AST_DEFAULT_PARAM) {
+                    /* `I64 level=2`: name, then the default value. */
+                    AoStr *name = astLValueToAoStr(param->declvar,0);
+                    AoStr *init = astLValueToAoStr(param->declinit,0);
+                    if (init->len) aoStrCatPrintf(name,"=%s",init->data);
+                    aoStrRelease(init);
+                    label = aoStrMove(name);
+                } else {
+                    label = astLValueToString(param,0);
+                }
                 AoStr *tmp = astTypeToColorAoStr(param->type);
                 if (astTypeIsPtr(param->type)) {
                     /* We don't want spaces between the stars */
@@ -1560,7 +1570,7 @@ static char *astParamsToString(Vec *params) {
                 } else {
                     if (!is_last && label) aoStrCatFmt(str,"%S %s, ",tmp, label);
                     else if (!is_last && !label) aoStrCatFmt(str,"%S, ",tmp);
-                    else if (label)              aoStrCatFmt(str,"%S% s",tmp, label);     
+                    else if (label)              aoStrCatFmt(str,"%S %s",tmp, label);
                     else                         aoStrCatFmt(str,"%S",tmp); 
                 }
             }
@@ -1601,6 +1611,7 @@ static char *astFunctionToStringInternal(Ast *func, AstType *type) {
         case AST_FUNC:
         case AST_FUN_PROTO:
         case AST_EXTERN_FUNC:
+        case AST_ASM_FUNC_BIND:
             strparams = astParamsToString(func->params);
             break;
         default:

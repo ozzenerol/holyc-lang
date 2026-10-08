@@ -292,7 +292,8 @@ __noreturn void cctrlTerminate(Cctrl *cc);
 
 /* Walk the token ring back to a token on a strictly earlier line than
  * `tok->line`, render a CCTRL_INFO message positioned there. */
-AoStr *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok, const char *fmt, ...);
+CctrlDiagnostic *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok,
+                                         const char *fmt, ...);
 
 /* Token-stream resync after an error. Both skip tokens until they
  * reach a brace-depth-zero boundary; the caller's recovery loop

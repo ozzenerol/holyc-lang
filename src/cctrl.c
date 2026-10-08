@@ -976,7 +976,8 @@ __noreturn void cctrlTerminate(Cctrl *cc) {
  * on a same-peek-after-rewind (ring floor). Returns NULL when no
  * earlier-line token exists in reach - the caller should treat
  * that as "no hint available" rather than an error. */
-AoStr *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok, const char *fmt, ...) {
+CctrlDiagnostic *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok,
+                                         const char *fmt, ...) {
     int rewinds = 0;
     Lexeme *prev = cctrlTokenPeek(cc);
     while (prev && prev->line >= tok->line && rewinds < 16) {
@@ -987,12 +988,15 @@ AoStr *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok, const char *fmt, ...) {
         rewinds++;
     }
 
-    AoStr *info_msg = NULL;
+    /* Built while rewound so its position is the previous line's last
+     * token, not tok's. */
+    CctrlDiagnostic *info = NULL;
     if (prev && prev->line < tok->line) {
         va_list ap;
         va_start(ap, fmt);
-        info_msg = cctrlMessagVnsPrintF(cc, (char *)fmt, ap, CCTRL_INFO);
+        AoStr *info_msg = cctrlMessagVnsPrintF(cc, (char *)fmt, ap, CCTRL_INFO);
         va_end(ap);
+        info = cctrlMakeDiag(cc, CCTRL_INFO, info_msg, NULL);
     }
 
     /* Restore buffer head so the recovery code sees the same
@@ -1000,7 +1004,7 @@ AoStr *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok, const char *fmt, ...) {
     while (rewinds-- > 0) {
         if (!cctrlTokenGet(cc)) break;
     }
-    return info_msg;
+    return info;
 }
 
 void cctrlRaiseException(Cctrl *cc, char *fmt, ...) {
@@ -1164,19 +1168,17 @@ void cctrlTokenExpect(Cctrl *cc, s64 expected) {
             lexemeTypeToString(tok->tk_type),
             tok->len, tok->start,
             (char)expected);
+    /* Positioned on tok too, while still rewound. */
+    CctrlDiagnostic *err_d = cctrlMakeDiag(cc, CCTRL_ERROR, err_msg, NULL);
     /* Re-consume so the buffer is back to where the caller left us before we
      * go hunting for an explanatory hint. */
     cctrlTokenGet(cc);
 
-    AoStr *info_msg = cctrlInfoAtPreviousLine(cc, tok,
+    CctrlDiagnostic *info_d = cctrlInfoAtPreviousLine(cc, tok,
             "previous statement starts here");
 
-    CctrlDiagnostic *err_d = cctrlMakeDiag(cc, CCTRL_ERROR, err_msg, NULL);
     cctrlDiagPush(cc, err_d);
-    if (info_msg) {
-        CctrlDiagnostic *info_d = cctrlMakeDiag(cc, CCTRL_INFO, info_msg, NULL);
-        cctrlDiagPush(cc, info_d);
-    }
+    if (info_d) cctrlDiagPush(cc, info_d);
     cctrlTerminate(cc);
 }
 
