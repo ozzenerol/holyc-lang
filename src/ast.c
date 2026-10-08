@@ -279,7 +279,12 @@ Ast *astBinaryOp(AstBinOp operation, Ast *left, Ast *right, int *_is_err) {
          operation == AST_BIN_OP_LOG_OR)) {
         ast->type = astTypeCopy(ast_int_type);
     }
+    /* `1 + p` is canonicalised to `p + 1`, but `&&` / `||` must keep
+     * their order: the left operand is evaluated first and decides
+     * whether the right one runs at all. */
     if (operation != AST_BIN_OP_ASSIGN &&
+            operation != AST_BIN_OP_LOG_AND &&
+            operation != AST_BIN_OP_LOG_OR &&
             astConvertArray(left->type)->kind != AST_TYPE_POINTER &&
             astConvertArray(right->type)->kind == AST_TYPE_POINTER) {
         ast->left = right;
@@ -981,6 +986,14 @@ start_routine:
         }
 
         if (ptr2->kind == ptr1->kind) {
+            return ast_uint_type;
+        }
+
+        /* `p || b` / `p && b`: a logical op only tests each operand
+         * against zero, so a char-kind operand (Bool, U8, I8) is as
+         * valid next to a pointer as an int one. */
+        if (ptr1->kind == AST_TYPE_CHAR &&
+            (op == AST_BIN_OP_LOG_OR || op == AST_BIN_OP_LOG_AND)) {
             return ast_uint_type;
         }
 

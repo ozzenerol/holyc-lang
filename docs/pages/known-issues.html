@@ -11,9 +11,6 @@ works as shown.</p>
     <tr><td>A function pointer with named parameters doesn't parse outside a function</td>
         <td><code>I64 (*g)(I64 a, I64 b) = &amp;Add;</code> at file scope: "Identifier expected"</td>
         <td>Declare it inside a function, or assign it in <code>Main</code></td></tr>
-    <tr><td><code>||</code> rejects a pointer next to a call returning <code>Bool</code></td>
-        <td><code>if (p || T())</code> where <code>T</code> returns <code>Bool</code></td>
-        <td>Compare the pointer: <code>p != NULL || T()</code></td></tr>
     <tr><td>Extra tokens after an <code>#if</code> condition are ignored</td>
         <td><code>#if 0 1</code> is the same as <code>#if 0</code>, with no error</td>
         <td>Check the <code>#if</code> lines</td></tr>

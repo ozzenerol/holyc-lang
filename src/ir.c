@@ -513,6 +513,26 @@ IrValue *irLowerFnCall(IrCtx *ctx, Ast *ast) {
     return irFnCallTo(ctx, ast, NULL);
 }
 
+/* The result of `&&` / `||` is a 0/1 I8 phi, so the right operand must
+ * be turned into 0/1 before it flows into the phi: passing it raw would
+ * truncate it (`0 || 256` was false, `T() && p` false for a pointer whose
+ * low byte is 0) or leak its value (`0 || 5` gave 5). A comparison or a
+ * nested logical op already yields 0/1. Floats are left as they were. */
+static IrValue *irLogicalOperandToBool(IrCtx *ctx, IrValue *val) {
+    if (irIsFloat(val->type)) return val;
+    if (!listEmpty(ctx->cur_block->instructions)) {
+        IrInstr *last = (IrInstr *)ctx->cur_block->instructions->prev->value;
+        if (last->dst == val &&
+            (irOpIsCmp(last->op) || (last->op == IR_PHI && val->type == IR_TYPE_I8))) {
+            return val;
+        }
+    }
+    IrValue *bool_val = irTmp(IR_TYPE_I8, 1);
+    irBlockAddInstr(ctx, irICmp(bool_val, IR_CMP_NE, val,
+                                irConstInt(IR_TYPE_I8, 0)));
+    return bool_val;
+}
+
 /* Binary expressions are assumed to always be assigning to something. I'm not
  * 100% sure this is a valid assumption to make. Well I guess;
  * `I64 x = y + 32 * 10` _could_ continually be assigned to `x` */
@@ -573,7 +593,7 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
         irFnAddBlock(ctx->cur_func, ir_right_block);
         ctx->cur_block = ir_right_block;
 
-        IrValue *right = irExpr(ctx, ast->right);
+        IrValue *right = irLogicalOperandToBool(ctx, irExpr(ctx, ast->right));
         IrBlock *right_end = ctx->cur_block;
 
         IrInstr *jump_instr = irJump(ctx->cur_func, ctx->cur_block, ir_end_block);
@@ -599,7 +619,7 @@ IrValue *irLowerBinOpExpr(IrCtx *ctx, Ast *ast) {
         irFnAddBlock(ctx->cur_func, ir_right_block);
         ctx->cur_block = ir_right_block;
 
-        IrValue *right = irExpr(ctx, ast->right);
+        IrValue *right = irLogicalOperandToBool(ctx, irExpr(ctx, ast->right));
         IrBlock *right_end = ctx->cur_block;
 
         IrInstr *jump_instr = irJump(ctx->cur_func, ctx->cur_block, ir_end_block);
