@@ -242,7 +242,7 @@ def write_html(groups):
     from page import page  # shared layout
     kinds = {"func": "function", "cfunc": "C binding", "class": "class",
              "union": "union", "define": "constant"}
-    toc, body = [], []
+    toc, body = ['<li><a class="all" href="#">All modules</a></li>'], []
     total = 0
     for mod, title, summary in MODULES:
         items = groups.get(mod) or []
@@ -284,17 +284,43 @@ library source by <code>docs/tools/gen-stdlib.py</code>; re-run it after changin
 <nav class="modules"><ul>{"".join(toc)}</ul></nav>
 {"".join(body)}
 <script>
+// Opening a module or a declaration shows only that module; the filter
+// and "All modules" show everything.
 const f = document.getElementById("filter");
+const sections = [...document.querySelectorAll("main section")];
+const items = s => s.querySelectorAll(".decl, .consts tr[id]");
+function showAll() {{
+  sections.forEach(s => {{ s.style.display = ""; items(s).forEach(e => e.style.display = ""); }});
+}}
+function showModule() {{
+  f.value = "";
+  const id = decodeURIComponent(location.hash.slice(1));
+  const target = id && document.getElementById(id);
+  const sec = target && target.closest("main section");
+  document.querySelectorAll(".modules a").forEach(a =>
+    a.classList.toggle("active", sec ? a.getAttribute("href").endsWith("#" + sec.id) : a.classList.contains("all")));
+  if (!sec) {{ showAll(); return; }}
+  showAll();
+  sections.forEach(s => s.style.display = s === sec ? "" : "none");
+  if (target === sec) window.scrollTo(0, document.querySelector(".modules").offsetTop - 70);
+  else target.scrollIntoView();
+}}
 f.addEventListener("input", () => {{
   const q = f.value.trim().toLowerCase();
-  document.querySelectorAll(".decl, .consts tr[id]").forEach(el => {{
-    el.style.display = !q || el.id.toLowerCase().includes(q) ? "" : "none";
-  }});
-  document.querySelectorAll("section").forEach(s => {{
-    const any = [...s.querySelectorAll(".decl, .consts tr[id]")].some(e => e.style.display !== "none");
+  sections.forEach(s => {{
+    let any = false;
+    items(s).forEach(el => {{
+      const hit = !q || el.id.toLowerCase().includes(q);
+      el.style.display = hit ? "" : "none";
+      any = any || hit;
+    }});
     s.style.display = any ? "" : "none";
   }});
 }});
+window.addEventListener("hashchange", showModule);
+// Re-clicking the current module after filtering doesn't change the hash.
+document.querySelectorAll(".modules a").forEach(a => a.addEventListener("click", () => setTimeout(showModule)));
+showModule();
 </script>'''
     open(OUT, "w").write(page("Standard library", "stdlib.html", content))
     print(f"wrote {OUT}: {total} declarations")
