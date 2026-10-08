@@ -473,15 +473,15 @@ public extern "c" I32 waitpid(I32 pid, I32 *statlock, I32 options);
 public extern "c" I32 fork();
 #ifdef IS_X86_64
 public _extern _EXIT U0 Exit(I64 exit_code = EXIT_FAIL);
-public _extern _WRITE I64 Write(I64 fd, U8 *buf, I64 len);
 public _extern _SYSTEM I64 System(U8 *command);
 #endif
 
 #ifdef IS_ARM_64
 public U0 Exit(I64 exit_code = EXIT_FAIL);
-public I64 Write(I64 fd, U8 *buf, I64 len);
 public I64 System(U8 *command);
 #endif
+
+public I64 Write(I64 fd, U8 *buf, I64 len);
 
 public I32 Sh(U8 *fmt, ...);
 public U8 *Shlurp(U8 *fmt, ...);
@@ -654,7 +654,6 @@ public _extern _TOLOWER U8 ToLower(U8 ch);
 public _extern _TOUPPER U8 ToUpper(U8 ch);
 public _extern _ISSPACE Bool IsSpace(U8 ch);
 public _extern _STRHASH U64 StrHash(U8 *str);
-public _extern _ATOI I64 Atoi(U8 *str);
 #endif
 
 #ifdef IS_ARM_64
@@ -662,8 +661,9 @@ public U8 ToLower(U8 ch);
 public U8 ToUpper(U8 ch);
 public Bool IsSpace(U8 ch);
 public U64 StrHash(U8 *str);
-public I64 Atoi(U8 *str);
 #endif
+
+public I64 Atoi(U8 *str);
 
 public U8 *StrNCpy(U8 *buf, I64 len);
 public U8 *FileExtDot(U8 *src);
