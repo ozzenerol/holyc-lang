@@ -673,8 +673,7 @@ U0 Main()
   shapes[0] = &c;
   shapes[1] = &r;
   for (I64 i = 0; i < 2; i++) {
-    Shape *s = shapes[i];
-    "%s: %.2f\n", s->name, s->area(s);
+    "%s: %.2f\n", shapes[i]->name, shapes[i]->area(shapes[i]);
   }
 }
 </code></pre>

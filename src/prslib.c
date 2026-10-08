@@ -1287,6 +1287,19 @@ Ast *parseGetClassField(Cctrl *cc, Ast *cls) {
     return class_ref;
 }
 
+/* Call a function pointer field of a class, the '(' has been consumed */
+static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
+    int len = strlen(class_ref->field);
+    Vec *argv = parseArgv(cc,class_ref,')',class_ref->field,len);
+    parseFunctionArgumentCheck(cc,class_ref,argv,class_ref->field,len);
+    return astFunctionPtrCall(
+            class_ref->type->rettype,
+            class_ref->field,
+            len,
+            argv,
+            class_ref);
+}
+
 static int parseCompoundAssign(Lexeme *tok, AstBinOp *_op) {
     if (tok->tk_type != TK_PUNCT) {
         return 0;
@@ -1393,6 +1406,16 @@ Ast *parseExpr(Cctrl *cc, int prec) {
         }
 
         if (tokenPunctIs(tok,'(')) {
+            /* `arr[i]->f(x)`, `GetS()->f(x)` etc. reach here rather than
+             * parsePostFixExpr, so a function pointer field followed by
+             * something that is not a type is a call, not a cast */
+            Lexeme *peek = cctrlTokenPeek(cc);
+            if (LHS->kind == AST_CLASS_REF &&
+                LHS->type->kind == AST_TYPE_FUNC &&
+                (peek == NULL || !cctrlIsKeyword(cc,peek->start,peek->len))) {
+                LHS = parseClassFnPtrCall(cc,LHS);
+                continue;
+            }
             /* XXX: Should this check still be here ? Not sure as 
              * casting _anything_ makes sense */
             // assertLValue(LHS,cc->lineno);
@@ -1625,15 +1648,7 @@ Ast *parsePostFixExpr(Cctrl *cc) {
                 ast = astCast(ast,type);
                 continue;
             } else if (ast->kind == AST_CLASS_REF) { 
-                int len = strlen(ast->field);
-                Vec *argv = parseArgv(cc,ast,')',ast->field,len);
-                parseFunctionArgumentCheck(cc,ast,argv,ast->field,len);
-                ast = astFunctionPtrCall(
-                        ast->type->rettype,
-                        ast->field,
-                        len,
-                        argv,
-                        ast);
+                ast = parseClassFnPtrCall(cc,ast);
                 continue;
             }
         }
