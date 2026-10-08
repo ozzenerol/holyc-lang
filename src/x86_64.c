@@ -2469,6 +2469,11 @@ void x86_64GlobalVar(Cctrl *cc,
                 aoStrCatFmt(buf,
                             "%S:\n\t.asciz \"%S\"\n\t",
                             label, declinit->sval);
+                /* `U8 buf[8] = "abc"`: zero-fill past the string. */
+                int pad = declvar->type->size - (int)declinit->real_len;
+                if (pad > 0) {
+                    aoStrCatFmt(buf, ".zero %i\n\t", pad);
+                }
             }
             return;
         }

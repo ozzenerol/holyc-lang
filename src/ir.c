@@ -1173,6 +1173,40 @@ static IrValue *irLowerAssign(IrCtx *ctx, Ast *ast) {
     return new_val;
 }
 
+/* Store `n_bytes` at `base + offset_bytes`: the first `data_len` bytes
+ * of `data`, zeros past that. The bytes are packed into the widest
+ * power-of-two immediates that fit and emitted as inline GEP+STOREs. */
+static void irStoreConstBytes(IrCtx *ctx,
+                              IrValue *base,
+                              int offset_bytes,
+                              int n_bytes,
+                              const char *data,
+                              int data_len)
+{
+    int pos = 0;
+    while (pos < n_bytes) {
+        int remaining = n_bytes - pos;
+        int chunk;
+        IrValueType chunk_ty;
+        if      (remaining >= 8) { chunk = 8; chunk_ty = IR_TYPE_I64; }
+        else if (remaining >= 4) { chunk = 4; chunk_ty = IR_TYPE_I32; }
+        else if (remaining >= 2) { chunk = 2; chunk_ty = IR_TYPE_I16; }
+        else                     { chunk = 1; chunk_ty = IR_TYPE_I8;  }
+        u64 packed = 0;
+        for (int i = 0; i < chunk; i++) {
+            int idx = pos + i;
+            u8 b = (idx < data_len) ? (u8)data[idx] : 0;
+            packed |= (u64)b << (i * 8);
+        }
+        IrValue *field = irTmp(IR_TYPE_PTR, 8);
+        IrValue *off = irConstInt(IR_TYPE_I64, offset_bytes + pos);
+        irBlockAddInstr(ctx, irInstrNew(IR_GEP, field, base, off));
+        IrValue *val = irConstInt(chunk_ty, (s64)packed);
+        irBlockAddInstr(ctx, irInstrNew(IR_STORE, field, val, NULL));
+        pos += chunk;
+    }
+}
+
 /* Recursively lower an AST_ARRAY_INIT against `base + offset_bytes`,
  * mirroring `asmArrayInit`'s walk: when iterating items of an array
  * type the stride is the element type's size, when iterating items of
@@ -1249,28 +1283,8 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
             int slot_size = elem_ty->size;
             int str_len = item->sval ? (int)item->sval->len : 0;
             const char *str_data = item->sval ? item->sval->data : NULL;
-            int pos = 0;
-            while (pos < slot_size) {
-                int remaining = slot_size - pos;
-                int chunk;
-                IrValueType chunk_ty;
-                if      (remaining >= 8) { chunk = 8; chunk_ty = IR_TYPE_I64; }
-                else if (remaining >= 4) { chunk = 4; chunk_ty = IR_TYPE_I32; }
-                else if (remaining >= 2) { chunk = 2; chunk_ty = IR_TYPE_I16; }
-                else                     { chunk = 1; chunk_ty = IR_TYPE_I8;  }
-                u64 packed = 0;
-                for (int i = 0; i < chunk; i++) {
-                    int idx = pos + i;
-                    u8 b = (idx < str_len) ? (u8)str_data[idx] : 0;
-                    packed |= (u64)b << (i * 8);
-                }
-                IrValue *field = irTmp(IR_TYPE_PTR, 8);
-                IrValue *off = irConstInt(IR_TYPE_I64, offset_bytes + pos);
-                irBlockAddInstr(ctx, irInstrNew(IR_GEP, field, base, off));
-                IrValue *val = irConstInt(chunk_ty, (s64)packed);
-                irBlockAddInstr(ctx, irInstrNew(IR_STORE, field, val, NULL));
-                pos += chunk;
-            }
+            irStoreConstBytes(ctx, base, offset_bytes, slot_size,
+                              str_data, str_len);
             offset_bytes += slot_size;
             continue;
         }
@@ -2239,6 +2253,20 @@ void irLowerDecl(IrCtx *ctx, Ast *ast) {
             }
 
             default: {
+                /* `U8 buf[N] = "abc";`: copy the literal's bytes (NUL
+                 * included) into the array's own storage, then zero the
+                 * rest. Storing the literal's address would leave the
+                 * array holding a pointer instead of the characters. */
+                if (init->kind == AST_STRING && astTypeIsArray(var->type)) {
+                    int n_str = (int)init->real_len;
+                    IrValue *dst_addr = irTmp(IR_TYPE_PTR, 8);
+                    irBlockAddInstr(ctx,
+                            irInstrNew(IR_LEA, dst_addr, local, NULL));
+                    irEmitMemcpy(ctx, dst_addr, irExpr(ctx, init), n_str);
+                    irStoreConstBytes(ctx, local, n_str,
+                                      var->type->size - n_str, NULL, 0);
+                    break;
+                }
                 /* Struct/class copy-init `Color c = other;`: memcpy the
                  * source aggregate's bytes into the new slot rather than
                  * treating it as a scalar (which would store the source's

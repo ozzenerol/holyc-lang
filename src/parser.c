@@ -691,15 +691,21 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags) {
 
     if (var->type->kind == AST_TYPE_ARRAY) {
         init = parseDeclArrayInitInt(cc,var->type);
-        if (init->kind == AST_STRING) {
-            len = init->sval->len+1;
+        int is_str = init->kind == AST_STRING;
+        if (is_str) {
+            /* `real_len` is the byte length with escapes decoded (and
+             * the NUL), which is what lands in the array; `sval` keeps
+             * the escapes in their textual form. */
+            len = init->real_len;
         } else {
             len = listCount(init->arrayinit);
         }
         if (var->type->len == -1) {
             var->type->len = len;
             var->type->size = len * var->type->ptr->size;
-        } else if (var->type->len != len) {
+        } else if (is_str ? var->type->len < len : var->type->len != len) {
+            /* Like C, `U8 buf[8] = "abc"` copies the string and
+             * zero-fills the rest; only a too-small array is an error. */
             cctrlRaiseExceptionFromTo(cc, NULL, '{', '}',
                                      "Invalid array initializer: expected %d items but got %d",
                                       var->type->len, len);
