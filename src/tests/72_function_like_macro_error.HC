@@ -101,8 +101,9 @@ U0 Main() { }
 
 Bool TestDefineBadName(U0)
 {
+  /* `1 x`, not `1x`: that is now a malformed number literal. */
   return CompileFailsWith(
-"#define 1x
+"#define 1 x
 U0 Main() { }
 ",
     "Syntax is: #define <TK_IDENT> <value>");
