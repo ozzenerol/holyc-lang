@@ -185,9 +185,10 @@ exit status 0
 <p>Print statements are buffered, while commands write straight to the terminal. When
 output goes to a pipe or file, a command's output can appear before text you printed
 earlier.</p>
-<div class="warn"><p>Always give <code>Shlurp</code> at least one format argument. Without one it
-doesn't capture anything (see <a href="known-issues.html">known issues</a>).
-<code>Exit(code)</code> ends the program.</p></div>
+<p><code>Shlurp</code> returns what the command printed to stdout, minus one trailing
+newline, as a string to <code>Free</code>; format arguments are optional. It doesn't
+capture stderr or return the exit status: a failing command gives whatever it printed,
+often <code>""</code>. <code>Exit(code)</code> ends the program.</p>
 
 <h2 id="lists">Lists</h2>
 <p><code>List</code> is a circular doubly linked list of <code>U0 *</code> values. The list

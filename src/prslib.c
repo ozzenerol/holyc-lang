@@ -558,6 +558,25 @@ static void parseFlattenDefaultArgs(Ast *def, Vec *argv) {
     }
 }
 
+/* A HolyC `...` callee always receives the implicit argc. parseArgv only
+ * adds it when extra arguments were written, so a call that passes none
+ * (`Foo(fmt)`) left the callee reading argc from whatever was in the
+ * register or stack slot. Runs after parseFlattenDefaultArgs so argc
+ * lands after any filled-in default arguments. */
+static void parseAddEmptyVarArgCount(Ast *def, Vec *argv) {
+    Vec *params = parseGetFunctionParams(def);
+    if (!params || !argv || def->kind == AST_EXTERN_FUNC)
+        return;
+
+    for (u64 i = 0; i < params->size; ++i) {
+        Ast *param = (Ast *)params->entries[i];
+        if (param && param->kind == AST_VAR_ARGS) {
+            if (argv->size == i) vecPush(argv, astI64Type(0));
+            return;
+        }
+    }
+}
+
 /* Wrap any fixed-parameter argument that crosses the int/float boundary
  * in a cast, so codegen converts the value (sitofp/fptosi) instead of
  * reinterpreting the raw bits. C does this implicitly for prototyped
@@ -930,6 +949,7 @@ Ast *parseFunctionArguments(Cctrl *cc, char *fname, int len, s64 terminator) {
     if (maybe_fn) {
         parseFunctionArgumentCheck(cc,maybe_fn,argv,fname,len);
         parseFlattenDefaultArgs(maybe_fn, argv);
+        parseAddEmptyVarArgCount(maybe_fn, argv);
         parseCoerceArgs(maybe_fn, argv);
         parsePrintfFormatCheck(cc, maybe_fn, argv, fname, len,
                                fmt_line, fmt_col, fmt_len);
@@ -1034,6 +1054,7 @@ static Ast *parseIdentifierOrFunction(Cctrl *cc,
                 Vec *argv = astVecNew();
                 parseFunctionArgumentCheck(cc,ast,argv,ast->fname->data,ast->fname->len);
                 parseFlattenDefaultArgs(ast, argv);
+                parseAddEmptyVarArgCount(ast, argv);
                 if (ast->flags & AST_FLAG_INLINE && !(cc->flags & CCTRL_TRANSPILING)) {
                     if (ast->kind == AST_ASM_FUNC_BIND || ast->kind == AST_ASM_FUNCDEF) {
                         Ast *call = astAsmFunctionCall(ast->type->rettype, aoStrDup(ast->asmfname), argv);
@@ -1292,6 +1313,7 @@ static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
     int len = strlen(class_ref->field);
     Vec *argv = parseArgv(cc,class_ref,')',class_ref->field,len);
     parseFunctionArgumentCheck(cc,class_ref,argv,class_ref->field,len);
+    parseAddEmptyVarArgCount(class_ref, argv);
     return astFunctionPtrCall(
             class_ref->type->rettype,
             class_ref->field,
