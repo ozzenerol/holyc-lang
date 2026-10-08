@@ -345,11 +345,25 @@ static void aarch64EmitAddSubImm(AoStr *buf, const char *op,
     aoStrCatFmt(buf, "%s %s, %s, x9\n\t", op, dst, src);
 }
 
-/* Emit `reg += disp` (the in-place form of the above). */
-static void aarch64AddSubImm(AoStr *buf, const char *reg, s64 disp) {
-    if (disp == 0) return;
-    if (disp < 0) aarch64EmitAddSubImm(buf, "sub", reg, reg, -disp);
-    else          aarch64EmitAddSubImm(buf, "add", reg, reg, disp);
+/* Base register for a `[base, idx]` access with a displacement:
+ * x10 = base_reg + disp, or base_reg itself when disp is 0. AArch64
+ * has no base + index + displacement form, and base_reg must not be
+ * bumped in place - it may be a parameter still live in its
+ * register, and RMW reuses it for the store (`(p + 1)[i] += 1` added
+ * the 8 twice). x10 is free (values use x0/x9, bases x0-x7) and x9
+ * may hold a store value, so a large disp goes via x10 too. */
+static const char *aarch64IdxBase(AoStr *buf, const char *base_reg,
+                                  s64 disp)
+{
+    if (disp == 0) return base_reg;
+    if (disp >= -0xFFF && disp <= 0xFFF) {
+        if (disp < 0) aarch64EmitAddSubImm(buf, "sub", "x10", base_reg, -disp);
+        else          aarch64EmitAddSubImm(buf, "add", "x10", base_reg, disp);
+    } else {
+        aarch64EmitMovImm(buf, "x10", disp);
+        aoStrCatFmt(buf, "add x10, %s, x10\n\t", base_reg);
+    }
+    return "x10";
 }
 
 /* `dst = x29 + loff` for any signed frame offset. */
@@ -386,10 +400,10 @@ static void aarch64DerefLoad(AoStr *buf, u32 size, const char *dst_reg,
         else if (scale == 4) sh = 2;
         else if (scale == 8) sh = 3;
 
+        base_reg = aarch64IdxBase(buf, base_reg, (s64)disp);
         if (sh == 0) snprintf(mem, sizeof(mem), "[%s, %s]", base_reg, idx_reg);
         else snprintf(mem, sizeof(mem), "[%s, %s, lsl #%d]",
                       base_reg, idx_reg, sh);
-        aarch64AddSubImm(buf, base_reg, (s64)disp);
     } else if (disp != 0 && aarch64IsMemDisp(disp, size)) {
         snprintf(mem, sizeof(mem), "[%s, #%d]", base_reg, (int)disp);
     } else if (disp != 0) {
@@ -425,10 +439,10 @@ static void aarch64DerefStore(AoStr *buf, u32 size, const char *val_reg,
         switch (scale) { case 1: sh=0; break; case 2: sh=1; break;
                          case 4: sh=2; break; case 8: sh=3; break;
                          default: sh = 0; }
+        base_reg = aarch64IdxBase(buf, base_reg, (s64)disp);
         if (sh == 0) snprintf(mem, sizeof(mem), "[%s, %s]", base_reg, idx_reg);
         else snprintf(mem, sizeof(mem), "[%s, %s, lsl #%d]",
                       base_reg, idx_reg, sh);
-        aarch64AddSubImm(buf, base_reg, (s64)disp);
     } else if (disp != 0 && aarch64IsMemDisp(disp, size)) {
         snprintf(mem, sizeof(mem), "[%s, #%d]", base_reg, (int)disp);
     } else if (disp != 0) {
@@ -1383,6 +1397,8 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                     int sh = (instr->scale == 8) ? 3 :
                              (instr->scale == 4) ? 2 :
                              (instr->scale == 2) ? 1 : 0;
+                    base_reg = aarch64IdxBase(ctx->buf, base_reg,
+                                              (s64)instr->disp);
                     if (sh)
                         aoStrCatFmt(ctx->buf,
                             "ldr %s, [%s, %s, lsl #%i]\n\t",
@@ -1437,6 +1453,8 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                     int sh = (instr->scale == 8) ? 3 :
                              (instr->scale == 4) ? 2 :
                              (instr->scale == 2) ? 1 : 0;
+                    base_reg = aarch64IdxBase(ctx->buf, base_reg,
+                                              (s64)instr->disp);
                     if (sh)
                         aoStrCatFmt(ctx->buf,
                             "str %s, [%s, %s, lsl #%i]\n\t",
