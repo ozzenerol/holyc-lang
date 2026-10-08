@@ -244,6 +244,11 @@ auto IntMapSet(IntMap *map, I64 key, U0 *value)
     return TRUE;
   } else {
     auto n = map->entries[idx];
+    if (n->key != HT_DELETED && map->_free_value && n->value != value) {
+      /* Replacing a live value: the map owned the old one. A deleted slot's
+       * value was already freed by IntMapDelete. */
+      map->_free_value(n->value);
+    }
     n->key = key;
     n->value = value;
     return TRUE;
@@ -535,8 +540,24 @@ Bool StrMapSet(StrMap *map, U8 *key, U0 *value)
     return TRUE;
   } else {
     auto n = map->entries[idx];
-    n->key = key;
-    n->key_len = key_len;
+    if (n->key == NULL) {
+      /* A slot left by StrMapDelete: take the new key. */
+      n->key = key;
+      n->key_len = key_len;
+    } else {
+      /* Updating an existing key keeps the key the map already stores; the
+       * pointer passed now may be a reused buffer. With a key destructor
+       * registered the map owns every key it is given, so the duplicate is
+       * freed here instead of leaking (unless it is the stored key itself).
+       * Likewise the replaced value is freed when a value destructor is
+       * registered, unless the same pointer is being set again. */
+      if (map->_free_key && n->key != key) {
+        map->_free_key(key);
+      }
+      if (map->_free_value && n->value != value) {
+        map->_free_value(n->value);
+      }
+    }
     n->value = value;
     return TRUE;
   }
