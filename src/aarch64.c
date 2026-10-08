@@ -1070,8 +1070,12 @@ static void a64TxtRetChunkStore(void *be, int is_fp, int reg, int off, int size)
     else if (size == 1) aoStrCatFmt(buf, "strb w%i, [x9, #%i]\n\t", reg, off);
     else loggerPanic("ir-cg-aarch64: %d-byte ret chunk not supported\n", size);
 }
+/* Spill from x0, not x9: a frame slot beyond stur range materialises its
+ * offset into x9, which would overwrite the buffer address being stored. */
 static void a64TxtSpillStructDst(void *be, IrInstr *instr) {
-    aarch64SpillDst((IrCgCtx *)be, instr, "x9");
+    IrCgCtx *ctx = (IrCgCtx *)be;
+    aoStrCatFmt(ctx->buf, "mov x0, x9\n\t");
+    aarch64SpillDst(ctx, instr, "x0");
 }
 static void a64TxtStashDest(void *be, int sp_off) {
     aoStrCatFmt(((IrCgCtx *)be)->buf, "str x9, [sp, #%i]\n\t", sp_off);
