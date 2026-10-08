@@ -53,6 +53,7 @@ hcc -Werror main.HC         # treat warnings as errors</code></pre>
   <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
   <tbody>
     <tr><td><code>-o &lt;file&gt;</code></td><td>Output file name</td></tr>
+    <tr><td><code>-run</code></td><td>Compile to a temporary binary, run it and delete it; arguments after the file are passed to the program and its exit code becomes hcc's</td></tr>
     <tr><td><code>-jit</code></td><td>Compile in memory and run (x86_64 and arm64)</td></tr>
     <tr><td><code>-Memsafe</code></td><td>With <code>-jit</code>: report double frees, wild frees and leaks at exit</td></tr>
     <tr><td><code>-repl</code></td><td>Interactive session</td></tr>

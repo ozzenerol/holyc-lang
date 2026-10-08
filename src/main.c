@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "aostr.h"
 #include "ast.h"
@@ -316,26 +317,66 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
         }
 
         if (args->run) {
-            AoStr *run_cmd = aoStrNew();
+            /* Link to a private temporary binary rather than ./a.out so a
+             * user's a.out is never clobbered, run it with the extra
+             * command line arguments and exit with its status. */
+            char bin[] = "/tmp/hcc-run-XXXXXX";
+            int bin_fd = mkstemp(bin);
+            if (bin_fd == -1) {
+                loggerPanic("Failed to create temporary binary: %s\n",
+                        strerror(errno));
+            }
+            close(bin_fd);
+
             writeAsmToTmp(asmbuf);
-            AoStr *argv = cliConcatArgv(args);
-            aoStrCatPrintf(run_cmd,"%s -L%s/lib %s %s %s %s "CLIBS" -ltos && ./a.out && rm ./a.out %s",
+            aoStrCatPrintf(cmd, "%s -L%s/lib %s %s %s %s -ltos "CLIBS" -o %s",
                     cc->CC,
                     args->install_dir,
                     ASM_TMP_FILE,
                     ofiles->data,
                     link_flags->data,
                     args->clibs ? args->clibs : "",
-                    argv->data);
-            aoStrRelease(argv);
-            aoStrRelease(run_cmd);
-            /* Don't use 'safeSystem' else anything other than a '0' exit
-             * code will cause a panic which is incorrect... This is a bit of a
-             * hack as run, in an ideal world, would not be calling out to `_CC` */
-            int ret = system(run_cmd->data);
-            (void)ret;
-            aoStrRelease(run_cmd);
-            exit(EXIT_SUCCESS);
+                    bin);
+            int link_ok = system(cmd->data);
+            remove(ASM_TMP_FILE);
+            if (link_ok != 0) {
+                unlink(bin);
+                loggerPanic("Failed to execute command: '%s'\n", cmd->data);
+            }
+
+            /* Same argv as -jit: the source file then any trailing args. */
+            char **run_argv = malloc(sizeof(char *) * (args->argc + 2));
+            int i = 0;
+            run_argv[i++] = args->infile;
+            listForEach(args->argv) {
+                run_argv[i++] = it->value;
+            }
+            run_argv[i] = NULL;
+
+            fflush(stdout);
+            fflush(stderr);
+            int status = 0;
+            pid_t pid = fork();
+            if (pid == -1) {
+                unlink(bin);
+                loggerPanic("Failed to fork: %s\n", strerror(errno));
+            } else if (pid == 0) {
+                execv(bin, run_argv);
+                fprintf(stderr, "hcc: failed to run '%s': %s\n",
+                        bin, strerror(errno));
+                _exit(127);
+            }
+            while (waitpid(pid, &status, 0) == -1 && errno == EINTR);
+            unlink(bin);
+            free(run_argv);
+
+            if (WIFEXITED(status)) {
+                exit(WEXITSTATUS(status));
+            } else if (WIFSIGNALED(status)) {
+                /* Mirror the shell's convention for a signalled child */
+                exit(128 + WTERMSIG(status));
+            }
+            exit(EXIT_FAILURE);
         }
 
         writeAsmToTmp(asmbuf);
