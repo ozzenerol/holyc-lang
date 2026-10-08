@@ -154,6 +154,11 @@ typedef struct Cctrl {
      * storage (the AST_DECL) was rolled back. */
     Ast *tmp_gvar_decl;
 
+    /* `I64 a = 1, *b, c[2];` at file scope: parseToplevelDef returns
+     * one declarator per call, so after a `,` the base type (sans the
+     * per-declarator `*`s) is stashed here for the next call. */
+    AstType *tmp_gvar_base_type;
+
     /* When parsing & converting to assembly these keep a reference to the
      * current loop's labels */
     AoStr *tmp_loop_begin;

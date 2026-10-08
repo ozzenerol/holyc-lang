@@ -273,6 +273,7 @@ Cctrl *cctrlNew(enum CliTarget target) {
     cc->tmp_loop_end = NULL;
     cc->tmp_func = NULL;
     cc->tmp_gvar_decl = NULL;
+    cc->tmp_gvar_base_type = NULL;
     cc->token_buffer = NULL;
     cc->diagnostics = vecNew(&vec_diagnostic_type);
     cc->n_errors = 0;
