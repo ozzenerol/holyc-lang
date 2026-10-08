@@ -366,7 +366,17 @@ static int jitAllocateGlobals(HccJit *jit, List *from) {
         if (mapGet(jit->host_symbols, (void *)label->data)) continue;
         uint8_t *addr = globals + off;
         mapAdd(jit->host_symbols, strdup(label->data), addr);
-        jitWriteInit(jit, addr, ast->declinit);
+        Ast *init = ast->declinit;
+        if (init && init->kind == AST_STRING &&
+            ast->declvar->type->kind == AST_TYPE_ARRAY) {
+            /* `U8 buf[] = "abc"`: copy the (already decoded) string
+             * bytes inline rather than a pointer to them. The arena is
+             * calloc'd, so a larger `U8 buf[8]` is zero-filled. */
+            void *src = mapGet(jit->host_symbols, (void *)init->slabel->data);
+            if (src) memcpy(addr, src, (size_t)init->real_len);
+        } else {
+            jitWriteInit(jit, addr, init);
+        }
         off += (ast->declvar->type->size + 7) & ~7;
     }
     return 0;

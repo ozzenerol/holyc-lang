@@ -574,9 +574,20 @@ hello 5 0
 hello has 5 letters
 2 vowels
 </pre>
-<div class="warn"><p>Initialising a <em>local</em> <code>U8</code> array from a string literal
-(<code>U8 buf[] = "abc";</code>) currently gives garbage. Use a pointer, a global array, or
-<code>StrCpy</code> into a buffer (see <a href="known-issues.html">known issues</a>).</p></div>
+<p>A <code>U8</code> array initialised from a string gets its own writable copy. With an
+explicit size, the rest is zero-filled:</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 buf[] = "abc";               // 4 bytes: a, b, c, NUL
+  U8 name[8] = "hi";              // the 6 bytes after "hi" are zero
+  buf[0] = 'X';
+  "%s %d %s %d\n", buf, sizeof(buf), name, sizeof(name);
+}
+</code></pre>
+<pre class="output">
+Xbc 4 hi 8
+</pre>
 
 <h2>Classes</h2>
 <p>A <code>class</code> is a C <code>struct</code>, and its name is a type straight away,

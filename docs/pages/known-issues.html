@@ -11,12 +11,6 @@ works as shown.</p>
     <tr><td>A range-based <code>for</code> without braces crashes the compiler</td>
         <td><code>for (auto x : arr) sum += x;</code></td>
         <td>Use braces: <code>for (auto x : arr) { sum += x; }</code></td></tr>
-    <tr><td>A local <code>U8</code> array initialised from a string holds garbage</td>
-        <td><code>U8 buf[] = "abc";</code> inside a function</td>
-        <td><code>U8 *buf = "abc";</code>, a global array, or <code>StrCpy</code> into a buffer</td></tr>
-    <tr><td>A sized <code>U8</code> array can't take a shorter string</td>
-        <td><code>U8 buf[8] = "abc";</code>: "expected 8 items but got 4"</td>
-        <td><code>StrCpy(buf, "abc");</code></td></tr>
     <tr><td><code>inline</code> functions don't compile</td>
         <td><code>inline I64 F(I64 x) { return x; }</code>: "Unhandled AST kind"</td>
         <td>Leave out <code>inline</code></td></tr>
