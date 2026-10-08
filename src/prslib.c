@@ -319,7 +319,9 @@ static AstType *parseArrayDimensionsInternal(Cctrl *cc, AstType *base_type) {
     dimension = -1;
 
     if (!tokenPunctIs(tok, '[')) {
-        cctrlTokenRewind(cc);
+        /* At the end of input nothing was consumed; rewinding would
+         * step back over the caller's token (the declaration's name). */
+        if (tok) cctrlTokenRewind(cc);
         return NULL;
     }
 
