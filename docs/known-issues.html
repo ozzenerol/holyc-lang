@@ -46,9 +46,6 @@ works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>StrCmp</code> / <code>StrNCmp</code> return the wrong sign on x86_64</td>
-        <td><code>StrCmp("abc", "abd")</code> is positive</td>
-        <td>Use them for equality (<code>== 0</code>) only, or compare characters yourself</td></tr>
     <tr><td><code>Gcd</code> returns the wrong answer</td>
         <td><code>Gcd(12, 18)</code> is 18</td>
         <td>Write your own Euclid loop</td></tr>
