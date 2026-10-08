@@ -706,7 +706,11 @@ A 8
 <h2 id="preprocessor">The preprocessor</h2>
 <h3>#define</h3>
 <p>Macros name a single value: a number, a float, a string, or an expression that evaluates to
-one. Function-like macros (<code>#define F(x) ...</code>) are not supported.</p>
+one. Function-like macros (<code>#define F(x) ...</code>, no space before the
+<code>(</code>) are not supported: they are a compile error ("function-like macros are not
+supported"), so write a function instead. With a space, <code>#define CALC (2 * 21)</code>
+is an ordinary macro whose value is the expression in brackets. Names in a macro's value
+must be other macros.</p>
 <pre data-run><code>
 #define MAX_USERS 64
 #define APP_NAME  "demo"

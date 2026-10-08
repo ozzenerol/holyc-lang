@@ -17,9 +17,6 @@ works as shown.</p>
     <tr><td>Several declarations in one statement fail at global scope</td>
         <td><code>I64 a = 1, b = 2;</code> outside a function</td>
         <td>One declaration per statement for globals (inside functions it works)</td></tr>
-    <tr><td>Function-like macros crash the parser</td>
-        <td><code>#define DOUBLE(x) ((x)*2)</code></td>
-        <td>Write a function instead</td></tr>
     <tr><td><code>hcc -run</code> does nothing</td>
         <td><code>hcc -run hello.HC</code> prints nothing, exits 0</td>
         <td><code>hcc -jit hello.HC</code></td></tr>

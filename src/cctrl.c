@@ -230,14 +230,21 @@ void cctrlAddBuiltinFunctions(Cctrl *cc) {
 }
 
 Cctrl *ccMacroProcessor(Map *macro_defs) {
-    Cctrl *cc = (Cctrl *)malloc(sizeof(Cctrl));
+    Cctrl *cc = (Cctrl *)calloc(1, sizeof(Cctrl));
     cc->macro_defs = macro_defs;
     cc->strs = mapNew(32, &map_ast_type);
+    /* Always empty, but the parser looks names up in them: an unknown
+     * identifier in a #define's value must reach "not defined", not
+     * dereference a garbage map. */
+    cc->global_env = mapNew(32, &map_ast_type);
+    cc->asm_funcs = mapNew(32, &map_ast_type);
     cc->ast_list = NULL;
     /* The macro-processor stub Cctrl is passed to helpers that may
      * call cctrlRaiseException; keep diagnostics state consistent
-     * so those paths don't read uninitialised fields. */
-    cc->diagnostics = NULL;
+     * so those paths don't read uninitialised fields. Errors are
+     * collected rather than printed: lexDefine re-raises them on the
+     * real Cctrl. */
+    cc->diagnostics = vecNew(&vec_diagnostic_type);
     cc->n_errors = 0;
     cc->current_recovery = NULL;
     return cc;
