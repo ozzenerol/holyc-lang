@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Known issues · HolyC</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=VT323&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script>
+/* Theme before first paint: from ?theme= (carried between pages, since
+   file:// pages don't share storage in every browser), else saved, else
+   dark (the <html> default). */
+(function () {
+  var t = new URLSearchParams(location.search).get("theme");
+  try { if (!t) t = localStorage.getItem("holyc-theme"); } catch (e) {}
+  if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><img src="assets/favicon.png" alt="" width="25" height="28">HolyC</a>
+  <button class="menu" aria-label="Menu" aria-expanded="false">☰</button>
+  <nav class="pages"><a href="index.html">Home</a><a href="getting-started.html">Getting started</a><a href="language.html">Language</a><a href="library.html">Library guide</a><a href="stdlib.html">Library reference</a><a href="tools.html">Tools</a><a href="examples.html">Examples</a><a href="known-issues.html" aria-current="page">Known issues</a></nav>
+  <button class="theme" aria-label="Toggle dark mode">◐</button>
+</header>
+<div class="layout">
+  <aside class="toc" aria-label="On this page"></aside>
+  <main>
+<h1>Known issues</h1>
+<p class="lede">Bugs found while writing and testing these docs (hcc v0.0.15-beta), each with
+a way to reproduce it and a workaround. The other pages avoid them, so every example there
+works as shown.</p>
+
+<h2>Compiler</h2>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>A range-based <code>for</code> without braces crashes the compiler</td>
+        <td><code>for (auto x : arr) sum += x;</code></td>
+        <td>Use braces: <code>for (auto x : arr) { sum += x; }</code></td></tr>
+    <tr><td>Binary literals compile to 0</td>
+        <td><code>"%d", 0b1010;</code> prints 0</td>
+        <td>Use hex: <code>0xA</code></td></tr>
+    <tr><td>A local <code>U8</code> array initialised from a string holds garbage</td>
+        <td><code>U8 buf[] = "abc";</code> inside a function</td>
+        <td><code>U8 *buf = "abc";</code>, a global array, or <code>StrCpy</code> into a buffer</td></tr>
+    <tr><td>A sized <code>U8</code> array can't take a shorter string</td>
+        <td><code>U8 buf[8] = "abc";</code>: "expected 8 items but got 4"</td>
+        <td><code>StrCpy(buf, "abc");</code></td></tr>
+    <tr><td><code>inline</code> functions don't compile</td>
+        <td><code>inline I64 F(I64 x) { return x; }</code>: "Unhandled AST kind"</td>
+        <td>Leave out <code>inline</code></td></tr>
+    <tr><td>Calling a function-pointer field through an array element doesn't parse</td>
+        <td><code>shapes[i]->area(shapes[i])</code></td>
+        <td>Use a pointer first: <code>Shape *s = shapes[i]; s->area(s);</code></td></tr>
+    <tr><td>Several declarations in one statement fail at global scope</td>
+        <td><code>I64 a = 1, b = 2;</code> outside a function</td>
+        <td>One declaration per statement for globals (inside functions it works)</td></tr>
+    <tr><td><code>case 1...3</code> is a "malformed numeric literal"</td>
+        <td><code>case 1...3:</code></td>
+        <td>Add spaces: <code>case 1 ... 3:</code></td></tr>
+    <tr><td>Function-like macros crash the parser</td>
+        <td><code>#define DOUBLE(x) ((x)*2)</code></td>
+        <td>Write a function instead</td></tr>
+    <tr><td><code>hcc -run</code> does nothing</td>
+        <td><code>hcc -run hello.HC</code> prints nothing, exits 0</td>
+        <td><code>hcc -jit hello.HC</code></td></tr>
+    <tr><td>The help text for <code>-cfg-png</code> and <code>-cfg-svg</code> is swapped</td>
+        <td><code>hcc --help</code></td>
+        <td>The flags themselves are right</td></tr>
+  </tbody>
+</table>
+
+<h2>JIT and code generation</h2>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>On x86_64, a function taking two classes by value and returning a class gives wrong values under <code>-jit</code></td>
+        <td><code>Point Add(Point a, Point b)</code> returns garbage in the JIT; compiled it's correct</td>
+        <td>Pass pointers (<code>Point *a</code>) or compile instead of using the JIT</td></tr>
+    <tr><td>Struct copies call <code>memcpy</code> on overlapping memory</td>
+        <td>Debug build (<code>./build.sh --debug --test</code>): AddressSanitizer reports <code>memcpy-param-overlap</code> in tests 47, 58 and 63 on x86_64, and 63 on arm64</td>
+        <td>None yet. Usually harmless in practice, but undefined behaviour</td></tr>
+  </tbody>
+</table>
+
+<h2>Standard library</h2>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td><code>%d</code> in print statements is 32-bit</td>
+        <td><code>"%d", 5000000000;</code> prints 705032704</td>
+        <td>Use <code>%ld</code>, or <code>StrPrint</code>, whose <code>%d</code> is 64-bit</td></tr>
+    <tr><td><code>StrPrint</code> and friends exit on <code>%f</code></td>
+        <td><code>StrPrint(NULL, "%f", 1.5)</code> prints "Floats not supported" and exits</td>
+        <td>Format floats with a print statement</td></tr>
+    <tr><td><code>JsonToString</code> exits on floats</td>
+        <td>Any JSON containing a float, because of the issue above</td>
+        <td>Keep floats out of JSON you print, or store them as strings</td></tr>
+    <tr><td><code>StrCmp</code> / <code>StrNCmp</code> return the wrong sign on x86_64</td>
+        <td><code>StrCmp("abc", "abd")</code> is positive</td>
+        <td>Use them for equality (<code>== 0</code>) only, or compare characters yourself</td></tr>
+    <tr><td><code>Date2Struct</code>, <code>MPrintDate</code> and <code>MPrintTime</code> crash</td>
+        <td><code>MPrintDate(Now())</code></td>
+        <td><code>NowDateTimeStruct</code> and <code>MPrintTimestampNow</code></td></tr>
+    <tr><td><code>Gcd</code> returns the wrong answer</td>
+        <td><code>Gcd(12, 18)</code> is 18</td>
+        <td>Write your own Euclid loop</td></tr>
+    <tr><td><code>Shlurp</code> without format arguments doesn't capture</td>
+        <td><code>Shlurp("ls")</code> prints to the terminal and returns the exit status as a pointer</td>
+        <td>Pass an argument: <code>Shlurp("%s", "ls")</code></td></tr>
+    <tr><td><code>StrMapNew</code> hangs unless the capacity is a power of two</td>
+        <td><code>StrMapNew(100)</code>, then insert a few hundred keys</td>
+        <td>Use the default, or a power of two such as 128</td></tr>
+    <tr><td><code>StrMapSet</code> stores your key pointer, and replaces it on update</td>
+        <td>Setting a key from a reused buffer leaves the map pointing at it</td>
+        <td>Pass keys that live as long as the map (<code>StrNew</code>), and set each key once</td></tr>
+    <tr><td><code>STDOUT</code> is 0 and <code>STDIN</code> is 2 in <code>tos.HH</code></td>
+        <td><code>Write(STDOUT, ...)</code> writes to stdin, which only works on a terminal</td>
+        <td>Use the numbers: 1 for stdout, 2 for stderr</td></tr>
+    <tr><td>Libraries built with <code>-lib</code> can't be loaded by the JIT</td>
+        <td><code>#link &lt;mylib&gt;</code> under <code>-jit</code>: "failed to load library"</td>
+        <td>Symlink <code>libmylib.so</code> to <code>libmylib.so.0.0.1</code></td></tr>
+  </tbody>
+</table>
+
+<h2>Reporting</h2>
+<p>Please report bugs on <a href="https://github.com/Jamesbarford/holyc-lang/issues">GitHub</a>.
+A minimal <code>.HC</code> file that reproduces the problem helps the most.</p>
+
+  </main>
+</div>
+<footer>Docs for <a href="https://github.com/Jamesbarford/holyc-lang">hcc</a>, a HolyC compiler.
+Every example on these pages is compiled and run by <code>docs/tools/check-examples.py</code>.</footer>
+</body>
+</html>

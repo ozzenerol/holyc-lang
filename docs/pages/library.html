@@ -1,0 +1,410 @@
+<!-- title: Library guide -->
+<h1>Library guide</h1>
+<p class="lede">How to use the standard library for everyday tasks. Every program can use it
+without an <code>#include</code>. For every function and class, see the
+<a href="stdlib.html">library reference</a>.</p>
+
+<h2 id="memory">Memory</h2>
+<table>
+  <thead><tr><th>Function</th><th>Does</th></tr></thead>
+  <tbody>
+    <tr><td><code>MAlloc(size)</code></td><td>Allocate <code>size</code> bytes</td></tr>
+    <tr><td><code>CAlloc(size)</code></td><td>Allocate zeroed bytes</td></tr>
+    <tr><td><code>ReAlloc(ptr, size)</code></td><td>Resize an allocation</td></tr>
+    <tr><td><code>Free(ptr)</code></td><td>Release it (<code>NULL</code> is fine)</td></tr>
+    <tr><td><code>MSize(ptr)</code></td><td>Usable size of an allocation</td></tr>
+    <tr><td><code>MemCpy(dst, src, n)</code>, <code>MemSet(dst, byte, n)</code></td><td>Copy and fill</td></tr>
+  </tbody>
+</table>
+<pre data-run><code>
+class Player
+{
+  U8 *name;
+  I64 score;
+};
+
+U0 Main()
+{
+  Player *team = CAlloc(3 * sizeof(Player));
+  team[0].name = "ada";
+  team[0].score = 10;
+  team = ReAlloc(team, 4 * sizeof(Player));
+  team[3].name = "linus";
+  "%s %d, %s\n", team[0].name, team[0].score, team[3].name;
+  Free(team);
+}
+</code></pre>
+<pre class="output">
+ada 10, linus
+</pre>
+<p>Run a program with <code>hcc -jit -Memsafe file.HC</code> to have double frees, wild
+frees and leaks reported at exit.</p>
+
+<h2 id="strings">Strings</h2>
+<h3>Building strings</h3>
+<p><code>StrPrint(NULL, fmt, ...)</code> returns a newly allocated formatted string, and
+<code>CatPrint</code> appends to one. Unlike print statements, their <code>%d</code> is a
+full 64-bit integer.</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 *s = StrPrint(NULL, "%d|%05d|%s", 5000000000, 42, "x");
+  "%s\n", s;
+
+  U8 *csv = StrNew("id");
+  for (I64 i = 1; i <= 3; i++) {
+    csv = CatPrint(csv, ",%d", i);
+  }
+  "%s\n", csv;
+
+  U8 *joined = StrMerge("con", "cat", "enate");
+  "%s\n", joined;
+  Free(s);
+  Free(csv);
+  Free(joined);
+}
+</code></pre>
+<pre class="output">
+5000000000|00042|x
+id,1,2,3
+concatenate
+</pre>
+<div class="warn"><p><code>StrPrint</code> and friends don't support <code>%f</code> yet: the program
+prints <code>Floats not supported</code> and exits. Print floats with a print statement
+instead (see <a href="known-issues.html">known issues</a>).</p></div>
+
+<h3>Inspecting strings</h3>
+<pre data-run><code>
+U0 Main()
+{
+  "%d %d\n", StrLen("hello"), StrCmp("abc", "abc") == 0;
+  "%d\n", StrNCmp("prefix-rest", "prefix", 6) == 0;
+  "%d\n", StrOcc("banana", 'a');               // count a character
+  "%s\n", StrFirstOcc("key=value", "=");       // from the first match
+  "%s\n", StrLastOcc("a/b/c.HC", "/");         // from the last match
+  "%s\n", FileExtDot("archive.tar.gz");
+  "%d %d\n", WildMatch("main.HC", "*.HC"), WildMatch("main.c", "*.HC");
+  "%d\n", Atoi("1234") + 1;
+  "%c %c %d\n", ToUpper('q'), ToLower('Q'), IsSpace(' ');
+}
+</code></pre>
+<pre class="output">
+5 1
+1
+3
+=value
+/c.HC
+.tar.gz
+1 0
+1235
+Q q 1
+</pre>
+
+<div class="warn"><p>Only test <code>StrCmp</code> and <code>StrNCmp</code> for equality
+(<code>== 0</code>). On x86_64 the sign of the result is the reverse of C's
+<code>strcmp</code>, so use them for ordering only after that's fixed (see
+<a href="known-issues.html">known issues</a>).</p></div>
+
+<h3>Copying and trimming</h3>
+<pre data-run><code>
+U0 Main()
+{
+  U8 *copy = StrNew("  padded  ");
+  I64 len;
+  U8 *start = StrTrimStart(copy, -1, &len);
+  "[%s] %d\n", start, len;
+
+  U8 *end = StrTrimEnd(StrNew("trailing   "), -1, &len);
+  "[%s] %d\n", end, len;
+
+  U8 buf[16];
+  StrCpy(buf, "fixed");
+  "%s\n", buf;
+}
+</code></pre>
+<pre class="output">
+[padded  ] 8
+[trailing] 8
+fixed
+</pre>
+
+<h2 id="files">Files</h2>
+<p><code>FileWrite</code> writes a buffer to a file and returns whether it worked.
+<code>FileRead</code> reads a whole file into a new NUL-terminated buffer, or returns
+<code>NULL</code> if it can't.</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 *path = "/tmp/hcc_docs_example.txt";
+  U8 *text = "first line\nsecond line\n";
+  if (!FileWrite(path, text, StrLen(text))) {
+    "could not write %s\n", path;
+    return;
+  }
+
+  I64 size;
+  U8 *contents = FileRead(path, &size);
+  "%d bytes\n%s", size, contents;
+  Free(contents);
+
+  if (FileRead("/no/such/file", &size) == NULL) {
+    "missing files give NULL\n";
+  }
+}
+</code></pre>
+<pre class="output">
+23 bytes
+first line
+second line
+missing files give NULL
+</pre>
+<p>For lower-level work the POSIX calls (<code>open</code>, <code>read</code>,
+<code>write</code>, <code>close</code>, <code>lseek</code>) are declared too, along with
+<code>Stat</code>, <code>Rm</code>, <code>RmDir</code>, <code>Cd</code>,
+<code>Pwd</code> and <code>Dir</code>.</p>
+
+<h2 id="system">Running commands</h2>
+<pre data-run><code>
+U0 Main()
+{
+  I64 status = System("echo from the shell");
+  Sh("echo %s has %d files", "/tmp", 3);    // printf-style
+  U8 *out = Shlurp("echo %s", "captured");  // capture stdout
+
+  "exit status %d\n", status;
+  "[%s]\n", out;
+  Free(out);
+}
+</code></pre>
+<pre class="output">
+from the shell
+/tmp has 3 files
+exit status 0
+[captured]
+</pre>
+<p>Print statements are buffered, while commands write straight to the terminal. When
+output goes to a pipe or file, a command's output can appear before text you printed
+earlier.</p>
+<div class="warn"><p>Always give <code>Shlurp</code> at least one format argument. Without one it
+doesn't capture anything (see <a href="known-issues.html">known issues</a>).
+<code>Exit(code)</code> ends the program.</p></div>
+
+<h2 id="lists">Lists</h2>
+<p><code>List</code> is a circular doubly linked list of <code>U0 *</code> values. The list
+head is a sentinel, so iterate from <code>l->next</code> until you get back to
+<code>l</code>.</p>
+<pre data-run><code>
+U0 Main()
+{
+  List *l = ListNew();
+  ListAppend(l, "two");
+  ListAppend(l, "three");
+  ListPrepend(l, "one");
+
+  for (List *it = l->next; it != l; it = it->next) {
+    "%s\n", it->value;
+  }
+  "popped %s, %d left\n", ListPop(l), ListCount(l);
+}
+</code></pre>
+<pre class="output">
+one
+two
+three
+popped three, 2 left
+</pre>
+
+<h2 id="vectors">Vectors</h2>
+<p>Growable arrays: <code>IntVec</code> of <code>I64</code>, <code>FloatVec</code> of
+<code>F64</code> and <code>PtrVec</code> of pointers. Each has <code>size</code> and
+<code>entries</code> fields, so a range-based <code>for</code> works on them.</p>
+<p><code>PtrVecSort</code> takes a comparison that returns <code>TRUE</code> when its first
+argument should come first. That's a "less than" test, not a C-style negative, zero or
+positive result.</p>
+<pre data-run><code>
+I64 ShorterFirst(U0 *a, U0 *b)
+{
+  return StrLen(a) < StrLen(b);
+}
+
+U0 Main()
+{
+  IntVec *nums = IntVecNew();
+  IntVecPush(nums, 30);
+  IntVecPush(nums, 10);
+  IntVecPush(nums, 20);
+  IntVecSort(nums);
+  for (I64 n : nums) {
+    "%d\n", n;
+  }
+  Bool ok;
+  "popped %d, size %d, first %d\n", IntVecPop(nums, &ok), nums->size, IntVecGet(nums, 0);
+  IntVecRelease(nums);
+
+  PtrVec *words = PtrVecNew();
+  PtrVecPush(words, "banana");
+  PtrVecPush(words, "fig");
+  PtrVecPush(words, "apple");
+  PtrVecSort(words, &ShorterFirst);
+  for (U8 *w : words) {
+    "%s\n", w;
+  }
+  PtrVecRelease(words);
+}
+</code></pre>
+<pre class="output">
+10
+20
+30
+popped 30, size 2, first 10
+fig
+apple
+banana
+</pre>
+
+<h2 id="hash-tables">Hash tables</h2>
+<p><code>StrMap</code> maps strings to <code>U0 *</code> values and <code>IntMap</code> maps
+<code>I64</code> keys. Values are pointers, so cast integers when storing them:
+<code>count(U0 *)</code>. Setting an existing key replaces its value.</p>
+<pre data-run><code>
+U0 Main()
+{
+  StrMap *stock = StrMapNew();
+  StrMapSet(stock, "apples", 3(U0 *));
+  StrMapSet(stock, "pears", 5(U0 *));
+  StrMapSet(stock, "apples", 4(U0 *));
+
+  "%d apples, has kiwis: %d, %d keys\n",
+    StrMapGet(stock, "apples"), StrMapHas(stock, "kiwis"), stock->size;
+
+  I64 idx = 0;
+  StrMapNode *node;
+  while (StrMapIter(stock, &idx, &node)) {
+    "%s = %d\n", node->key, node->value;
+  }
+  StrMapRelease(stock);
+
+  IntMap *names = IntMapNew();
+  IntMapSet(names, 404, "not found");
+  IntMapSet(names, 200, "ok");
+  "%s\n", IntMapGet(names, 404);
+  IntMapRelease(names);
+}
+</code></pre>
+<pre class="output">
+4 apples, has kiwis: 0, 2 keys
+apples = 4
+pears = 5
+not found
+</pre>
+<p>Iteration follows insertion order. <code>StrMapSetFreeValue</code> and
+<code>StrMapSetFreeKey</code> register destructors that run on replace and release.</p>
+<div class="warn"><p>The map keeps the key pointer you pass instead of copying it, and setting
+an existing key swaps in the new pointer. Use keys that live as long as the map, such as
+<code>StrNew</code> copies. Give <code>StrMapNew</code> a power-of-two capacity, or none:
+other sizes hang (see <a href="known-issues.html">known issues</a>).</p></div>
+
+<h2 id="json">JSON</h2>
+<p><code>JsonParse</code> parses text into a tree of <code>Json</code> nodes. Check
+<code>JsonOk</code> before using the result. <code>JsonSelect</code> walks a path:
+<code>.field</code> for object members and <code>[n]</code> for array elements, with a type
+suffix that must match (<code>:s</code> string, <code>:i</code> integer, <code>:f</code>
+float, <code>:b</code> boolean, <code>:a</code> array, <code>:o</code> object). It returns
+<code>NULL</code> if the path or type doesn't match.</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 *text = "{\"name\": \"hcc\", \"version\": 15, \"tags\": [\"jit\", \"repl\"], \"stable\": false}";
+  Json *doc = JsonParse(text);
+  if (!JsonOk(doc)) {
+    JsonPrintError(doc);
+    return;
+  }
+
+  "%s v%d\n", JsonSelect(doc, ".name:s")->str, JsonSelect(doc, ".version:i")->i64;
+  "second tag: %s\n", JsonSelect(doc, ".tags[1]:s")->str;
+  "stable: %d\n", JsonSelect(doc, ".stable:b")->boolean;
+  "missing: %d\n", JsonSelect(doc, ".author:s") == NULL;
+
+  Json *tags = JsonSelect(doc, ".tags:a");
+  for (Json *t = tags->array; t; t = t->next) {
+    "tag %s\n", t->str;
+  }
+
+  "%s\n", JsonToString(doc);
+  JsonRelease(doc);
+}
+</code></pre>
+<pre class="output">
+hcc v15
+second tag: repl
+stable: 0
+missing: 1
+tag jit
+tag repl
+{"name": "hcc","version": 15,"tags": ["jit","repl"],"stable": false}
+</pre>
+<p>Each node has a <code>type</code> (<code>JSON_STRING</code>, <code>JSON_INT</code>,
+<code>JSON_FLOAT</code>, <code>JSON_BOOL</code>, <code>JSON_NULL</code>,
+<code>JSON_ARRAY</code>, <code>JSON_OBJECT</code>), a <code>key</code> when it's an object
+member, its value in <code>str</code> / <code>i64</code> / <code>f64</code> /
+<code>boolean</code> / <code>array</code> / <code>object</code>, and <code>next</code> for
+its siblings.</p>
+<div class="warn"><p><code>JsonToString</code> exits the program if the JSON contains a float,
+because of the <code>%f</code> limitation above.</p></div>
+
+<h2 id="dates">Dates and time</h2>
+<pre data-run><code>
+U0 Main()
+{
+  U64 start = NowMilliseconds();
+
+  CDateStruct ds;
+  NowDateTimeStruct(&ds);
+  "year looks right: %d\n", ds.year >= 2024;
+
+  U8 *stamp = MPrintTimestampNow();     // like 2026-10-08 19:01:37
+  "timestamp is %d characters\n", StrLen(stamp);
+
+  "elapsed ms is never negative: %d\n", NowMilliseconds() >= start;
+}
+</code></pre>
+<pre class="output">
+year looks right: 1
+timestamp is 19 characters
+elapsed ms is never negative: 1
+</pre>
+<p><code>Now()</code> returns a TempleOS-style <code>CDate</code>.
+<code>CDateStruct</code> has <code>year</code>, <code>mon</code>,
+<code>day_of_mon</code>, <code>hour</code>, <code>min</code>, <code>sec</code> and
+<code>day_of_week</code>.</p>
+<div class="warn"><p><code>Date2Struct</code>, <code>MPrintDate</code> and <code>MPrintTime</code>
+currently crash. Use <code>NowDateTimeStruct</code> and <code>MPrintTimestampNow</code>
+(see <a href="known-issues.html">known issues</a>).</p></div>
+
+<h2 id="maths">Maths</h2>
+<p>The C maths library is declared under its usual names (<code>sqrt</code>,
+<code>pow</code>, <code>sin</code>, <code>floor</code>, <code>fabs</code>, …, all on
+<code>F64</code>), plus <code>Abs</code> and <code>Pow</code>.</p>
+<pre data-run><code>
+U0 Main()
+{
+  "%.4f %.0f %.1f %.1f\n", sqrt(2.0), pow(2.0, 10.0), floor(2.7), fabs(-1.5);
+  "%d %.2f\n", Abs(-5), Pow(1.5, 2);
+}
+</code></pre>
+<pre class="output">
+1.4142 1024 2.0 1.5
+5 2.25
+</pre>
+
+<h2>More modules</h2>
+<p>These are covered in the <a href="stdlib.html">library reference</a>:</p>
+<ul>
+  <li><a href="stdlib.html#threads">Threads</a>: pthreads (<code>pthread_create</code>, mutexes, condition variables) plus <code>ThreadWorker</code> helpers.</li>
+  <li><a href="stdlib.html#net">Networking</a>: sockets, <code>getaddrinfo</code> and friends.</li>
+  <li><a href="stdlib.html#csv">CSV</a>: <code>CsvParserInit</code> and <code>CsvParse</code>, a streaming tokenizer.</li>
+  <li><a href="stdlib.html#fzf">Fuzzy matching</a>: fzf-style scoring.</li>
+  <li><a href="stdlib.html#set">Sets</a>: red-black-tree-backed integer and string sets.</li>
+  <li><a href="stdlib.html#sqllite">SQLite</a>: when hcc is built with <code>--sqlite</code>.</li>
+</ul>

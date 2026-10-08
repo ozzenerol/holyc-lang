@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HolyC</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=VT323&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script>
+/* Theme before first paint: from ?theme= (carried between pages, since
+   file:// pages don't share storage in every browser), else saved, else
+   dark (the <html> default). */
+(function () {
+  var t = new URLSearchParams(location.search).get("theme");
+  try { if (!t) t = localStorage.getItem("holyc-theme"); } catch (e) {}
+  if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><img src="assets/favicon.png" alt="" width="25" height="28">HolyC</a>
+  <button class="menu" aria-label="Menu" aria-expanded="false">☰</button>
+  <nav class="pages"><a href="index.html" aria-current="page">Home</a><a href="getting-started.html">Getting started</a><a href="language.html">Language</a><a href="library.html">Library guide</a><a href="stdlib.html">Library reference</a><a href="tools.html">Tools</a><a href="examples.html">Examples</a><a href="known-issues.html">Known issues</a></nav>
+  <button class="theme" aria-label="Toggle dark mode">◐</button>
+</header>
+<div class="layout">
+  <aside class="toc" aria-label="On this page"></aside>
+  <main>
+<div class="hero">
+  <img src="assets/holyc-logo.png" alt="HolyC logo" width="285" height="320">
+  <div>
+    <h1>HolyC</h1>
+    <p class="lede">The language of TempleOS, on Linux and macOS.</p>
+  </div>
+</div>
+<p>HolyC is the language Terry A. Davis wrote for TempleOS: C-like, with classes, default
+arguments, a print-a-string statement and a JIT at its heart. <code>hcc</code> brings it to
+Linux and macOS on x86_64 and arm64, as an ahead-of-time compiler, a JIT, a REPL and a
+language server.</p>
+
+<pre data-run><code>U0 Main()
+{
+  "Hello world\n";
+}
+</code></pre>
+<pre class="output">Hello world
+</pre>
+
+<p>A string on its own is a print statement, <code>U0</code> is <code>void</code>, and
+<code>Main</code> is called for you. Save it as <code>hello.HC</code> and run it either way:</p>
+
+<pre><code>hcc hello.HC -o hello &amp;&amp; ./hello   # compile to a native binary
+hcc -jit hello.HC                    # or compile in memory and run straight away</code></pre>
+
+<h2>A taste of the language</h2>
+
+<pre data-run><code>class Animal
+{
+  U8 *name;
+  I64 legs;
+};
+
+class Bird : Animal
+{
+  Bool can_fly;
+};
+
+U0 Describe(Animal *a, U8 *sound = "...")
+{
+  "%s has %d legs and says %s\n", a-&gt;name, a-&gt;legs, sound;
+}
+
+U0 Main()
+{
+  Bird b;
+  b.name = "Tweety";
+  b.legs = 2;
+  b.can_fly = TRUE;
+
+  Describe(&amp;b, "tweet");   // a Bird is an Animal
+  Describe(&amp;b);            // default argument
+
+  for (I64 i = 1; i &lt;= 3; i++) {
+    switch (i) {
+      case 1: "one"; break;
+      case 2 ... 3: ", more"; break;
+    }
+  }
+  "\n";
+}
+</code></pre>
+<pre class="output">Tweety has 2 legs and says tweet
+Tweety has 2 legs and says ...
+one, more, more
+</pre>
+
+<h2>Where to go next</h2>
+<div class="cards">
+  <a class="card" href="getting-started.html"><strong>Getting started</strong><span>Build hcc, compile and run your first program.</span></a>
+  <a class="card" href="language.html"><strong>Language</strong><span>Every feature, with examples you can run.</span></a>
+  <a class="card" href="library.html"><strong>Library guide</strong><span>Strings, files, hash tables, vectors, JSON.</span></a>
+  <a class="card" href="stdlib.html"><strong>Library reference</strong><span>All 700+ declarations in tos.HH.</span></a>
+  <a class="card" href="tools.html"><strong>Tools</strong><span>Compiler flags, JIT, REPL, LSP, transpiler.</span></a>
+  <a class="card" href="examples.html"><strong>Examples</strong><span>Complete projects with expected output.</span></a>
+</div>
+
+<h2>What hcc is</h2>
+<ul>
+  <li><strong>A native compiler.</strong> HolyC is parsed to an AST, lowered to an SSA IR and emitted as x86_64 or AArch64 assembly, which the system C compiler assembles and links.</li>
+  <li><strong>A JIT.</strong> <code>hcc -jit</code> assembles machine code in memory with a built-in assembler and runs it, with no files written.</li>
+  <li><strong>A REPL.</strong> <code>hcc -repl</code> runs HolyC interactively, TempleOS style.</li>
+  <li><strong>A language server.</strong> <code>hcc -lsp</code> gives editors diagnostics, hover, completion, go-to-definition, references and rename.</li>
+  <li><strong>A standard library.</strong> Strings, files, hash tables, vectors, JSON, dates, threads, sockets and more, available in every program without an include.</li>
+</ul>
+<p>It runs on Linux and macOS, on x86_64 and arm64. On Windows, use WSL2.</p>
+
+  </main>
+</div>
+<footer>Docs for <a href="https://github.com/Jamesbarford/holyc-lang">hcc</a>, a HolyC compiler.
+Every example on these pages is compiled and run by <code>docs/tools/check-examples.py</code>.</footer>
+</body>
+</html>

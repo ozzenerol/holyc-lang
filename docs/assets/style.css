@@ -1,0 +1,381 @@
+/* TempleOS look: white desktop, VGA blue text, blue window borders,
+ * the 16-colour VGA palette and a pixel font. */
+:root {
+  --vga-black: #000000;
+  --vga-blue: #0000aa;
+  --vga-green: #00aa00;
+  --vga-cyan: #00aaaa;
+  --vga-red: #aa0000;
+  --vga-purple: #aa00aa;
+  --vga-brown: #aa5500;
+  --vga-lgray: #aaaaaa;
+  --vga-dgray: #555555;
+  --vga-lblue: #5555ff;
+  --vga-lgreen: #55ff55;
+  --vga-lcyan: #55ffff;
+  --vga-lred: #ff5555;
+  --vga-lpurple: #ff55ff;
+  --vga-yellow: #ffff55;
+  --vga-white: #ffffff;
+
+  --bg: var(--vga-white);
+  --text: var(--vga-blue);
+  --muted: var(--vga-dgray);
+  --border: var(--vga-blue);
+  --bar-bg: var(--vga-blue);
+  --bar-text: var(--vga-white);
+  --bar-current: var(--vga-yellow);
+  --link: var(--vga-red);
+  --code-bg: var(--vga-white);
+  --code-text: var(--vga-blue);
+  --output-bg: var(--vga-blue);
+  --output-text: var(--vga-white);
+  --kw: var(--vga-purple);
+  --type: var(--vga-cyan);
+  --str: var(--vga-brown);
+  --num: var(--vga-red);
+  --com: var(--vga-green);
+  --pp: var(--vga-lblue);
+  --warn: var(--vga-red);
+  --note: var(--vga-cyan);
+  --pixel: "VT323", "Courier New", monospace;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: var(--vga-black);
+    --text: var(--vga-lgray);
+    --muted: var(--vga-lgray);
+    --border: var(--vga-lblue);
+    --bar-bg: var(--vga-blue);
+    --bar-text: var(--vga-white);
+    --link: var(--vga-lcyan);
+    --code-bg: #000022;
+    --code-text: var(--vga-white);
+    --output-bg: #000000;
+    --output-text: var(--vga-lgreen);
+    --kw: var(--vga-lpurple);
+    --type: var(--vga-lcyan);
+    --str: var(--vga-yellow);
+    --num: var(--vga-lred);
+    --com: var(--vga-lgreen);
+    --pp: var(--vga-lblue);
+    --warn: var(--vga-lred);
+    --note: var(--vga-lcyan);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--vga-black);
+  --text: var(--vga-lgray);
+  --muted: var(--vga-lgray);
+  --border: var(--vga-lblue);
+  --bar-bg: var(--vga-blue);
+  --bar-text: var(--vga-white);
+  --link: var(--vga-lcyan);
+  --code-bg: #000022;
+  --code-text: var(--vga-white);
+  --output-bg: #000000;
+  --output-text: var(--vga-lgreen);
+  --kw: var(--vga-lpurple);
+  --type: var(--vga-lcyan);
+  --str: var(--vga-yellow);
+  --num: var(--vga-lred);
+  --com: var(--vga-lgreen);
+  --pp: var(--vga-lblue);
+  --warn: var(--vga-lred);
+  --note: var(--vga-lcyan);
+}
+
+* { box-sizing: border-box; border-radius: 0; }
+
+html { scroll-padding-top: 64px; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 var(--mono);
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { background: var(--link); color: var(--bg); text-decoration: none; }
+
+/* The blue system bar across the top of the TempleOS screen. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 16px;
+  background: var(--bar-bg);
+  color: var(--bar-text);
+  border-bottom: 2px solid var(--vga-black);
+  font-family: var(--pixel);
+  font-size: 22px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vga-yellow);
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 24px;
+}
+
+.brand:hover { background: none; color: var(--vga-white); }
+.brand img { image-rendering: auto; }
+
+.pages { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
+
+.pages a {
+  padding: 0 8px;
+  color: var(--bar-text);
+  text-decoration: none;
+}
+
+.pages a:hover { background: var(--vga-cyan); color: var(--vga-white); }
+.pages a[aria-current="page"] { color: var(--vga-blue); background: var(--bar-current); }
+
+.theme, .menu {
+  border: 2px solid var(--vga-white);
+  background: var(--vga-blue);
+  color: var(--vga-white);
+  width: 34px;
+  height: 30px;
+  cursor: pointer;
+  font: 20px var(--pixel);
+}
+
+.theme:hover, .menu:hover { background: var(--vga-cyan); }
+.menu { display: none; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 32px;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 28px 20px 56px;
+}
+
+/* "On this page" as a small TempleOS window. */
+.toc {
+  position: sticky;
+  top: 64px;
+  align-self: start;
+  max-height: calc(100vh - 84px);
+  overflow-y: auto;
+  border: 2px solid var(--border);
+  font-size: 13px;
+}
+
+.toc:empty { display: none; }
+.layout:has(> .toc:empty) { grid-template-columns: minmax(0, 1fr); }
+.layout:has(> .toc:empty) main { max-width: 900px; margin: 0 auto; width: 100%; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc > ol { padding: 6px 4px 8px; }
+.toc ol ol { padding-left: 12px; }
+.toc a { display: block; padding: 1px 6px; color: var(--text); text-decoration: none; }
+.toc a:hover { background: var(--vga-cyan); color: var(--vga-white); }
+.toc a.active { background: var(--vga-blue); color: var(--vga-white); }
+.toc .toc-title {
+  background: var(--bar-bg);
+  color: var(--bar-text);
+  font: 20px var(--pixel);
+  padding: 0 8px;
+}
+
+main { min-width: 0; max-width: 800px; }
+
+h1, h2, h3 { font-family: var(--pixel); font-weight: 400; }
+h1 { font-size: 46px; line-height: 1.05; margin: 0 0 10px; }
+
+/* Section headings look like a window title bar. */
+h2 {
+  font-size: 30px;
+  line-height: 1.1;
+  margin: 40px 0 14px;
+  padding: 2px 10px;
+  background: var(--bar-bg);
+  color: var(--bar-text);
+  border: 2px solid var(--vga-black);
+}
+
+h3 { font-size: 25px; margin: 26px 0 6px; border-bottom: 2px dotted var(--border); }
+h2 a.anchor, h3 a.anchor { color: inherit; text-decoration: none; margin-left: 8px; opacity: 0; }
+h2:hover a.anchor, h3:hover a.anchor { opacity: .8; }
+h2 a.anchor:hover, h3 a.anchor:hover { background: none; }
+
+.lede { color: var(--text); font-size: 16px; margin-top: 0; }
+
+code { font-family: var(--mono); font-size: .95em; }
+
+/* Inline code only; code blocks keep the block's colours. */
+:not(pre) > code { color: var(--vga-purple); }
+:root[data-theme="dark"] :not(pre) > code { color: var(--vga-lpurple); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) :not(pre) > code { color: var(--vga-lpurple); } }
+
+pre {
+  position: relative;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border: 2px solid var(--border);
+  box-shadow: 4px 4px 0 var(--border);
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 14px 4px 16px 0;
+}
+
+pre code { font-size: inherit; }
+
+/* Program output: white on blue, like the TempleOS screen inverted. */
+pre.output {
+  background: var(--output-bg);
+  color: var(--output-text);
+  box-shadow: none;
+  margin-top: -8px;
+}
+
+pre.output::before {
+  content: "Output";
+  display: block;
+  font: 18px/1 var(--pixel);
+  color: var(--vga-yellow);
+  margin-bottom: 6px;
+}
+
+.copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: 2px solid var(--border);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font: 16px/1 var(--pixel);
+  padding: 2px 8px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.copy:hover { background: var(--vga-blue); color: var(--vga-white); }
+pre:hover .copy, .copy:focus { opacity: 1; }
+
+.tok-kw { color: var(--kw); font-weight: 600; }
+.tok-type { color: var(--type); font-weight: 600; }
+.tok-str { color: var(--str); }
+.tok-num { color: var(--num); }
+.tok-com { color: var(--com); }
+.tok-pp { color: var(--pp); font-weight: 600; }
+
+table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; border: 2px solid var(--border); }
+td code { overflow-wrap: anywhere; }
+th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--bar-bg); color: var(--bar-text); font: 19px var(--pixel); }
+
+.note, .warn {
+  border: 2px solid var(--note);
+  padding: 8px 12px;
+  margin: 16px 0;
+}
+
+.note::before, .warn::before {
+  display: block;
+  font: 20px/1 var(--pixel);
+  margin-bottom: 4px;
+}
+
+.note::before { content: "Note"; color: var(--note); }
+.warn { border-color: var(--warn); }
+.warn::before { content: "Warning"; color: var(--warn); }
+.note p, .warn p { margin: 4px 0; }
+
+/* Home page hero: the logo beside the title. */
+.hero { display: flex; align-items: center; gap: 24px; margin-bottom: 8px; }
+.hero img { width: 120px; height: auto; flex: none; }
+.hero h1 { font-size: 64px; margin: 0; }
+.hero p { margin: 6px 0 0; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.card {
+  display: block;
+  border: 2px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: 4px 4px 0 var(--border);
+}
+
+.card strong {
+  display: block;
+  background: var(--bar-bg);
+  color: var(--bar-text);
+  font: 400 21px var(--pixel);
+  padding: 1px 10px;
+}
+
+.card span { display: block; padding: 8px 10px 10px; font-size: 14px; }
+.card:hover { background: var(--vga-cyan); color: var(--vga-white); }
+.card:hover strong { background: var(--vga-black); }
+
+/* Library reference */
+#filter {
+  width: 100%;
+  padding: 8px 10px;
+  font: 15px var(--mono);
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  margin: 8px 0 14px;
+}
+
+#filter:focus { outline: 2px solid var(--vga-yellow); outline-offset: 0; }
+.modules ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.modules a { display: inline-block; padding: 0 8px; border: 2px solid var(--border); text-decoration: none; color: var(--text); font: 19px var(--pixel); }
+.modules a:hover { background: var(--vga-blue); color: var(--vga-white); }
+.count { font-size: 15px; color: var(--vga-red); }
+.decl { border-bottom: 1px dotted var(--border); padding: 8px 0; }
+.decl pre { margin: 6px 4px 6px 0; box-shadow: none; border-width: 1px; }
+.decl-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.decl-name { font-weight: 700; color: var(--text); text-decoration: none; }
+.kind, .tag { font: 16px/1.2 var(--pixel); color: var(--vga-white); background: var(--vga-cyan); padding: 0 6px; }
+.tag { background: var(--vga-brown); }
+.doc { margin: 4px 0 0; white-space: pre-line; font-size: 14px; }
+.consts td:first-child { white-space: nowrap; }
+
+footer {
+  background: var(--bar-bg);
+  color: var(--bar-text);
+  font-size: 13px;
+  text-align: center;
+  padding: 10px 16px;
+  border-top: 2px solid var(--vga-black);
+}
+
+footer a { color: var(--vga-yellow); }
+footer code { color: var(--vga-lcyan); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 18px 16px 44px; }
+  .toc { display: none; }
+  .menu { display: block; margin-left: auto; }
+  .pages { display: none; position: absolute; top: 100%; left: 0; right: 0; flex-direction: column; background: var(--bar-bg); padding: 6px 16px; border-bottom: 2px solid var(--vga-black); }
+  .pages.open { display: flex; }
+  h1 { font-size: 38px; }
+  .hero { gap: 16px; }
+  .hero img { width: 84px; }
+  .hero h1 { font-size: 48px; }
+}
