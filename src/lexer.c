@@ -62,7 +62,7 @@ MapType map_cstring_builtin_lexer_type = {
 };
 
 /* prototypes */
-int lexPreProcIf(Map *macro_defs, Lexer *l);
+int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive);
 
 static Arena lexeme_arena;
 static int lexeme_arena_init = 0;
@@ -1851,7 +1851,31 @@ void lexUndef(Map *macro_defs, Lexer *l) {
     mapRemove(macro_defs,tmp);
 }
 
-int lexPreProcIf(Map *macro_defs, Lexer *l) {
+/* As for #define: a parse error in a #if/#elif condition (`#if 1 +`,
+ * `#if (`) raises on the macro-processor stub, which has no file and
+ * used to exit with "Parsing macro:1". Catch it and re-raise through
+ * lexRaise so it is a normal diagnostic on the directive's line (and
+ * the LSP gets a diagnostic instead of a crashed child). Kept out of
+ * lexPreProcIf so setjmp does not clobber that function's locals. */
+static Ast *lexPreProcParseCond(Lexer *l, Lexeme **ring, Vec *macro_tokens,
+                                const char *directive)
+{
+    jmp_buf recovery;
+    macro_proccessor->current_recovery = &recovery;
+    if (setjmp(recovery) != 0) {
+        macro_proccessor->current_recovery = NULL;
+        cctrlDiagClear(macro_proccessor);
+        free(ring);
+        vecRelease(macro_tokens);
+        lexRaise(l, "%s: the condition must be a constant expression made "
+                 "of literals, macros and defined()", directive);
+    }
+    Ast *ast = parseExpr(macro_proccessor,16);
+    macro_proccessor->current_recovery = NULL;
+    return ast;
+}
+
+int lexPreProcIf(Map *macro_defs, Lexer *l, const char *directive) {
     int tk_type,should_collect,in_defined;
     Vec *macro_tokens;
     Lexeme next,*start,*end,*expanded,*macro;
@@ -1937,7 +1961,7 @@ int lexPreProcIf(Map *macro_defs, Lexer *l) {
      * used to read entries[0] / entries[-1] of an empty vector. A
      * single-token expression (`#if 1`, `#if FLAG`) is legal. */
     if (macro_tokens->size == 0) {
-        lexRaise(l, "a #if must evaluate some expression");
+        lexRaise(l, "a %s must evaluate some expression", directive);
         return 0;
     }
 
@@ -1961,25 +1985,32 @@ int lexPreProcIf(Map *macro_defs, Lexer *l) {
     macro_proccessor->token_buffer->size = macro_tokens->size;
     macro_proccessor->token_buffer->capacity = ring_cap;
 
-    Ast *ast = parseExpr(macro_proccessor,16);
+    Ast *ast = lexPreProcParseCond(l, ring, macro_tokens, directive);
     free(ring);
+
+    int ok = ast != NULL;
     expanded = lexemeNew(start->start,end->len-start->len);
     expanded->tk_type = tk_type;
 
-    if (tk_type == TK_STR) {
+    if (ok && tk_type == TK_STR) {
         should_collect = 1;
-    } else if (tk_type == TK_F64) {
-        expanded->f64 = (s64)evalFloatExpr(ast);
+    } else if (ok && tk_type == TK_F64) {
+        expanded->f64 = (s64)evalFloatExprOrErr(ast, &ok);
         if (expanded->f64 != 0) {
             should_collect = 1;
         }
         expanded->line = start->line;
-    } else {
-        expanded->i64 = evalIntConstExpr(ast);
+    } else if (ok) {
+        expanded->i64 = evalIntConstExprOrErr(ast, &ok);
         if (expanded->i64 != 0) {
             should_collect = 1;
         }
         expanded->line = start->line;
+    }
+    if (!ok) {
+        vecRelease(macro_tokens);
+        lexRaise(l, "%s: the condition must be a constant expression made "
+                 "of literals, macros and defined()", directive);
     }
     vecRelease(macro_tokens);
 
@@ -1999,7 +2030,7 @@ int lexPreProcBoolean(Lexer *l, Map *macro_defs, Lexeme *le) {
 
     switch (le->i64) {
         case KW_PP_IF: {
-            int ok = lexPreProcIf(macro_defs,l);
+            int ok = lexPreProcIf(macro_defs,l,"#if");
             if (ok) {
                 l->collecting = 1;
                 l->skip_else = 1;
@@ -2056,7 +2087,7 @@ int lexPreProcBoolean(Lexer *l, Map *macro_defs, Lexeme *le) {
 
         case KW_PP_ELIF: {
             if (l->skip_else) return 0;
-            int ok = lexPreProcIf(macro_defs,l);
+            int ok = lexPreProcIf(macro_defs,l,"#elif");
             if (ok) {
                 l->skip_else = 1;
             } else {
