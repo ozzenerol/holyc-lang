@@ -852,6 +852,12 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
     if (ptr[0] == '0' && (ptr[1] == 'b' || ptr[1] == 'B')) {
         ptr += 2;
         while (!isNumTerminator(*ptr) && !(*ptr == '.' && *(ptr + 1) == '.')) {
+            if (*ptr == '.') {
+                lexNumWarning(l, "line %d: binary literals can't have a "
+                              "fractional part\n", l->lineno);
+                *err = 1;
+                return -1;
+            }
             if (*ptr != '0' && *ptr != '1') {
                 lexNumWarning(l, "line %d: invalid binary digit: '%c'\n",
                               l->lineno, *ptr);
@@ -900,15 +906,11 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             break;
         case 'x':
         case 'X':
-            if (*ishex) {
-                lexNumWarning(l, "line %d: seen x\n", l->lineno);
-                *err = 1;
-                return -1;
-            }
-            /* Only a leading `0x` is a hex prefix: `12x5` is not 0x125. */
-            if (ptr != start + 1 || *start != '0') {
-                lexNumWarning(l, "line %d: invalid character 'x' in number\n",
-                              l->lineno);
+            /* Only a leading `0x` is a hex prefix: `12x5` is not 0x125,
+             * and `0xx` / `0x1x` have a second one. */
+            if (*ishex || ptr != start + 1 || *start != '0') {
+                lexNumWarning(l, "line %d: '%c' can only appear in the 0x "
+                              "prefix of a hex literal\n", l->lineno, *ptr);
                 *err = 1;
                 return -1;
             }
@@ -924,8 +926,23 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             if (*(ptr + 1) == '.') {
                 return ptr - start;
             }
+            /* Floating point hex does not exist (`0x1.5`). */
+            if (*ishex) {
+                lexNumWarning(l, "line %d: hex literals can't have a "
+                              "fractional part\n", l->lineno);
+                *err = 1;
+                return -1;
+            }
             /* No `.` after an exponent (`1e3.5`), nor a second one. */
-            if (*isfloat || seen_e) {
+            if (seen_e) {
+                lexNumWarning(l, "line %d: the exponent of a number must be "
+                              "a whole number\n", l->lineno);
+                *err = 1;
+                return -1;
+            }
+            if (*isfloat) {
+                lexNumWarning(l, "line %d: a number can only have one "
+                              "decimal point\n", l->lineno);
                 *err = 1;
                 return -1;
             }
@@ -968,20 +985,6 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
     if (*ishex && ptr - start == 2) {
         lexNumWarning(l, "line %d: hex literal has no digits\n", l->lineno);
         *err = 1;
-        return -1;
-    }
-
-    /* Floating point hex does not exist */
-    if (*isfloat && *ishex) {
-        *err = 1;
-        lexNumWarning(l, "line %d: LEX error is float and ishex\n",l->lineno);
-        return -1;
-    }
-
-    /* Exponent hex does not exist */
-    if (*ishex && seen_e) {
-        *err = 1;
-        lexNumWarning(l, "line %d: lexer seen_e and ishex\n", l->lineno);
         return -1;
     }
 
