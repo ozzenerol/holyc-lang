@@ -43,9 +43,6 @@ works as shown.</p>
     <tr><td>A range-based <code>for</code> without braces crashes the compiler</td>
         <td><code>for (auto x : arr) sum += x;</code></td>
         <td>Use braces: <code>for (auto x : arr) { sum += x; }</code></td></tr>
-    <tr><td>Binary literals compile to 0</td>
-        <td><code>"%d", 0b1010;</code> prints 0</td>
-        <td>Use hex: <code>0xA</code></td></tr>
     <tr><td>A local <code>U8</code> array initialised from a string holds garbage</td>
         <td><code>U8 buf[] = "abc";</code> inside a function</td>
         <td><code>U8 *buf = "abc";</code>, a global array, or <code>StrCpy</code> into a buffer</td></tr>

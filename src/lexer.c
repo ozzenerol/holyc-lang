@@ -792,9 +792,31 @@ static void lexSkipCodeComment(Lexer *l) {
 }
 
 static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
-                          int *err) {
+                          int *isbin, int *err) {
     char *start = ptr;
     int seen_e = 0;
+
+    /* `0b1010`: binary literal. Only a `b`/`B` straight after a leading
+     * `0` is a prefix, elsewhere they are hex digits (`0xB1`). */
+    if (ptr[0] == '0' && (ptr[1] == 'b' || ptr[1] == 'B')) {
+        ptr += 2;
+        while (!isNumTerminator(*ptr) && !(*ptr == '.' && *(ptr + 1) == '.')) {
+            if (*ptr != '0' && *ptr != '1') {
+                loggerWarning("line %d: invalid binary digit: '%c'\n",
+                              l->lineno, *ptr);
+                *err = 1;
+                return -1;
+            }
+            ptr++;
+        }
+        if (ptr - start == 2) {
+            loggerWarning("line %d: binary literal has no digits\n", l->lineno);
+            *err = 1;
+            return -1;
+        }
+        *isbin = 1;
+        return ptr - start;
+    }
 
     while (!isNumTerminator(*ptr)) {
         switch (*ptr) {
@@ -1079,14 +1101,14 @@ u64 lexCharConst(Lexer *l) {
 }
 
 int lexNumeric(Lexer *l, int _isfloat) {
-    int ishex, isfloat, err, numlen;
+    int ishex, isbin, isfloat, err, numlen;
     char *endptr;
 
     isfloat = _isfloat;
 
-    ishex = isfloat = err = 0;
+    ishex = isbin = isfloat = err = 0;
     char *start = l->ptr - 1;
-    numlen = countNumberLen(l, start, &isfloat, &ishex, &err);
+    numlen = countNumberLen(l, start, &isfloat, &ishex, &isbin, &err);
     if (err) {
         return -1;
     }
@@ -1099,6 +1121,9 @@ int lexNumeric(Lexer *l, int _isfloat) {
     } else if (ishex) {
         l->cur_i64 = strtoull(start, &endptr, 16);
         l->ishex = ishex;
+        return TK_I64;
+    } else if (isbin) {
+        l->cur_i64 = strtoull(start + 2, &endptr, 2);
         return TK_I64;
     } else {
         l->cur_i64 = strtoll(start, &endptr, 10);
