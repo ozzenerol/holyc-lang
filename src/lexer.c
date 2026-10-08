@@ -823,6 +823,11 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             break;
 
         case '.':
+            /* `case 1...3`: the number ends before the `...` range
+             * operator rather than reading `1.` as a float. */
+            if (*(ptr + 1) == '.') {
+                return ptr - start;
+            }
             if (*isfloat) {
                 *err = 1;
                 return -1;

@@ -287,8 +287,27 @@ B
 no score
 C or below
 </pre>
-<div class="note"><p>Put spaces around <code>...</code> in a range: <code>case 1...3</code> is read as a
-malformed number.</p></div>
+<p>Two TempleOS extras: a bare <code>case:</code> takes the previous case's value plus
+one (starting from 0), and <code>switch [x]</code> skips the range check on
+<code>x</code>, for speed when you know it's in range.</p>
+<pre data-run><code>
+U0 Main()
+{
+  for (I64 i = 0; i < 6; i++) {
+    switch [i] {
+      case 0: "zero "; break;
+      case:   "one "; break;      // 1
+      case:   "two "; break;      // 2
+      case 4...5: "four-five "; break;
+      default: "other "; break;
+    }
+  }
+  "\n";
+}
+</code></pre>
+<pre class="output">
+zero one two other four-five four-five 
+</pre>
 
 <h3>Loops</h3>
 <pre data-run><code>
@@ -843,7 +862,6 @@ being one. The differences:</p>
     <tr><td><code>extern "c"</code>, <code>#link</code>, <code>#ifjit</code> / <code>#ifaot</code></td><td>Added, for working with the host system</td></tr>
     <tr><td><code>?:</code></td><td>Not supported, as in TempleOS</td></tr>
     <tr><td>Sub-integer access (<code>x.u8[1]</code>)</td><td>Not supported</td></tr>
-    <tr><td><code>switch [x]</code> (unchecked switch)</td><td>Not supported</td></tr>
     <tr><td>Exponent operator <code>`</code></td><td>Not supported; use <code>Pow</code> or <code>pow</code></td></tr>
     <tr><td><code>Fs</code></td><td>Exists for exceptions (<code>Fs->except_ch</code>); there are no TempleOS tasks</td></tr>
     <tr><td>DolDoc, graphics, the TempleOS shell</td><td>Not available; use the C library through <code>extern "c"</code></td></tr>
