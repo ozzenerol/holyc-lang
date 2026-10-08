@@ -46,9 +46,6 @@ works as shown.</p>
     <tr><td><code>inline</code> functions don't compile</td>
         <td><code>inline I64 F(I64 x) { return x; }</code>: "Unhandled AST kind"</td>
         <td>Leave out <code>inline</code></td></tr>
-    <tr><td>Calling a function-pointer field through an array element doesn't parse</td>
-        <td><code>shapes[i]->area(shapes[i])</code></td>
-        <td>Use a pointer first: <code>Shape *s = shapes[i]; s->area(s);</code></td></tr>
     <tr><td>Several declarations in one statement fail at global scope</td>
         <td><code>I64 a = 1, b = 2;</code> outside a function</td>
         <td>One declaration per statement for globals (inside functions it works)</td></tr>
