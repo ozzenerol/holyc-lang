@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started · HolyC</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=VT323&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><img src="assets/favicon.png" alt="" width="25" height="28">HolyC</a>
+  <button class="menu" aria-label="Menu" aria-expanded="false">☰</button>
+  <nav class="pages"><a href="index.html">Home</a><a href="getting-started.html" aria-current="page">Getting started</a><a href="language.html">Language</a><a href="library.html">Library guide</a><a href="stdlib.html">Library reference</a><a href="tools.html">Tools</a><a href="examples.html">Examples</a><a href="known-issues.html">Known issues</a></nav>
+  <button class="theme" aria-label="Toggle dark mode">◐</button>
+</header>
+<div class="layout">
+  <aside class="toc" aria-label="On this page"></aside>
+  <main>
+<h1>Getting started</h1>
+<p class="lede">Build hcc from source, then compile and run your first programs.</p>
+
+<h2>Requirements</h2>
+<ul>
+  <li>Linux or macOS, on x86_64 or arm64. On Windows, use WSL2.</li>
+  <li>A C compiler (gcc or clang), <code>make</code> and <code>cmake</code>. hcc uses the C compiler to assemble and link the code it generates.</li>
+  <li>Optional: the SQLite development package, for the SQLite bindings.</li>
+</ul>
+
+<h2>Build</h2>
+<p>From the repository root, run as your normal user (not with <code>sudo</code>):</p>
+<pre><code>./build.sh</code></pre>
+<p>This builds the compiler as <code>./hcc</code> and the standard library into
+<code>build/prefix</code>. Useful options:</p>
+<table>
+  <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>./build.sh --test</code></td><td>Build, then run the unit, JIT and LSP test suites</td></tr>
+    <tr><td><code>./build.sh --install</code></td><td>Also install <code>hcc</code> and the library to <code>/usr/local</code> (asks for sudo only for the copy)</td></tr>
+    <tr><td><code>./build.sh --sqlite</code></td><td>Include the SQLite bindings</td></tr>
+    <tr><td><code>./build.sh --debug</code></td><td>Debug build with AddressSanitizer</td></tr>
+    <tr><td><code>./build.sh --clean</code></td><td>Start from scratch</td></tr>
+  </tbody>
+</table>
+<p>Set <code>INSTALL_PREFIX=$HOME/.local</code> to install somewhere else, and
+<code>CC=clang</code> to choose the C compiler. The classic route also works:
+<code>make &amp;&amp; sudo make install</code>.</p>
+
+<div class="note"><p><strong>Without installing.</strong> A program needs the standard library to
+compile. If you haven't installed hcc, point it at the local build with
+<code>--install-dir</code>:</p>
+<pre><code>./hcc --install-dir=build/prefix hello.HC -o hello</code></pre>
+<p>The rest of these docs assume hcc is installed and on your <code>PATH</code>.</p></div>
+
+<h2>Your first program</h2>
+<p>Create <code>hello.HC</code>:</p>
+<pre data-run><code>U0 Main()
+{
+  "Hello, %s!\n", "world";
+}
+</code></pre>
+<pre class="output">Hello, world!
+</pre>
+<p>A string literal on its own line is a print statement: it works like <code>printf</code>,
+with any arguments after a comma. Compile and run it:</p>
+<pre><code>hcc hello.HC -o hello
+./hello</code></pre>
+<p>Without <code>-o</code> the binary is called <code>a.out</code>.</p>
+
+<h2>Run without compiling a binary</h2>
+<p>The JIT compiles into memory and runs immediately, which is handy while developing:</p>
+<pre><code>hcc -jit hello.HC</code></pre>
+<p>Make a file executable as a script with a shebang line. hcc skips a first line that
+starts with <code>#!</code>:</p>
+<pre><code>#!/usr/bin/env -S hcc -jit
+"Hello from a script\n";</code></pre>
+<pre><code>chmod +x hello.HC
+./hello.HC</code></pre>
+
+<h2>How a program runs</h2>
+<p>Statements at the top level of a file run in order, as in a script. If you define
+<code>Main</code>, it runs after them:</p>
+<pre data-run><code>"first\n";
+
+U0 Main()
+{
+  "last\n";
+}
+
+"second\n";
+</code></pre>
+<pre class="output">first
+second
+last
+</pre>
+<p>Small programs can skip <code>Main</code> entirely and just write statements. Larger
+ones usually keep their code in functions.</p>
+<p>Return a value from <code>Main</code> to set the exit code:</p>
+<pre><code>I32 Main()
+{
+  return 3;   // ./a.out; echo $? prints 3
+}</code></pre>
+
+<h2>The standard library</h2>
+<p>Every program can use the whole standard library (<code>MAlloc</code>, <code>StrPrint</code>,
+hash tables, JSON and the rest) without an <code>#include</code>. The compiler reads its
+header, <code>tos.HH</code>, automatically and links <code>libtos</code>. See the
+<a href="library.html">library guide</a>.</p>
+
+<h2>Several files</h2>
+<p>Pull other files in with <code>#include</code>. Paths in quotes are relative to the
+including file:</p>
+<pre><code>// main.HC
+#include "geometry.HC"
+
+U0 Main()
+{
+  "%d\n", Area(3, 4);
+}</code></pre>
+<pre><code>// geometry.HC
+I64 Area(I64 w, I64 h)
+{
+  return w * h;
+}</code></pre>
+<pre><code>hcc main.HC -o shapes</code></pre>
+
+<h2>Next steps</h2>
+<ul>
+  <li><a href="language.html">The language</a>: types, classes, control flow, functions and more.</li>
+  <li><a href="tools.html">Tools</a>: every compiler flag, the REPL and editor setup.</li>
+  <li><a href="examples.html">Examples</a>: complete projects to read and run.</li>
+</ul>
+
+  </main>
+</div>
+<footer>Docs for <a href="https://github.com/Jamesbarford/holyc-lang">hcc</a>, a HolyC compiler.
+Every example on these pages is compiled and run by <code>docs/tools/check-examples.py</code>.</footer>
+</body>
+</html>

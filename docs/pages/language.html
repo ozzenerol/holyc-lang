@@ -1,0 +1,851 @@
+<!-- title: Language -->
+<h1>The HolyC language</h1>
+<p class="lede">A complete tour of HolyC as implemented by hcc. If you know C, most of it
+will look familiar. The differences are where HolyC gets interesting.</p>
+
+<h2>Program structure</h2>
+<p>A program is one or more <code>.HC</code> files. Code at the top level runs in order,
+then <code>Main</code> runs if you defined one. A program can be a single line:</p>
+<pre data-run><code>
+"Hello\n";
+</code></pre>
+<pre class="output">
+Hello
+</pre>
+<p>Comments are the same as in C: <code>// to the end of the line</code> and
+<code>/* across lines */</code>. Statements end with <code>;</code> and blocks use
+<code>{ }</code>. Header files conventionally end in <code>.HH</code>.</p>
+
+<h2>Printing</h2>
+<p>A string literal used as a statement prints itself. Put arguments after a comma and it
+behaves like <code>printf</code>:</p>
+<pre data-run><code>
+U0 Main()
+{
+  "plain text\n";
+  "%s is %d years old\n", "Terry", 53;
+  "%5d|%-5d|%05d\n", 42, 42, 42;
+  "%x %X %c %.3f\n", 255, 255, 'A', 3.14159;
+}
+</code></pre>
+<pre class="output">
+plain text
+Terry is 53 years old
+   42|42   |00042
+ff FF A 3.142
+</pre>
+<p>A bare string has no special treatment for <code>%</code>, so
+<code>"100%\n";</code> without arguments prints as written.</p>
+<div class="warn"><p><strong><code>%d</code> prints 32 bits in print statements.</strong> Print
+statements go through C's <code>printf</code>, where <code>%d</code> is a 32-bit
+<code>int</code>. Use <code>%ld</code> for values outside ±2,147,483,647:</p>
+<pre data-run><code>
+U0 Main()
+{
+  I64 big = 5000000000;
+  "%d vs %ld\n", big, big;
+}
+</code></pre>
+<pre class="output">
+705032704 vs 5000000000
+</pre>
+<p><code>StrPrint</code> (see <a href="library.html#strings">strings</a>) treats <code>%d</code> as 64-bit.</p></div>
+
+<h2>Types</h2>
+<table>
+  <thead><tr><th>Type</th><th>Size</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>U0</code></td><td>0</td><td>Nothing, like C's <code>void</code></td></tr>
+    <tr><td><code>Bool</code></td><td>1</td><td><code>TRUE</code> (1) or <code>FALSE</code> (0)</td></tr>
+    <tr><td><code>I8</code> / <code>U8</code></td><td>1</td><td>Signed / unsigned byte; <code>U8</code> is the character type</td></tr>
+    <tr><td><code>I16</code> / <code>U16</code></td><td>2</td><td>16-bit integers</td></tr>
+    <tr><td><code>I32</code> / <code>U32</code></td><td>4</td><td>32-bit integers</td></tr>
+    <tr><td><code>I64</code> / <code>U64</code></td><td>8</td><td>64-bit integers, the default integer type</td></tr>
+    <tr><td><code>F64</code></td><td>8</td><td>Double-precision float</td></tr>
+    <tr><td><code>F32</code></td><td>4</td><td>Single-precision float (an hcc addition, for C libraries)</td></tr>
+  </tbody>
+</table>
+<p>Pointers are written as in C (<code>U8 *s</code>, <code>I64 **pp</code>) and are 8 bytes.
+<code>NULL</code> is 0.</p>
+<pre data-run><code>
+U0 Main()
+{
+  "%d %d %d %d %d\n", sizeof(U8), sizeof(I16), sizeof(I32), sizeof(I64), sizeof(F32);
+  "%d %d\n", sizeof(U8 *), sizeof(Bool);
+}
+</code></pre>
+<pre class="output">
+1 2 4 8 4
+8 1
+</pre>
+
+<h2>Literals</h2>
+<pre data-run><code>
+U0 Main()
+{
+  I64 dec = 42, hex = 0xFF;
+  F64 f = 1.5e3;
+  "%d %d %.1f\n", dec, hex, f;
+
+  // Character constants hold up to 8 characters, packed into an integer.
+  I64 one = 'A', many = 'Hi';
+  "%d %d %c\n", one, many, one;
+
+  "tab:[\t] quote:[\"] backslash:[\\]\n";
+}
+</code></pre>
+<pre class="output">
+42 255 1500.0
+65 26952 A
+tab:[	] quote:["] backslash:[\]
+</pre>
+<p>Multi-character constants are a HolyC idiom for short tags, such as the values thrown by
+<a href="#exceptions">exceptions</a>. String literals are <code>U8 *</code>.</p>
+
+<h2>Variables</h2>
+<p>Declare variables anywhere in a block. Several can share one declaration inside a
+function:</p>
+<pre data-run><code>
+I64 g_total = 100;          // a global, visible to everything below it
+
+U0 Main()
+{
+  I64 a = 1, b = 2, c;
+  c = a + b;
+  F64 ratio = 0.25;
+  U8 *name = "hcc";
+  "%d %d %.2f %s\n", c, g_total, ratio, name;
+}
+</code></pre>
+<pre class="output">
+3 100 0.25 hcc
+</pre>
+
+<h3>auto</h3>
+<p><code>auto</code> takes its type from the initialiser:</p>
+<pre data-run><code>
+U0 Main()
+{
+  auto count = 3;
+  auto price = 9.99;
+  auto label = "total";
+  "%s %s %s\n", typeof(count), typeof(price), typeof(label);
+}
+</code></pre>
+<pre class="output">
+I64 F64 U8[6]
+</pre>
+
+<h3>static</h3>
+<p>A <code>static</code> local keeps its value between calls:</p>
+<pre data-run><code>
+I64 NextId()
+{
+  static I64 id = 0;
+  id++;
+  return id;
+}
+
+U0 Main()
+{
+  NextId;
+  NextId;
+  "%d\n", NextId;
+}
+</code></pre>
+<pre class="output">
+3
+</pre>
+
+<h2>Operators</h2>
+<p>The C operators work as expected: <code>+ - * / %</code>, <code>&amp; | ^ ~ &lt;&lt; &gt;&gt;</code>,
+<code>&amp;&amp; || !</code>, <code>== != &lt; &lt;= &gt; &gt;=</code>, compound assignment
+(<code>+=</code>, <code>&lt;&lt;=</code>, …) and <code>++</code> / <code>--</code>.</p>
+<pre data-run><code>
+U0 Main()
+{
+  I64 a = 7, b = 2;
+  "%d %d %d %d %d\n", a + b, a - b, a * b, a / b, a % b;
+  "%d %d %d %d %d\n", a & b, a | b, a ^ b, a << 2, a >> 1;
+  a += 3;
+  a++;
+  "%d\n", a;
+}
+</code></pre>
+<pre class="output">
+9 5 14 3 1
+2 7 5 28 3
+11
+</pre>
+<p>Comparisons can be chained, as in maths: <code>lo &lt; x &lt; hi</code> means
+<code>lo &lt; x &amp;&amp; x &lt; hi</code>.</p>
+<pre data-run><code>
+U0 Main()
+{
+  I64 x = 5;
+  "%d %d\n", 1 < x < 10, 1 < x < 3;
+}
+</code></pre>
+<pre class="output">
+1 0
+</pre>
+<div class="note"><p>There is no <code>?:</code> operator. Use <code>if</code>/<code>else</code>.</p></div>
+
+<h3>sizeof, alignof, typeof</h3>
+<pre data-run><code>
+class Pair { I32 a; I64 b; };
+
+U0 Main()
+{
+  I64 arr[10];
+  "%d %d\n", sizeof(arr), sizeof(arr) / sizeof(arr[0]);
+  "%d %d\n", sizeof(Pair), alignof(Pair);
+  "%s %s\n", typeof(1 + 1), typeof(&arr[0]);
+}
+</code></pre>
+<pre class="output">
+80 10
+16 8
+I64 I64 *
+</pre>
+<p><code>typeof</code> is an hcc addition. It becomes a string naming the type at compile
+time, and its operand is never evaluated.</p>
+
+<h2>Type casts</h2>
+<p>HolyC casts are written <em>after</em> the value: <code>x(F64)</code> rather than C's
+<code>(double)x</code>.</p>
+<pre data-run><code>
+U0 Main()
+{
+  F64 f = 3.9;
+  I64 i = f(I64);            // truncates
+  "%d\n", i;
+  "%.1f %.1f\n", (7 / 2)(F64), 7(F64) / 2;
+
+  U8 *s = "hey";
+  I64 address = s(I64);
+  "%c\n", *(address(U8 *));
+}
+</code></pre>
+<pre class="output">
+3
+3.0 3.5
+h
+</pre>
+
+<h2>Control flow</h2>
+
+<h3>if and else</h3>
+<pre data-run><code>
+U0 Main()
+{
+  I64 n = 15;
+  if (n % 15 == 0) {
+    "FizzBuzz\n";
+  } else if (n % 3 == 0) {
+    "Fizz\n";
+  } else {
+    "%d\n", n;
+  }
+
+  // An initialiser can come before the condition, scoped to the if.
+  if (I64 half = n / 2; half > 5) {
+    "half is %d\n", half;
+  }
+}
+</code></pre>
+<pre class="output">
+FizzBuzz
+half is 7
+</pre>
+
+<h3>switch</h3>
+<p><code>case</code> takes a value or a range <code>lo ... hi</code>. Cases fall through
+without <code>break</code>, as in C.</p>
+<pre data-run><code>
+U0 Grade(I64 score)
+{
+  switch (score) {
+    case 90 ... 100: "A\n"; break;
+    case 80 ... 89:  "B\n"; break;
+    case 0:          "no score\n"; break;
+    default:         "C or below\n";
+  }
+}
+
+U0 Main()
+{
+  Grade(95);
+  Grade(83);
+  Grade(0);
+  Grade(42);
+}
+</code></pre>
+<pre class="output">
+A
+B
+no score
+C or below
+</pre>
+<div class="note"><p>Put spaces around <code>...</code> in a range: <code>case 1...3</code> is read as a
+malformed number.</p></div>
+
+<h3>Loops</h3>
+<pre data-run><code>
+U0 Main()
+{
+  I64 i = 0;
+  while (i < 3) {
+    "w%d ", i;
+    i++;
+  }
+  do {
+    "d%d ", i;
+    i--;
+  } while (i > 0);
+  for (I64 j = 0; j < 10; j++) {
+    if (j == 2) continue;
+    if (j == 5) break;
+    "f%d ", j;
+  }
+  "end\n";
+}
+</code></pre>
+<pre class="output">
+w0 w1 w2 d3 d2 d1 f0 f1 f3 f4 end
+</pre>
+
+<h3>Range-based for</h3>
+<p>An hcc addition. Loop over a fixed-size array, or over any class with an
+<code>entries</code> field and a <code>size</code> field, such as the library's
+<code>IntVec</code> and <code>PtrVec</code>:</p>
+<pre data-run><code>
+U0 Main()
+{
+  I64 primes[] = {2, 3, 5, 7, 11};
+  I64 sum = 0;
+  for (auto p : primes) {
+    sum += p;
+  }
+  "sum = %d\n", sum;
+
+  IntVec *v = IntVecNew();
+  IntVecPush(v, 10);
+  IntVecPush(v, 20);
+  for (I64 x : v) {
+    "%d\n", x;
+  }
+  IntVecRelease(v);
+}
+</code></pre>
+<pre class="output">
+sum = 28
+10
+20
+</pre>
+<div class="warn"><p>Always give a range-based <code>for</code> a <code>{ }</code> body. Without braces
+the compiler currently crashes (see <a href="known-issues.html">known issues</a>).</p></div>
+
+<h3>goto</h3>
+<pre data-run><code>
+U0 Main()
+{
+  I64 tries = 0;
+retry:
+  tries++;
+  if (tries < 3) goto retry;
+  "gave up after %d tries\n", tries;
+}
+</code></pre>
+<pre class="output">
+gave up after 3 tries
+</pre>
+
+<h2>Functions</h2>
+<pre data-run><code>
+I64 Square(I64 n)
+{
+  return n * n;
+}
+
+U0 Main()
+{
+  "%d\n", Square(12);
+}
+</code></pre>
+<pre class="output">
+144
+</pre>
+<p>Declare a prototype to call a function before its definition:
+<code>I64 Later(I64 x);</code></p>
+
+<h3>Default arguments</h3>
+<p>Any parameter can have a default, not just trailing ones. Leave an argument empty to use
+its default:</p>
+<pre data-run><code>
+U0 Box(I64 w = 2, I64 h = 3, U8 *fill = "#")
+{
+  "%dx%d of %s\n", w, h, fill;
+}
+
+U0 Main()
+{
+  Box(5, 1, "*");
+  Box(5);
+  Box(, 9);
+  Box(, , "@");
+}
+</code></pre>
+<pre class="output">
+5x1 of *
+5x3 of #
+2x9 of #
+2x3 of @
+</pre>
+
+<h3>Calling without parentheses</h3>
+<p>A function that needs no arguments can be called by name alone, TempleOS style:</p>
+<pre data-run><code>
+U0 Greet()
+{
+  "hi\n";
+}
+
+I64 Answer()
+{
+  return 42;
+}
+
+U0 Main()
+{
+  Greet;
+  "%d\n", Answer;
+}
+</code></pre>
+<pre class="output">
+hi
+42
+</pre>
+
+<h3>Variable arguments</h3>
+<p>Write <code>...</code> as the last parameter. Inside the function, <code>argc</code> is
+the number of extra arguments and <code>argv</code> holds them as 64-bit values:</p>
+<pre data-run><code>
+I64 Sum(...)
+{
+  I64 total = 0;
+  for (I64 i = 0; i < argc; i++) {
+    total += argv[i];
+  }
+  return total;
+}
+
+U0 Log(U8 *fmt, ...)
+{
+  U8 *msg = StrPrintJoin(NULL, fmt, argc, argv);   // format the extras
+  "[log] %s\n", msg;
+  Free(msg);
+}
+
+U0 Main()
+{
+  "%d\n", Sum(1, 2, 3, 4);
+  Log("%d files in %s", 3, "/tmp");
+}
+</code></pre>
+<pre class="output">
+10
+[log] 3 files in /tmp
+</pre>
+
+<h3>Function pointers</h3>
+<pre data-run><code>
+I64 Add(I64 a, I64 b) { return a + b; }
+I64 Mul(I64 a, I64 b) { return a * b; }
+
+I64 Fold(I64 (*op)(I64 a, I64 b), I64 *nums, I64 n)
+{
+  I64 acc = nums[0];
+  for (I64 i = 1; i < n; i++) {
+    acc = op(acc, nums[i]);
+  }
+  return acc;
+}
+
+U0 Main()
+{
+  I64 nums[] = {1, 2, 3, 4};
+  I64 (*f)(I64 a, I64 b) = &Mul;
+  "%d %d\n", Fold(&Add, nums, 4), Fold(f, nums, 4);
+}
+</code></pre>
+<pre class="output">
+10 24
+</pre>
+
+<h2>Pointers and arrays</h2>
+<pre data-run><code>
+U0 Main()
+{
+  I64 x = 5;
+  I64 *p = &x;
+  *p = 10;
+  "%d\n", x;
+
+  I64 squares[5];
+  for (I64 i = 0; i < 5; i++) {
+    squares[i] = i * i;
+  }
+  I64 *q = squares;              // arrays decay to pointers
+  "%d %d %d\n", q[3], *(q + 4), &squares[4] - &squares[1];
+
+  I64 grid[3][4];
+  grid[2][3] = 7;
+  "%d %d\n", grid[2][3], sizeof(grid);
+}
+</code></pre>
+<pre class="output">
+10
+9 16 3
+7 96
+</pre>
+
+<h3>Heap memory</h3>
+<p><code>MAlloc</code> allocates, <code>CAlloc</code> allocates zeroed memory,
+<code>ReAlloc</code> resizes and <code>Free</code> releases. Nothing is garbage collected.</p>
+<pre data-run><code>
+U0 Main()
+{
+  I64 n = 4;
+  I64 *nums = CAlloc(n * sizeof(I64));
+  nums[2] = 7;
+  nums = ReAlloc(nums, 8 * sizeof(I64));
+  "%d %d\n", nums[0], nums[2];
+  Free(nums);
+}
+</code></pre>
+<pre class="output">
+0 7
+</pre>
+
+<h3>Strings</h3>
+<p>Strings are NUL-terminated <code>U8</code> arrays, as in C. The library has the
+usual helpers (<a href="library.html#strings">more in the library guide</a>):</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 *copy = StrNew("hello");
+  "%s %d %d\n", copy, StrLen(copy), StrCmp(copy, "hello");
+
+  U8 *msg = StrPrint(NULL, "%s has %d letters", copy, StrLen(copy));
+  "%s\n", msg;
+
+  I64 vowels = 0;
+  for (U8 *c = copy; *c; c++) {
+    if (*c == 'e' || *c == 'o') vowels++;
+  }
+  "%d vowels\n", vowels;
+  Free(copy);
+  Free(msg);
+}
+</code></pre>
+<pre class="output">
+hello 5 0
+hello has 5 letters
+2 vowels
+</pre>
+<div class="warn"><p>Initialising a <em>local</em> <code>U8</code> array from a string literal
+(<code>U8 buf[] = "abc";</code>) currently gives garbage. Use a pointer, a global array, or
+<code>StrCpy</code> into a buffer (see <a href="known-issues.html">known issues</a>).</p></div>
+
+<h2>Classes</h2>
+<p>A <code>class</code> is a C <code>struct</code>, and its name is a type straight away,
+with no <code>typedef</code> needed. Several fields can share a line.</p>
+<pre data-run><code>
+class Point
+{
+  I64 x, y;
+};
+
+Point Make(I64 x, I64 y)          // classes can be returned by value
+{
+  Point r;
+  r.x = x;
+  r.y = y;
+  return r;
+}
+
+I64 Sum(Point p)                  // and passed by value
+{
+  return p.x + p.y;
+}
+
+U0 Main()
+{
+  Point a = {1, 2};               // initialise fields in order
+  Point c = Make(11, 22);
+  "%d %d %d\n", c.x, c.y, Sum(a);
+
+  Point copy = c;                 // assignment copies
+  copy.x = 0;
+  "%d %d\n", c.x, copy.x;
+
+  Point *p = MAlloc(sizeof(Point));
+  p->x = 5;                       // -> through a pointer
+  "%d\n", p->x;
+  Free(p);
+}
+</code></pre>
+<pre class="output">
+11 22 3
+11 0
+5
+</pre>
+
+<h3>Inheritance</h3>
+<p>A class can extend one other class. It starts with all of the base class's fields, so a
+pointer to it can be used wherever the base class is expected:</p>
+<pre data-run><code>
+class Shape
+{
+  U8 *name;
+  F64 (*area)(Shape *s);
+};
+
+class Circle : Shape
+{
+  F64 r;
+};
+
+class Rect : Shape
+{
+  F64 w, h;
+};
+
+F64 CircleArea(Shape *s) { Circle *c = s; return 3.14159 * c->r * c->r; }
+F64 RectArea(Shape *s)   { Rect *r = s; return r->w * r->h; }
+
+U0 Main()
+{
+  Circle c;
+  c.name = "circle";
+  c.area = &CircleArea;
+  c.r = 1.0;
+
+  Rect r;
+  r.name = "rect";
+  r.area = &RectArea;
+  r.w = 2.0;
+  r.h = 3.0;
+
+  Shape *shapes[2];
+  shapes[0] = &c;
+  shapes[1] = &r;
+  for (I64 i = 0; i < 2; i++) {
+    Shape *s = shapes[i];
+    "%s: %.2f\n", s->name, s->area(s);
+  }
+}
+</code></pre>
+<pre class="output">
+circle: 3.14
+rect: 6.00
+</pre>
+
+<h3>Unions</h3>
+<p>All fields of a <code>union</code> share the same memory:</p>
+<pre data-run><code>
+union Bits
+{
+  I64 i;
+  F64 f;
+  U8 bytes[8];
+};
+
+U0 Main()
+{
+  Bits b;
+  b.i = 0x41;
+  "%c %d\n", b.bytes[0], sizeof(Bits);
+}
+</code></pre>
+<pre class="output">
+A 8
+</pre>
+
+<h2 id="preprocessor">The preprocessor</h2>
+<h3>#define</h3>
+<p>Macros name a single value: a number, a float, a string, or an expression that evaluates to
+one. Function-like macros (<code>#define F(x) ...</code>) are not supported.</p>
+<pre data-run><code>
+#define MAX_USERS 64
+#define APP_NAME  "demo"
+#define RATE      0.5
+#define BUFFER    (MAX_USERS * 16)
+
+U0 Main()
+{
+  "%s %d %.1f %d\n", APP_NAME, MAX_USERS, RATE, BUFFER;
+}
+</code></pre>
+<pre class="output">
+demo 64 0.5 1024
+</pre>
+
+<h3>Conditional compilation</h3>
+<p><code>#ifdef</code>, <code>#ifndef</code>, <code>#elif</code>, <code>#else</code>,
+<code>#endif</code>, <code>#undef</code> and <code>#error</code> work as in C. Define a
+macro from the command line with <code>-D</code>:</p>
+<pre data-run data-args="-DVERBOSE"><code>
+U0 Main()
+{
+#ifdef VERBOSE
+  "verbose mode\n";
+#else
+  "quiet mode\n";
+#endif
+}
+</code></pre>
+<pre class="output">
+verbose mode
+</pre>
+<p>That example was built with <code>hcc -DVERBOSE</code>. These macros are always
+predefined:</p>
+<table>
+  <thead><tr><th>Macro</th><th>Defined when</th></tr></thead>
+  <tbody>
+    <tr><td><code>IS_LINUX</code>, <code>__linux__</code></td><td>Compiling on Linux</td></tr>
+    <tr><td><code>IS_MACOS</code>, <code>__macos__</code></td><td>Compiling on macOS</td></tr>
+    <tr><td><code>IS_X86_64</code>, <code>__x86_64__</code></td><td>Targeting x86_64</td></tr>
+    <tr><td><code>IS_ARM_64</code>, <code>__aarch64__</code></td><td>Targeting arm64</td></tr>
+    <tr><td><code>__ARCH__</code></td><td>Always: the architecture name as a string</td></tr>
+    <tr><td><code>__HCC_JIT__</code> / <code>__HCC_AOT__</code></td><td>Running in the JIT or REPL / compiling a binary</td></tr>
+    <tr><td><code>__HCC_VERSION__</code>, <code>__DATE__</code>, <code>__TIME__</code>, <code>__TIMESTAMP__</code></td><td>Always</td></tr>
+    <tr><td><code>__HCC_LINK_SQLITE3__</code></td><td>hcc was built with SQLite support</td></tr>
+  </tbody>
+</table>
+<p><code>#ifjit</code> and <code>#ifaot</code> are shorthands for
+<code>#ifdef __HCC_JIT__</code> and <code>#ifdef __HCC_AOT__</code>:</p>
+<pre data-run data-mode="aot"><code>
+U0 Main()
+{
+#ifjit
+  "running in the JIT\n";
+#else
+  "running as a compiled binary\n";
+#endif
+}
+</code></pre>
+<pre class="output">
+running as a compiled binary
+</pre>
+
+<h3>#include and #link</h3>
+<p><code>#include "file.HC"</code> is relative to the including file;
+<code>#include &lt;file.HH&gt;</code> searches the installed include directory.
+<code>#link</code> records a library dependency in the source itself (see
+<a href="#calling-c">calling C</a>).</p>
+
+<h2 id="exceptions">Exceptions</h2>
+<p><code>throw</code> takes a 64-bit value, usually a character constant. A <code>try</code>
+block catches it in the nearest enclosing <code>catch</code>, which finds the value in
+<code>Fs->except_ch</code>. Throws unwind through any number of function calls.</p>
+<pre data-run><code>
+U0 Withdraw(I64 balance, I64 amount)
+{
+  if (amount > balance) throw('Funds');
+  "withdrew %d\n", amount;
+}
+
+U0 Main()
+{
+  try {
+    Withdraw(100, 30);
+    Withdraw(100, 500);
+    "never printed\n";
+  } catch {
+    if (Fs->except_ch == 'Funds') {
+      "insufficient funds\n";
+    }
+  }
+  "carrying on\n";
+}
+</code></pre>
+<pre class="output">
+withdrew 30
+insufficient funds
+carrying on
+</pre>
+
+<h2 id="calling-c">Calling C</h2>
+<p>Declare any C function with <code>extern "c"</code> and call it directly. libc is always
+linked:</p>
+<pre data-run><code>
+extern "c" I32 abs(I32 x);
+extern "c" U8 *getenv(U8 *name);
+
+U0 Main()
+{
+  "%d %d\n", abs(-5), getenv("PATH") != NULL;
+}
+</code></pre>
+<pre class="output">
+5 1
+</pre>
+<p>Use <code>F32</code> for C <code>float</code>, <code>I32</code> for <code>int</code> and
+<code>U8 *</code> for <code>char *</code>. To use another library, link it from the source
+and it works in compiled programs, the JIT and the REPL alike:</p>
+<pre><code>#link &lt;sqlite3&gt;          // like -lsqlite3
+#link "./libmine.so"     // a path, relative to the working directory
+
+extern "c" I32 sqlite3_libversion_number();</code></pre>
+
+<h2>Inline assembly</h2>
+<p>An <code>asm</code> block defines labelled routines. <code>_extern</code> binds one to a
+HolyC prototype. Arguments arrive in the platform's C calling convention:</p>
+<pre data-run><code>
+#ifdef IS_X86_64
+asm {
+_ADD_ONE::
+  MOV RAX, RDI
+  INC RAX
+  RET
+}
+#endif
+
+#ifdef IS_ARM_64
+asm {
+_ADD_ONE::
+  ADD X0, X0, 1
+  RET
+}
+#endif
+
+_extern _ADD_ONE I64 AddOne(I64 x);
+
+U0 Main()
+{
+  "%d\n", AddOne(41);
+}
+</code></pre>
+<pre class="output">
+42
+</pre>
+
+<h2>Differences from TempleOS</h2>
+<p>hcc follows TempleOS HolyC closely, but it runs on a normal operating system rather than
+being one. The differences:</p>
+<table>
+  <thead><tr><th>Feature</th><th>hcc</th></tr></thead>
+  <tbody>
+    <tr><td><code>F32</code></td><td>Added, for C libraries that use <code>float</code></td></tr>
+    <tr><td><code>auto</code>, <code>typeof</code>, range-based <code>for</code>, <code>if (init; cond)</code></td><td>Added</td></tr>
+    <tr><td><code>extern "c"</code>, <code>#link</code>, <code>#ifjit</code> / <code>#ifaot</code></td><td>Added, for working with the host system</td></tr>
+    <tr><td><code>?:</code></td><td>Not supported, as in TempleOS</td></tr>
+    <tr><td>Sub-integer access (<code>x.u8[1]</code>)</td><td>Not supported</td></tr>
+    <tr><td><code>switch [x]</code> (unchecked switch)</td><td>Not supported</td></tr>
+    <tr><td>Exponent operator <code>`</code></td><td>Not supported; use <code>Pow</code> or <code>pow</code></td></tr>
+    <tr><td><code>Fs</code></td><td>Exists for exceptions (<code>Fs->except_ch</code>); there are no TempleOS tasks</td></tr>
+    <tr><td>DolDoc, graphics, the TempleOS shell</td><td>Not available; use the C library through <code>extern "c"</code></td></tr>
+  </tbody>
+</table>
