@@ -87,10 +87,29 @@ Bool TestNoBoundsSwitch()
   return num == 4;
 }
 
+/* `1...3` with no spaces used to lex `1.` as a float and fail. */
+Bool TestRangeWithoutSpaces()
+{
+  I64 small = 0, big = 0, hex = 0, letters = 0;
+  for (I64 i = 0; i < 40; ++i) {
+    switch (i) {
+      case 1...3:       small++; break;
+      case 7...9:       big++; break;
+      case 0x10...0x1F: hex++; break;
+    }
+  }
+  for (U8 *p = "a1b2c"; *p; ++p) {
+    switch (*p) {
+      case 'a'...'z': letters++; break;
+    }
+  }
+  return small == 3 && big == 3 && hex == 16 && letters == 3;
+}
+
 I32 Main(I32 argc, U8 **argv)
 {
   "Test - Switch statement: ";
-  I64 correct = 0, tests = 7, count = 0;
+  I64 correct = 0, tests = 8, count = 0;
   I64 i = 0;
 
   for (; i < 10; ++i) {
@@ -132,6 +151,7 @@ I32 Main(I32 argc, U8 **argv)
   if (UnNamedCase())          correct++;
   if (TestNoBoundsSwitch())   correct++;
   if (TestOutOfRange())       correct++;
+  if (TestRangeWithoutSpaces()) correct++;
 
   PrintResult(correct,tests);
   return 0;

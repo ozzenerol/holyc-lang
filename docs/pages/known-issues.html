@@ -29,9 +29,6 @@ works as shown.</p>
     <tr><td>Several declarations in one statement fail at global scope</td>
         <td><code>I64 a = 1, b = 2;</code> outside a function</td>
         <td>One declaration per statement for globals (inside functions it works)</td></tr>
-    <tr><td><code>case 1...3</code> is a "malformed numeric literal"</td>
-        <td><code>case 1...3:</code></td>
-        <td>Add spaces: <code>case 1 ... 3:</code></td></tr>
     <tr><td>Function-like macros crash the parser</td>
         <td><code>#define DOUBLE(x) ((x)*2)</code></td>
         <td>Write a function instead</td></tr>
