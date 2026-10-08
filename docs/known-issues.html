@@ -80,9 +80,6 @@ works as shown.</p>
     <tr><td><code>StrMapNew</code> hangs unless the capacity is a power of two</td>
         <td><code>StrMapNew(100)</code>, then insert a few hundred keys</td>
         <td>Use the default, or a power of two such as 128</td></tr>
-    <tr><td><code>StrMapSet</code> stores your key pointer, and replaces it on update</td>
-        <td>Setting a key from a reused buffer leaves the map pointing at it</td>
-        <td>Pass keys that live as long as the map (<code>StrNew</code>), and set each key once</td></tr>
     <tr><td><code>STDOUT</code> is 0 and <code>STDIN</code> is 2 in <code>tos.HH</code></td>
         <td><code>Write(STDOUT, ...)</code> writes to stdin, which only works on a terminal</td>
         <td>Use the numbers: 1 for stdout, 2 for stderr</td></tr>

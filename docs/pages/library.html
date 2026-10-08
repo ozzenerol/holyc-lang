@@ -298,10 +298,14 @@ pears = 5
 not found
 </pre>
 <p>Iteration follows insertion order. <code>StrMapSetFreeValue</code> and
-<code>StrMapSetFreeKey</code> register destructors that run on replace and release.</p>
-<div class="warn"><p>The map keeps the key pointer you pass instead of copying it, and setting
-an existing key swaps in the new pointer. Use keys that live as long as the map, such as
-<code>StrNew</code> copies. Give <code>StrMapNew</code> a power-of-two capacity, or none:
+<code>StrMapSetFreeKey</code> register destructors that run on replace and release.
+Setting an existing key keeps the key already stored. With destructors registered the map
+owns what you give it: an update frees the value it replaces and the duplicate key you
+passed (never the stored key, and nothing when you pass the stored pointers again).</p>
+<div class="warn"><p>The map keeps the key pointer you pass the first time a key is set,
+instead of copying it. Use keys that live as long as the map, such as
+<code>StrNew</code> copies; updating an existing key from a reused buffer is fine.
+Give <code>StrMapNew</code> a power-of-two capacity, or none:
 other sizes hang (see <a href="known-issues.html">known issues</a>).</p></div>
 
 <h2 id="json">JSON</h2>
