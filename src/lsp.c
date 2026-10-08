@@ -1,25 +1,5 @@
-/* LSP server - this is nasty. Basicly a JSON server with a bunch
- * of really slow loops constantly scanning a file.
- *
- * Model: ONE persistent Cctrl with CCTRL_REPL set (redefinition
- * replaces instead of erroring - the REPL's proven trick), full
- * document text stored per uri, and a full re-parse per change.
- * There is no incremental compilation and no symbol invalidation to
- * get wrong; hcc's parser is fast enough for HolyC-sized files that
- * "reparse the world" IS the incremental strategy.
- *
- * Every parse is wrapped in a signal guard: the server is fed
- * half-typed garbage at keystroke rate, so a parser crash becomes a
- * diagnostic on the document (plus a fresh Cctrl, since the old one's
- * state is suspect) rather than a dead server.
- *
- * The guard alone is not enough - see lspCanaryParse: every input is
- * first parsed in a fork()ed child, and only inputs that don't kill
- * the child are parsed by the persistent Cctrl.
- *
- * Positions: we advertise positionEncoding utf-8 (LSP 3.17). Clients
- * stuck on utf-16 will see columns drift on lines containing
- * multibyte characters - exact for ASCII HolyC. */
+/* LSP server for hcc: full document sync, every analysis and query
+ * answered from a fresh parse in a fork()ed child (lspRunIsolated). */
 
 #include <ctype.h>
 #include <limits.h>
@@ -50,19 +30,18 @@
 #include "util.h"
 #include "version.h"
 
-/* ---------------- state ---------------- */
-
 /* Everything the server knows, threaded through every handler. The
  * one instance lives on lspRun's stack. */
 typedef struct LspCtx {
-    Cctrl *cc;              /* the ONE persistent compiler */
-    int cc_dirty;           /* crashed mid-parse; rebuild under guard */
+    Cctrl *cc;              /* stdlib-only in the parent; see lspRunIsolated */
     Map *docs;              /* uri (char*) -> AoStr* text */
     char *root_dir;         /* builtin include root for <...> */
     enum CliTarget target;
     int shutdown_requested;
+    int utf16;              /* wire columns are utf-16 units, not bytes */
     int log_on;
     Vec *pending;           /* uris awaiting a debounced analyze */
+    const char *analyzing;  /* uri lspPublishHandler publishes for */
     s64 pending_since_ms;   /* when the oldest pending uri landed */
 } LspCtx;
 
@@ -80,8 +59,6 @@ static void lspLog(LspCtx *ctx, const char *fmt, ...) {
     va_end(ap);
     fputc('\n', stderr);
 }
-
-/* ---------------- transport ---------------- */
 
 /* One framed message: `Content-Length: N\r\n...\r\n\r\n<N bytes>`.
  * Returns a malloc'd body (caller frees) or NULL on EOF/garbage. */
@@ -149,8 +126,6 @@ static void lspRespondError(Json *id, int code, const char *message) {
     aoStrRelease(body);
 }
 
-/* ---------------- uris ---------------- */
-
 /* file:///a%20b.HC -> /a b.HC. Everything else passes through. */
 static char *lspUriToPath(const char *uri) {
     const char *p = uri;
@@ -178,8 +153,6 @@ static char *lspUriToPath(const char *uri) {
     out[o] = '\0';
     return out;
 }
-
-/* ---------------- the compiler ---------------- */
 
 static void lspCrashHandler(int sig, siginfo_t *si, void *uc) {
     (void)si;
@@ -245,7 +218,8 @@ static Cctrl *lspFreshCctrl(LspCtx *ctx) {
 }
 
 /* Parse `text` as `path`, leaving diagnostics on ctx->cc->diagnostics.
- * Returns 0 normally, the killing signal if the parser crashed. */
+ * Returns 0 normally, the killing signal if the parser crashed. Only
+ * ever called inside an isolated child (lspRunIsolated). */
 static int lspParse(LspCtx *ctx, const char *path, AoStr *text) {
     Lexer *l = (Lexer *)malloc(sizeof(Lexer));
     lexInit(l, NULL, CCF_PRE_PROC);
@@ -260,15 +234,6 @@ static int lspParse(LspCtx *ctx, const char *path, AoStr *text) {
     lsp_crash_sig = 0;
     if (sigsetjmp(lsp_parse_env, 1) == 0) {
         lsp_in_parse = 1;
-        /* A previous parse crashed: rebuild the Cctrl HERE, inside the
-         * guard - the rebuild re-parses the stdlib header through the
-         * same possibly-corrupted globals and can crash too. The old
-         * Cctrl leaks (they have no release), the right trade against
-         * corrupting every later parse. */
-        if (ctx->cc_dirty) {
-            ctx->cc = lspFreshCctrl(ctx);
-            ctx->cc_dirty = 0;
-        }
         /* Lex-time raises longjmp through cc->current_recovery; give
          * them somewhere to land (mirrors replParse). */
         jmp_buf lex_recovery;
@@ -281,68 +246,150 @@ static int lspParse(LspCtx *ctx, const char *path, AoStr *text) {
         ctx->cc->current_recovery = prev_recovery;
     } else {
         crashed = lsp_crash_sig;
-        ctx->cc_dirty = 1;
     }
     lsp_in_parse = 0;
     lexerRelease(l);
     return crashed;
 }
 
-/* The signal guard makes a parser crash survivable but not clean:
- * siglongjmp rewinds control flow while the heap keeps whatever
- * half-finished state the crash interrupted (an arena mid-bump, a
- * pool mid-link, a malloc mid-splice), and after enough recoveries
- * some allocation outside the guard dies. A process boundary is the
- * only real undo, so every input is first parsed in a fork()ed
- * child - a copy-on-write clone whose compiler state is
- * byte-identical to the parent's, answering "would this crash us?"
- * with perfect fidelity, its exit status the only IPC. The parent
- * parses an input only after its canary comes back clean; a crashing
- * input never touches the parent's heap, which keeps serving hover/
- * definition/completion from the last good parse. Fork-safety is
- * free (the server is single-threaded); the cost is a CoW fork and
- * a duplicate parse per change - negligible at HolyC file sizes. */
+/* The parent only ever holds the stdlib (lspBootstrap). Every analysis
+ * and query runs in a fork()ed child that parses the current text,
+ * answers and exits, so memory, stale symbols and parser crashes all
+ * die with the child. */
 
-/* Wildly generous next to ~1ms parses, but a rebuild-after-crash
- * re-parses the whole stdlib header first. */
-#define HCC_LSP_CANARY_TIMEOUT_SECS 5
+/* Generous next to ~1ms parses; catches parser infinite loops. */
+#define HCC_LSP_CHILD_TIMEOUT_SECS 5
+/* Child exit code for "the guarded parse crashed with signal N". */
+#define HCC_LSP_CHILD_CRASHED 64
 
-static int lspCanaryParse(LspCtx *ctx, const char *path, AoStr *text) {
+typedef void (*LspHandler)(LspCtx *ctx, Json *id, Json *params);
+
+static AoStr *lspDocGetOrLoad(LspCtx *ctx, const char *uri);
+static AoStr *lspTextForPath(LspCtx *ctx, const char *path,
+                             const char **uri_out);
+
+/* Parse `uri`'s text into this (child) process's compiler. Returns 0 or
+ * the crash signal. A uri with no text (never opened, unreadable) is
+ * left to the handler, which answers null. */
+static int lspParseUri(LspCtx *ctx, const char *uri) {
+    AoStr *text = lspDocGetOrLoad(ctx, uri);
+    if (text == NULL) return 0;
+    char *path = lspUriToPath(uri);
+    int crashed = lspParse(ctx, path, text);
+    free(path);
+    return crashed;
+}
+
+/* Run `handler` in a child against a fresh parse of `uri` (and of every
+ * other open document first when `with_open_docs` - rename and
+ * references must see callers in files that aren't included by `uri`).
+ * Returns 0 when the child completed, else the crash/timeout signal;
+ * on failure nothing was written and the caller answers instead. */
+static int lspRunIsolated(LspCtx *ctx, const char *uri, int with_open_docs,
+                          LspHandler handler, Json *id, Json *params)
+{
     fflush(stdout);
     pid_t pid = fork();
     if (pid < 0) {
-        lspLog(ctx, "lsp: fork failed; parsing unisolated");
-        return lspParse(ctx, path, text);
+        lspLog(ctx, "lsp: fork failed");
+        return SIGCHLD;
     }
     if (pid == 0) {
-        /* A crashing child's buffered stdio must never reach the LSP
-         * transport - point stdout at the void. The parse stays
-         * guarded here so a crash becomes a quiet exit code rather
-         * than a crash report per keystroke. */
-        int devnull = open("/dev/null", O_WRONLY);
-        if (devnull >= 0) dup2(devnull, STDOUT_FILENO);
-        /* A parser infinite loop would otherwise hang child and
-         * parent alike. SIGALRM isn't in the crash handler's set, so
-         * its default disposition kills the child and the parent
-         * sees WIFSIGNALED - a hang reports like any other crash. */
-        alarm(HCC_LSP_CANARY_TIMEOUT_SECS);
-        _exit(lspParse(ctx, path, text) & 0x7f);
+        /* SIGALRM isn't in the crash handler's set: a hang kills the
+         * child and the parent sees WIFSIGNALED. */
+        alarm(HCC_LSP_CHILD_TIMEOUT_SECS);
+        if (with_open_docs) {
+            MapIter mi;
+            mapIterInit(ctx->docs, &mi);
+            while (mapIterNext(&mi)) {
+                const char *other = (const char *)mi.node->key;
+                if (strcmp(other, uri) == 0) continue;
+                int sig = lspParseUri(ctx, other);
+                if (sig) _exit(HCC_LSP_CHILD_CRASHED + sig);
+            }
+        }
+        /* Parsed last so its own symbols win any redefinition. */
+        int sig = lspParseUri(ctx, uri);
+        if (sig) _exit(HCC_LSP_CHILD_CRASHED + sig);
+        handler(ctx, id, params);
+        fflush(stdout);
+        _exit(0);
     }
     int status = 0;
     while (waitpid(pid, &status, 0) < 0) {
         if (errno == EINTR) continue;
-        lspLog(ctx, "lsp: waitpid failed; parsing unisolated");
-        return lspParse(ctx, path, text);
+        lspLog(ctx, "lsp: waitpid failed");
+        return SIGCHLD;
     }
-    if (WIFSIGNALED(status)) return WTERMSIG(status); /* guard missed */
+    if (WIFSIGNALED(status)) return WTERMSIG(status);
+    if (WIFEXITED(status) && WEXITSTATUS(status) >= HCC_LSP_CHILD_CRASHED)
+        return WEXITSTATUS(status) - HCC_LSP_CHILD_CRASHED;
     if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
-        return WEXITSTATUS(status);                   /* guard caught */
-    /* Proven safe against exactly the state the parent has. The
-     * parent's own guard stays armed as belt-and-braces. */
-    return lspParse(ctx, path, text);
+        return SIGCHLD;
+    return 0;
 }
 
-/* ---------------- diagnostics ---------------- */
+/* Columns are bytes internally; on the wire they are utf-16 units
+ * unless the client accepts utf-8 (see lspInitialize). */
+
+static size_t lspLineStart(AoStr *text, int line) {
+    size_t i = 0;
+    for (int l = 0; l < line && i < text->len; ++i)
+        if (text->data[i] == '\n') l++;
+    return i;
+}
+
+static int lspUtf8Len(unsigned char c) {
+    if (c < 0x80)         return 1;
+    if ((c >> 5) == 0x6)  return 2;
+    if ((c >> 4) == 0xE)  return 3;
+    if ((c >> 3) == 0x1E) return 4;
+    return 1; /* stray continuation byte: count it alone */
+}
+
+/* Byte column -> wire column on `line` of `text`. */
+static int lspColToWire(LspCtx *ctx, AoStr *text, int line, int bytecol) {
+    if (!ctx->utf16 || text == NULL || bytecol <= 0) return bytecol;
+    const unsigned char *s = (const unsigned char *)text->data;
+    size_t i = lspLineStart(text, line);
+    size_t end = i + (size_t)bytecol;
+    int units = 0;
+    while (i < end && i < text->len && s[i] != '\n') {
+        int len = lspUtf8Len(s[i]);
+        units += len == 4 ? 2 : 1; /* astral chars are surrogate pairs */
+        i += (size_t)len;
+    }
+    /* Past the end of the line: keep the overhang as-is. */
+    if (i < end) units += (int)(end - i);
+    return units;
+}
+
+/* Wire column -> byte column on `line` of `text`. */
+static int lspColFromWire(LspCtx *ctx, AoStr *text, int line, int col) {
+    if (!ctx->utf16 || text == NULL || col <= 0) return col;
+    const unsigned char *s = (const unsigned char *)text->data;
+    size_t start = lspLineStart(text, line);
+    size_t i = start;
+    int units = 0;
+    while (units < col && i < text->len && s[i] != '\n') {
+        int len = lspUtf8Len(s[i]);
+        units += len == 4 ? 2 : 1;
+        i += (size_t)len;
+    }
+    return (int)(i - start) + (col - units);
+}
+
+/* `"range":{...}` for byte columns [c0, c1) on 0-based `line` of
+ * `text` (NULL text: columns go out unconverted). */
+static void lspCatRange(LspCtx *ctx, AoStr *buf, AoStr *text, int line,
+                        int c0, int c1)
+{
+    aoStrCatPrintf(buf,
+        "\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
+        "\"end\":{\"line\":%d,\"character\":%d}}",
+        line, lspColToWire(ctx, text, line, c0),
+        line, lspColToWire(ctx, text, line, c1));
+}
 
 static int lspSeverity(int cctrl_severity) {
     switch (cctrl_severity) {
@@ -357,8 +404,9 @@ static int lspZero(int v) {
     return v > 0 ? v - 1 : 0;
 }
 
-static void lspCatDiagnostic(AoStr *body, CctrlDiagnostic *d,
-                             int remote_file, const char *remote_name) {
+static void lspCatDiagnostic(LspCtx *ctx, AoStr *body, AoStr *text,
+                             CctrlDiagnostic *d, int remote_file,
+                             const char *remote_name) {
     int sl = lspZero(d->line);
     int sc = lspZero(d->col);
     int el = lspZero(d->end_line);
@@ -371,6 +419,10 @@ static void lspCatDiagnostic(AoStr *body, CctrlDiagnostic *d,
     } else if (el < sl || (el == sl && ec <= sc)) {
         el = sl;
         ec = sc + 1;
+    }
+    if (!remote_file) {
+        sc = lspColToWire(ctx, text, sl, sc);
+        ec = lspColToWire(ctx, text, el, ec);
     }
     aoStrCatPrintf(body,
         "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
@@ -391,6 +443,7 @@ static void lspCatDiagnostic(AoStr *body, CctrlDiagnostic *d,
     size_t mlen = d->message->len;
     if      (strncmp(m, str_lit("error: ")) == 0)   { m += 7; mlen -= 7; }
     else if (strncmp(m, str_lit("warning: ")) == 0) { m += 9; mlen -= 9; }
+    else if (strncmp(m, str_lit("info: ")) == 0)    { m += 6; mlen -= 6; }
 
     const char *nl = memchr(m, '\n', mlen);
     if (nl) mlen = (size_t)(nl - m);
@@ -412,6 +465,7 @@ static void lspPublishDiagnostics(LspCtx *ctx, const char *uri,
     aoStrCatPrintf(body, "\",\"diagnostics\":[");
 
     int emitted = 0;
+    AoStr *text = (AoStr *)mapGet(ctx->docs, (void *)uri);
     Vec *diags = ctx->cc->diagnostics;
     for (u64 i = 0; diags && i < diags->size; ++i) {
         CctrlDiagnostic *d = vecGet(CctrlDiagnostic *, diags, i);
@@ -419,7 +473,7 @@ static void lspPublishDiagnostics(LspCtx *ctx, const char *uri,
                           ? d->file->filename->data : NULL;
         int remote = dfile != NULL && strcmp(dfile, path) != 0;
         if (emitted++) aoStrPutChar(body, ',');
-        lspCatDiagnostic(body, d, remote, dfile ? dfile : "?");
+        lspCatDiagnostic(ctx, body, text, d, remote, dfile ? dfile : "?");
     }
     aoStrCatPrintf(body, "]}}");
     lspWrite(body);
@@ -427,45 +481,49 @@ static void lspPublishDiagnostics(LspCtx *ctx, const char *uri,
     lspLog(ctx, "lsp: published %d diagnostic(s) for %s", emitted, path);
 }
 
-static void lspAnalyze(LspCtx *ctx, const char *uri) {
-    AoStr *text = (AoStr *)mapGet(ctx->docs, (void *)uri);
-    if (text == NULL) return;
-    char *path = lspUriToPath(uri);
-
-    int crash_sig = lspCanaryParse(ctx, path, text);
-    if (crash_sig) {
-        /* One synthetic diagnostic instead of a dead server. */
-        AoStr *body = aoStrNew();
-        aoStrCatPrintf(body,
-            "{\"jsonrpc\":\"2.0\","
-            "\"method\":\"textDocument/publishDiagnostics\","
-            "\"params\":{\"uri\":\"");
-        jsonEscapeInto(body, uri, strlen(uri));
-        aoStrCatPrintf(body,
-            "\",\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,"
-            "\"character\":0},\"end\":{\"line\":0,\"character\":1}},"
-            "\"severity\":1,\"source\":\"hcc\",\"message\":\"internal: ");
-        if (crash_sig == SIGALRM) {
-            aoStrCatPrintf(body,
-                "the hcc parser hung on this input (killed after %ds)",
-                HCC_LSP_CANARY_TIMEOUT_SECS);
-        } else {
-            aoStrCatPrintf(body,
-                "the hcc parser crashed on this input (signal %d)",
-                crash_sig);
-        }
-        aoStrCatPrintf(body, " - please report this file\"}]}}");
-        lspWrite(body);
-        aoStrRelease(body);
-        lspLog(ctx, "lsp: parser %s (signal %d) on %s",
-               crash_sig == SIGALRM ? "hung" : "crashed", crash_sig, path);
-    } else {
-        lspPublishDiagnostics(ctx, uri, path);
-    }
+/* Child side of an analysis: the parse already ran, publish its
+ * diagnostics. */
+static void lspPublishHandler(LspCtx *ctx, Json *id, Json *params) {
+    (void)id;
+    (void)params;
+    char *path = lspUriToPath(ctx->analyzing);
+    lspPublishDiagnostics(ctx, ctx->analyzing, path);
     free(path);
 }
 
-/* ---------------- debounced analysis ---------------- */
+static void lspAnalyze(LspCtx *ctx, const char *uri) {
+    if (mapGet(ctx->docs, (void *)uri) == NULL) return;
+    ctx->analyzing = uri;
+    int crash_sig = lspRunIsolated(ctx, uri, 0, lspPublishHandler, NULL, NULL);
+    ctx->analyzing = NULL;
+    if (crash_sig == 0) return;
+
+    /* One synthetic diagnostic instead of silence. */
+    AoStr *body = aoStrNew();
+    aoStrCatPrintf(body,
+        "{\"jsonrpc\":\"2.0\","
+        "\"method\":\"textDocument/publishDiagnostics\","
+        "\"params\":{\"uri\":\"");
+    jsonEscapeInto(body, uri, strlen(uri));
+    aoStrCatPrintf(body,
+        "\",\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,"
+        "\"character\":0},\"end\":{\"line\":0,\"character\":1}},"
+        "\"severity\":1,\"source\":\"hcc\",\"message\":\"internal: ");
+    if (crash_sig == SIGALRM) {
+        aoStrCatPrintf(body,
+            "the hcc parser hung on this input (killed after %ds)",
+            HCC_LSP_CHILD_TIMEOUT_SECS);
+    } else {
+        aoStrCatPrintf(body,
+            "the hcc parser crashed on this input (signal %d)",
+            crash_sig);
+    }
+    aoStrCatPrintf(body, " - please report this file\"}]}}");
+    lspWrite(body);
+    aoStrRelease(body);
+    lspLog(ctx, "lsp: parser %s (signal %d) on %s",
+           crash_sig == SIGALRM ? "hung" : "crashed", crash_sig, uri);
+}
 
 /* A keystroke storm costs one parse, not one per keystroke: didChange
  * only stores the text and schedules the uri here; the main loop runs
@@ -474,7 +532,7 @@ static void lspAnalyze(LspCtx *ctx, const char *uri) {
  * forever. Position requests flush first, so a query never sees parse
  * state older than the text it queries against. */
 #define HCC_LSP_DEBOUNCE_MS     150
-#define HCC_LSP_DEBOUNCE_MAX_MS 1000
+#define HCC_LSP_DEBOUNCE_MAX_MS 500
 
 static s64 lspNowMs(void) {
     struct timespec ts;
@@ -504,8 +562,6 @@ static void lspFlushPending(LspCtx *ctx) {
         lspAnalyze(ctx, vecGet(char *, ctx->pending, i));
     vecClear(ctx->pending);
 }
-
-/* ---------------- document sync ---------------- */
 
 /* Position queries against a document the client never opened (e.g. a
  * jump target buffer the editor didn't attach to): read it from disk
@@ -584,8 +640,6 @@ static void lspDidClose(LspCtx *ctx, Json *params) {
     aoStrRelease(body);
 }
 
-/* ---------------- hover & completion ---------------- */
-
 static int lspIsIdentChar(char c) {
     return isalnum((unsigned char)c) || c == '_';
 }
@@ -623,8 +677,9 @@ static int lspIdentAt(AoStr *text, int line, int character, int prefix_only,
     return 1;
 }
 
-/* Uri + position out of a request's params; 1 on success. */
-static int lspTextDocPosition(Json *params, const char **uri,
+/* Uri + position out of a request's params, the column converted to
+ * bytes; 1 on success. */
+static int lspTextDocPosition(LspCtx *ctx, Json *params, const char **uri,
                               int *line, int *character)
 {
     *uri = jsonStrOr(jsonObjGet(params, "textDocument"), "uri", NULL);
@@ -632,7 +687,47 @@ static int lspTextDocPosition(Json *params, const char **uri,
     if (*uri == NULL || pos == NULL) return 0;
     *line = (int)jsonIntOr(pos, "line", -1);
     *character = (int)jsonIntOr(pos, "character", -1);
-    return *line >= 0 && *character >= 0;
+    if (*line < 0 || *character < 0) return 0;
+    *character = lspColFromWire(ctx, lspDocGetOrLoad(ctx, *uri), *line,
+                                *character);
+    return 1;
+}
+
+/* Forward: the definition machinery below resolves names in scope. */
+static Ast *lspResolveValue(LspCtx *ctx, u32 doc_id, int cursor_line,
+                            const char *ident, s64 ilen, int *in_doc);
+static AstType *lspMemberClassAt(LspCtx *ctx, AoStr *text, u32 doc_id,
+                                 int line, int character, int *is_member);
+
+static int lspIsFn(Ast *entry) {
+    return astIsFnLike(entry) || (entry && entry->kind == AST_ASM_FUNC_BIND);
+}
+
+/* `#define NAME value` with the macro's evaluated value. */
+static void lspCatMacro(AoStr *out, const char *ident, Lexeme *le) {
+    aoStrCatPrintf(out, "#define %s", ident);
+    if (le == NULL || le->tk_type == -1) return; /* bare flag define */
+    switch (le->tk_type) {
+        case TK_I64:
+        case TK_CHAR_CONST:
+            aoStrCatPrintf(out, " %lld", (long long)le->i64);
+            break;
+        case TK_F64:
+            aoStrCatPrintf(out, " %g", (double)le->f64);
+            break;
+        case TK_STR:
+            aoStrCatPrintf(out, " \"%.*s\"", le->len, le->start);
+            break;
+    }
+}
+
+static u32 lspDocId(LspCtx *ctx, const char *uri) {
+    char *doc_path = lspUriToPath(uri);
+    AoStr path_s = { .data = doc_path, .len = strlen(doc_path),
+                     .capacity = 0 };
+    u32 doc_id = cctrlRegisterFile(ctx->cc, &path_s);
+    free(doc_path);
+    return doc_id;
 }
 
 static void lspHover(LspCtx *ctx, Json *id, Json *params) {
@@ -640,8 +735,7 @@ static void lspHover(LspCtx *ctx, Json *id, Json *params) {
     int line, character;
     char ident[256];
     AoStr *text;
-    if (ctx->cc_dirty || /* crashed mid-parse; symbol tables suspect */
-        !lspTextDocPosition(params, &uri, &line, &character) ||
+    if (!lspTextDocPosition(ctx, params, &uri, &line, &character) ||
         (text = lspDocGetOrLoad(ctx, uri)) == NULL ||
         !lspIdentAt(text, line, character, 0, ident, sizeof(ident), NULL))
     {
@@ -649,30 +743,41 @@ static void lspHover(LspCtx *ctx, Json *id, Json *params) {
         return;
     }
     s64 ilen = (s64)strlen(ident);
+    u32 doc_id = lspDocId(ctx, uri);
 
-    /* Render whatever the name is: a class/union layout, a function
-     * prototype, a global's type, or a macro. */
+    /* Same priority as definition: a field of a typed member access,
+     * then a value in scope (locals and params first), then a type,
+     * then a macro. */
     AoStr *rendered = aoStrNew();
-    AstType *cls = mapGetLen(ctx->cc->clsdefs, ident, ilen);
-    AstType *uni = cls ? NULL : mapGetLen(ctx->cc->uniondefs, ident, ilen);
-    Ast *entry = NULL;
-    if (cls || uni) {
-        AoStr *body = astClassToAoStr(cls ? cls : uni);
-        aoStrCatLen(rendered, body->data, body->len);
-        aoStrRelease(body);
-    } else if ((entry = mapGetLen(ctx->cc->global_env, ident, ilen)) ||
-               (entry = mapGetLen(ctx->cc->asm_funcs, ident, ilen))) {
-        /* asm_funcs: `public _extern _LABEL ...` prototypes (most of
-         * the stdlib) live there rather than in global_env. */
-        if (astIsFnLike(entry)) {
-            char *proto = astFunctionToString(entry);
-            aoStrCatPrintf(rendered, "%s", proto);
-        } else if (entry->type) {
+    int is_member = 0;
+    AstType *mcls = lspMemberClassAt(ctx, text, doc_id, line, character,
+                                     &is_member);
+    if (is_member) {
+        AstType *f = mcls ? mapGetLen(mcls->fields, ident, ilen) : NULL;
+        if (f && mcls->clsname)
+            aoStrCatPrintf(rendered, "%s %s.%s", astTypeToString(f),
+                           mcls->clsname->data, ident);
+        else if (f)
+            aoStrCatPrintf(rendered, "%s %s", astTypeToString(f), ident);
+    } else {
+        int in_doc = 0;
+        Ast *entry = lspResolveValue(ctx, doc_id, line + 1, ident, ilen,
+                                     &in_doc);
+        AstType *cls = mapGetLen(ctx->cc->clsdefs, ident, ilen);
+        AstType *uni = cls ? NULL : mapGetLen(ctx->cc->uniondefs, ident, ilen);
+        Lexeme *macro = mapGetLen(ctx->cc->macro_defs, ident, ilen);
+        if (entry && lspIsFn(entry)) {
+            aoStrCatPrintf(rendered, "%s", astFunctionToString(entry));
+        } else if (entry && entry->type) {
             aoStrCatPrintf(rendered, "%s %s", astTypeToString(entry->type),
                            ident);
+        } else if (cls || uni) {
+            AoStr *body = astClassToAoStr(cls ? cls : uni);
+            aoStrCatLen(rendered, body->data, body->len);
+            aoStrRelease(body);
+        } else if (macro) {
+            lspCatMacro(rendered, ident, macro);
         }
-    } else if (mapGetLen(ctx->cc->macro_defs, ident, ilen)) {
-        aoStrCatPrintf(rendered, "#define %s", ident);
     }
 
     if (rendered->len == 0) {
@@ -728,7 +833,7 @@ static void lspCatCompletion(AoStr *body, int *emitted, const char *label,
 
 /* Handles global variables and non-asm functions */
 static char *lspGlobalSuggestionResolver(Ast *entry, int *_type) {
-    if (astIsFnLike(entry)) {
+    if (lspIsFn(entry)) {
         *_type = HCC_LSP_FUNCTION;
         return astFunctionToString(entry);
     } else {
@@ -739,7 +844,7 @@ static char *lspGlobalSuggestionResolver(Ast *entry, int *_type) {
 
 static char *lspAsmFunctionSuggestionResolver(Ast *entry, int *_type) {
     *_type = HCC_LSP_FUNCTION;
-    return astIsFnLike(entry) ? astFunctionToString(entry) : NULL;
+    return lspIsFn(entry) ? astFunctionToString(entry) : NULL;
 }
 
 static char *lspClassSuggestionResolver(Ast *entry, int *_type) {
@@ -759,11 +864,6 @@ static char *lspConstantSuggestionResolver(Ast *entry, int *_type) {
     *_type = HCC_LSP_CONSTANT;
     return "#define";
 }
-
-/* Defined with the definition machinery below; completion needs it
- * for member completion (`recv.` / `recv->` field suggestions). */
-static AstType *lspMemberClassAt(LspCtx *ctx, AoStr *text, u32 doc_id,
-                                 int line, int character, int *is_member);
 
 /* Find matching prefix in a symbol table */
 void lspScanMapForSuggestion(Map *suggestions,
@@ -787,14 +887,82 @@ void lspScanMapForSuggestion(Map *suggestions,
     *_emitted = emitted;
 }
 
+/* The function in `doc_id` whose body the 1-based `cursor_line` is in:
+ * the nearest one starting at or above it. */
+static Ast *lspEnclosingFn(LspCtx *ctx, u32 doc_id, int cursor_line) {
+    Ast *encl = NULL;
+    MapIter mi;
+    mapIterInit(ctx->cc->global_env, &mi);
+    while (mapIterNext(&mi)) {
+        Ast *fn = (Ast *)mi.node->value;
+        if (!astIsFnLike(fn) || fn->file_id != doc_id) continue;
+        if (fn->line > 0 && fn->line <= cursor_line &&
+            (encl == NULL || fn->line > encl->line))
+            encl = fn;
+    }
+    return encl;
+}
+
+static int lspNameSeen(Vec *seen, const char *name, size_t len) {
+    for (u64 i = 0; i < seen->size; ++i) {
+        AoStr *n = vecGet(AoStr *, seen, i);
+        if (n->len == len && memcmp(n->data, name, len) == 0) return 1;
+    }
+    return 0;
+}
+
+/* Offer one local/param if it matches and isn't shadowed by a closer one. */
+static void lspCatLocal(AoStr *body, int *emitted, Vec *seen, Ast *v,
+                        const char *prefix, size_t plen)
+{
+    if (v && v->kind == AST_DECL && v->declvar) v = v->declvar;
+    if (v == NULL || v->kind != AST_LVAR || v->lname == NULL) return;
+    if (v->lname->len < plen || strncmp(v->lname->data, prefix, plen) != 0)
+        return;
+    if (lspNameSeen(seen, v->lname->data, v->lname->len)) return;
+    vecPush(seen, v->lname);
+    char *name = strndup(v->lname->data, v->lname->len);
+    lspCatCompletion(body, emitted, name, HCC_LSP_VARIABLE,
+                     v->type ? astTypeToString(v->type) : NULL);
+    free(name);
+}
+
+static void lspCompleteLocals(LspCtx *ctx, u32 doc_id, int cursor_line,
+                              const char *prefix, size_t plen,
+                              AoStr *body, int *emitted)
+{
+    Ast *encl = lspEnclosingFn(ctx, doc_id, cursor_line);
+    if (encl == NULL) return;
+    Vec *seen = vecNew(&vec_ast_type);   /* borrowed AoStr names */
+    /* Latest declaration first, so the innermost of two same-named
+     * locals is the one offered. */
+    Vec *locals = vecNew(&vec_ast_type);
+    if (encl->locals) {
+        listForEach(encl->locals) {
+            Ast *v = (Ast *)it->value;
+            if (v && v->kind == AST_DECL && v->declvar) v = v->declvar;
+            if (v && v->line > 0 && v->line <= cursor_line)
+                vecPush(locals, v);
+        }
+    }
+    for (u64 i = locals->size; i > 0; --i)
+        lspCatLocal(body, emitted, seen, vecGet(Ast *, locals, i - 1),
+                    prefix, plen);
+    if (encl->params)
+        for (u64 i = 0; i < encl->params->size; ++i)
+            lspCatLocal(body, emitted, seen, vecGet(Ast *, encl->params, i),
+                        prefix, plen);
+    vecRelease(locals);
+    vecRelease(seen);
+}
+
 static void lspCompletion(LspCtx *ctx, Json *id, Json *params) {
     const char *uri;
     int line, character;
     char prefix[256];
     AoStr *text;
     prefix[0] = '\0';
-    if (ctx->cc_dirty ||
-        !lspTextDocPosition(params, &uri, &line, &character) ||
+    if (!lspTextDocPosition(ctx, params, &uri, &line, &character) ||
         (text = lspDocGetOrLoad(ctx, uri)) == NULL)
     {
         lspRespond(id, "null");
@@ -846,6 +1014,8 @@ static void lspCompletion(LspCtx *ctx, Json *id, Json *params) {
     aoStrCatPrintf(body, "{\"isIncomplete\":false,\"items\":[");
     int emitted = 0;
 
+    lspCompleteLocals(ctx, doc_id, line + 1, prefix, plen, body, &emitted);
+
     lspScanMapForSuggestion(ctx->cc->global_env, prefix, plen, body, &emitted,
                             &lspGlobalSuggestionResolver);
 
@@ -886,18 +1056,7 @@ static Ast *lspResolveValue(LspCtx *ctx, u32 doc_id, int cursor_line,
     Ast *entry = NULL;
     *in_doc = 0;
 
-    Ast *encl = NULL;
-    MapIter mi;
-    mapIterInit(ctx->cc->global_env, &mi);
-    while (mapIterNext(&mi)) {
-        Ast *fn = (Ast *)mi.node->value;
-        if (!astIsFnLike(fn) || fn->file_id != doc_id) continue;
-        if (fn->line > 0 && fn->line <= cursor_line &&
-            (encl == NULL || fn->line > encl->line))
-        {
-            encl = fn;
-        }
-    }
+    Ast *encl = lspEnclosingFn(ctx, doc_id, cursor_line);
     if (encl) {
         if (encl->params) {
             for (u64 i = 0; i < encl->params->size; ++i) {
@@ -1151,12 +1310,62 @@ static int lspIncludeDefinition(LspCtx *ctx, Json *id, const char *uri,
     return 1;
 }
 
+/* The `#define NAME` line in `text`: 1-based line and column of NAME. */
+static int lspFindDefine(AoStr *text, const char *name, s64 nlen,
+                         int *line_out, int *col_out)
+{
+    const char *s = text->data;
+    size_t n = text->len;
+    int line = 1;
+    for (size_t i = 0; i < n; ++line) {
+        size_t start = i;
+        while (i < n && s[i] != '\n') i++;
+        size_t end = i++;
+        size_t j = start;
+        while (j < end && (s[j] == ' ' || s[j] == '\t')) j++;
+        if (j >= end || s[j] != '#') continue;
+        j++;
+        while (j < end && (s[j] == ' ' || s[j] == '\t')) j++;
+        if (end - j < 6 || strncmp(s + j, str_lit("define")) != 0) continue;
+        j += 6;
+        if (j >= end || (s[j] != ' ' && s[j] != '\t')) continue;
+        while (j < end && (s[j] == ' ' || s[j] == '\t')) j++;
+        if (end - j < (size_t)nlen || memcmp(s + j, name, nlen) != 0) continue;
+        if (j + nlen < end && lspIsIdentChar(s[j + nlen])) continue;
+        *line_out = line;
+        *col_out = (int)(j - start) + 1;
+        return 1;
+    }
+    return 0;
+}
+
+/* Macros carry no provenance: find the #define textually, in the
+ * document first, then in every file this parse included. */
+static AoStr *lspMacroDefinition(LspCtx *ctx, const char *doc_path,
+                                 AoStr *text, const char *ident, s64 ilen,
+                                 int *line_out, int *col_out)
+{
+    if (lspFindDefine(text, ident, ilen, line_out, col_out))
+        return aoStrDupRaw((char *)doc_path, strlen(doc_path));
+    MapIter mi;
+    mapIterInit(ctx->cc->file_map, &mi);
+    while (mapIterNext(&mi)) {
+        AoStr *p = (AoStr *)mi.node->value;
+        if (p == NULL || strcmp(p->data, doc_path) == 0) continue;
+        const char *furi = NULL;
+        AoStr *ftext = lspTextForPath(ctx, p->data, &furi);
+        if (ftext && lspFindDefine(ftext, ident, ilen, line_out, col_out))
+            return p;
+    }
+    return NULL;
+}
+
 static void lspDefinition(LspCtx *ctx, Json *id, Json *params) {
     const char *uri;
     int line, character;
     char ident[256];
     AoStr *text;
-    if (!lspTextDocPosition(params, &uri, &line, &character) ||
+    if (!lspTextDocPosition(ctx, params, &uri, &line, &character) ||
         (text = lspDocGetOrLoad(ctx, uri)) == NULL)
     {
         lspRespond(id, "null");
@@ -1164,8 +1373,7 @@ static void lspDefinition(LspCtx *ctx, Json *id, Json *params) {
     }
     /* Anywhere on an #include line jumps to the file itself. */
     if (lspIncludeDefinition(ctx, id, uri, text, line)) return;
-    if (ctx->cc_dirty || /* crashed mid-parse; symbol tables suspect */
-        !lspIdentAt(text, line, character, 0, ident, sizeof(ident), NULL))
+    if (!lspIdentAt(text, line, character, 0, ident, sizeof(ident), NULL))
     {
         lspRespond(id, "null");
         return;
@@ -1232,6 +1440,11 @@ static void lspDefinition(LspCtx *ctx, Json *id, Json *params) {
         fname = cctrlLookUpFile(ctx->cc, def_file);
         if (fname == NULL && fallback_id)
             fname = cctrlLookUpFile(ctx->cc, fallback_id);
+    } else if (!is_member && mapGetLen(ctx->cc->macro_defs, ident, ilen)) {
+        char *doc_path = lspUriToPath(uri);
+        fname = lspMacroDefinition(ctx, doc_path, text, ident, ilen,
+                                   &def_line, &def_col);
+        free(doc_path);
     }
     if (fname == NULL) {
         lspRespond(id, "null");
@@ -1248,19 +1461,18 @@ static void lspDefinition(LspCtx *ctx, Json *id, Json *params) {
     if (out_path[0] != '/' && realpath(out_path, abs_path) != NULL)
         out_path = abs_path;
     AoStr *result = aoStrNew();
+    const char *def_uri = NULL;
+    AoStr *def_text = lspTextForPath(ctx, out_path, &def_uri);
     aoStrCatPrintf(result, "{\"uri\":\"file://");
     jsonEscapeInto(result, out_path, strlen(out_path));
-    aoStrCatPrintf(result,
-        "\",\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
-        "\"end\":{\"line\":%d,\"character\":%d}}}",
-        def_line - 1, c0, def_line - 1, c1);
+    aoStrCatLen(result, "\",", 2);
+    lspCatRange(ctx, result, def_text, def_line - 1, c0, c1);
+    aoStrPutChar(result, '}');
     lspRespond(id, result->data);
     aoStrRelease(result);
 }
 
-/* ---------------- rename ----------------
- *
- * Occurrences are found TEXTUALLY (a scan that skips strings, char
+/* Rename: Occurrences are found TEXTUALLY (a scan that skips strings, char
  * literals, comments and #include paths) and then filtered
  * SEMANTICALLY with the same machinery hover/definition use: a value
  * occurrence must resolve to the SAME Ast as the cursor's symbol, a
@@ -1676,10 +1888,9 @@ static int lspRenameScanFile(LspCtx *ctx, LspRenameTarget *tg,
             continue;
         if (o->define) *def_seen = 1;
         if (emitted++) aoStrPutChar(edits, ',');
-        aoStrCatPrintf(edits,
-            "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
-            "\"end\":{\"line\":%d,\"character\":%d}},\"newText\":\"",
-            o->line, o->col, o->line, o->col + (int)olen);
+        aoStrPutChar(edits, '{');
+        lspCatRange(ctx, edits, text, o->line, o->col, o->col + (int)olen);
+        aoStrCatPrintf(edits, ",\"newText\":\"");
         jsonEscapeInto(edits, newname, strlen(newname));
         aoStrCatLen(edits, "\"}", 2);
     }
@@ -1713,8 +1924,7 @@ static void lspRename(LspCtx *ctx, Json *id, Json *params) {
     int line, character;
     char ident[256];
     AoStr *text;
-    if (ctx->cc_dirty || /* crashed mid-parse; symbol tables suspect */
-        !lspTextDocPosition(params, &uri, &line, &character) ||
+    if (!lspTextDocPosition(ctx, params, &uri, &line, &character) ||
         (text = lspDocGetOrLoad(ctx, uri)) == NULL ||
         !lspIdentAt(text, line, character, 0, ident, sizeof(ident), NULL))
     {
@@ -1810,8 +2020,7 @@ static void lspPrepareRename(LspCtx *ctx, Json *id, Json *params) {
     int line, character, col0 = 0;
     char ident[256];
     AoStr *text;
-    if (ctx->cc_dirty ||
-        !lspTextDocPosition(params, &uri, &line, &character) ||
+    if (!lspTextDocPosition(ctx, params, &uri, &line, &character) ||
         (text = lspDocGetOrLoad(ctx, uri)) == NULL ||
         !lspIdentAt(text, line, character, 0, ident, sizeof(ident), &col0))
     {
@@ -1832,19 +2041,16 @@ static void lspPrepareRename(LspCtx *ctx, Json *id, Json *params) {
         return;
     }
     AoStr *result = aoStrNew();
-    aoStrCatPrintf(result,
-        "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
-        "\"end\":{\"line\":%d,\"character\":%d}},\"placeholder\":\"",
-        line, col0, line, col0 + (int)ilen);
+    aoStrPutChar(result, '{');
+    lspCatRange(ctx, result, text, line, col0, col0 + (int)ilen);
+    aoStrCatPrintf(result, ",\"placeholder\":\"");
     jsonEscapeInto(result, ident, (size_t)ilen);
     aoStrCatLen(result, "\"}", 2);
     lspRespond(id, result->data);
     aoStrRelease(result);
 }
 
-/* ---------------- references & highlight ----------------
- *
- * The read-only siblings of rename: same target resolution, same
+/* References and highlight: The read-only siblings of rename: same target resolution, same
  * occurrence scan, same semantic filter - the last step emits
  * Locations instead of TextEdits. One policy flips: a STDLIB symbol
  * is fair game ("where do I call MAlloc" is the whole point); the
@@ -1877,10 +2083,9 @@ static int lspReferencesScanFile(LspCtx *ctx, LspRenameTarget *tg,
         if ((*emitted)++) aoStrPutChar(body, ',');
         aoStrCatPrintf(body, "{\"uri\":\"");
         jsonEscapeInto(body, uri, strlen(uri));
-        aoStrCatPrintf(body,
-            "\",\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
-            "\"end\":{\"line\":%d,\"character\":%d}}}",
-            o->line, o->col, o->line, o->col + (int)nlen);
+        aoStrCatLen(body, "\",", 2);
+        lspCatRange(ctx, body, text, o->line, o->col, o->col + (int)nlen);
+        aoStrPutChar(body, '}');
         found++;
     }
     free(occs);
@@ -1892,8 +2097,7 @@ static void lspReferences(LspCtx *ctx, Json *id, Json *params) {
     int line, character;
     char ident[256];
     AoStr *text;
-    if (ctx->cc_dirty ||
-        !lspTextDocPosition(params, &uri, &line, &character) ||
+    if (!lspTextDocPosition(ctx, params, &uri, &line, &character) ||
         (text = lspDocGetOrLoad(ctx, uri)) == NULL ||
         !lspIdentAt(text, line, character, 0, ident, sizeof(ident), NULL))
     {
@@ -1958,12 +2162,14 @@ static void lspReferences(LspCtx *ctx, Json *id, Json *params) {
                 int c0 = col1 > 0 ? col1 - 1 : 0;
                 int c1 = col1 > 0 ? c0 + (int)ilen : 0;
                 if (emitted++) aoStrPutChar(body, ',');
+                const char *def_uri = NULL;
+                AoStr *def_text = lspTextForPath(ctx, def_file->data,
+                                                 &def_uri);
                 aoStrCatPrintf(body, "{\"uri\":\"file://");
                 jsonEscapeInto(body, def_file->data, def_file->len);
-                aoStrCatPrintf(body,
-                    "\",\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
-                    "\"end\":{\"line\":%d,\"character\":%d}}}",
-                    line1 - 1, c0, line1 - 1, c1);
+                aoStrCatLen(body, "\",", 2);
+                lspCatRange(ctx, body, def_text, line1 - 1, c0, c1);
+                aoStrPutChar(body, '}');
             }
         }
     }
@@ -1981,8 +2187,7 @@ static void lspDocumentHighlight(LspCtx *ctx, Json *id, Json *params) {
     int line, character;
     char ident[256];
     AoStr *text;
-    if (ctx->cc_dirty ||
-        !lspTextDocPosition(params, &uri, &line, &character) ||
+    if (!lspTextDocPosition(ctx, params, &uri, &line, &character) ||
         (text = lspDocGetOrLoad(ctx, uri)) == NULL ||
         !lspIdentAt(text, line, character, 0, ident, sizeof(ident), NULL))
     {
@@ -2011,10 +2216,9 @@ static void lspDocumentHighlight(LspCtx *ctx, Json *id, Json *params) {
         if (!lspOccurrenceMatches(ctx, &tg, doc_id, text, o, ident, ilen))
             continue;
         if (emitted++) aoStrPutChar(body, ',');
-        aoStrCatPrintf(body,
-            "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
-            "\"end\":{\"line\":%d,\"character\":%d}}}",
-            o->line, o->col, o->line, o->col + (int)ilen);
+        aoStrPutChar(body, '{');
+        lspCatRange(ctx, body, text, o->line, o->col, o->col + (int)ilen);
+        aoStrPutChar(body, '}');
     }
     vecRelease(occs);
     aoStrPutChar(body, ']');
@@ -2022,13 +2226,44 @@ static void lspDocumentHighlight(LspCtx *ctx, Json *id, Json *params) {
     aoStrRelease(body);
 }
 
-/* ---------------- lifecycle ---------------- */
+/* Answer a textDocument request from an isolated child; if the child
+ * crashed or hung on the document, answer null ourselves. */
+static void lspServe(LspCtx *ctx, Json *id, Json *params,
+                     LspHandler handler, int with_open_docs)
+{
+    const char *uri = jsonStrOr(jsonObjGet(params, "textDocument"), "uri",
+                                NULL);
+    if (uri == NULL) {
+        lspRespond(id, "null");
+        return;
+    }
+    int sig = lspRunIsolated(ctx, uri, with_open_docs, handler, id, params);
+    if (sig) {
+        lspLog(ctx, "lsp: request failed on %s (signal %d)", uri, sig);
+        lspRespond(id, "null");
+    }
+}
 
-static void lspInitialize(Json *id) {
+/* Does the client list utf-8 among general.positionEncodings? Without
+ * it LSP mandates utf-16 (VS Code, older clients). */
+static int lspClientSpeaksUtf8(Json *params) {
+    Json *general = jsonObjGet(jsonObjGet(params, "capabilities"), "general");
+    Json *encs = jsonObjGet(general, "positionEncodings");
+    if (encs == NULL || encs->kind != JSON_ARRAY) return 0;
+    for (u64 i = 0; i < (u64)encs->as.size; ++i) {
+        Json *e = jsonArrayAt(encs, i);
+        if (e && e->kind == JSON_STRING && strcmp(e->as.str, "utf-8") == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static void lspInitialize(LspCtx *ctx, Json *id, Json *params) {
+    ctx->utf16 = !lspClientSpeaksUtf8(params);
     AoStr *result = aoStrNew();
     aoStrCatPrintf(result,
         "{\"capabilities\":{"
-        "\"positionEncoding\":\"utf-8\","
+        "\"positionEncoding\":\"%s\","
         "\"textDocumentSync\":{\"openClose\":true,\"change\":1},"
         "\"hoverProvider\":true,"
         "\"definitionProvider\":true,"
@@ -2037,7 +2272,7 @@ static void lspInitialize(Json *id) {
         "\"referencesProvider\":true,"
         "\"documentHighlightProvider\":true"
         "},\"serverInfo\":{\"name\":\"hcc\",\"version\":\"%s\"}}",
-        cctrlGetVersion());
+        ctx->utf16 ? "utf-16" : "utf-8", cctrlGetVersion());
     lspRespond(id, result->data);
     aoStrRelease(result);
 }
@@ -2088,13 +2323,16 @@ int lspRun(CliArgs *args) {
         lspLog(ctx, "lsp: <- %s", method);
 
         if (strcmp(method, "initialize") == 0) {
-            lspInitialize(id);
-        } else if (strcmp(method, "shutdown") == 0) {
-            ctx->shutdown_requested = 1;
-            lspRespond(id, "null");
+            lspInitialize(ctx, id, params);
         } else if (strcmp(method, "exit") == 0) {
             free(raw);
             break;
+        } else if (ctx->shutdown_requested && id != NULL) {
+            /* After shutdown only exit is valid (LSP 3.17). */
+            lspRespondError(id, -32600, "server is shutting down");
+        } else if (strcmp(method, "shutdown") == 0) {
+            ctx->shutdown_requested = 1;
+            lspRespond(id, "null");
         } else if (strcmp(method, "textDocument/didOpen") == 0) {
             lspDidOpen(ctx, params);
         } else if (strcmp(method, "textDocument/didChange") == 0) {
@@ -2102,26 +2340,19 @@ int lspRun(CliArgs *args) {
         } else if (strcmp(method, "textDocument/didClose") == 0) {
             lspDidClose(ctx, params);
         } else if (strcmp(method, "textDocument/hover") == 0) {
-            lspFlushPending(ctx); /* queries must not outrun edits */
-            lspHover(ctx, id, params);
+            lspServe(ctx, id, params, lspHover, 0);
         } else if (strcmp(method, "textDocument/completion") == 0) {
-            lspFlushPending(ctx);
-            lspCompletion(ctx, id, params);
+            lspServe(ctx, id, params, lspCompletion, 0);
         } else if (strcmp(method, "textDocument/definition") == 0) {
-            lspFlushPending(ctx);
-            lspDefinition(ctx, id, params);
+            lspServe(ctx, id, params, lspDefinition, 0);
         } else if (strcmp(method, "textDocument/rename") == 0) {
-            lspFlushPending(ctx);
-            lspRename(ctx, id, params);
+            lspServe(ctx, id, params, lspRename, 1);
         } else if (strcmp(method, "textDocument/prepareRename") == 0) {
-            lspFlushPending(ctx);
-            lspPrepareRename(ctx, id, params);
+            lspServe(ctx, id, params, lspPrepareRename, 0);
         } else if (strcmp(method, "textDocument/references") == 0) {
-            lspFlushPending(ctx);
-            lspReferences(ctx, id, params);
+            lspServe(ctx, id, params, lspReferences, 1);
         } else if (strcmp(method, "textDocument/documentHighlight") == 0) {
-            lspFlushPending(ctx);
-            lspDocumentHighlight(ctx, id, params);
+            lspServe(ctx, id, params, lspDocumentHighlight, 0);
         } else if (id != NULL) {
             /* Requests we don't implement yet; notifications
              * (initialized, didSave, $/...) are silently fine. */

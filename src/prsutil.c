@@ -118,6 +118,8 @@ void assertTokenIsTerminator(Cctrl *cc, Lexeme *tok, s64 terminator_flags) {
             lexemeTypeToString(tok->tk_type),
             tok->len, tok->start,
             suggestion);
+    /* Positioned on tok too, while still rewound. */
+    CctrlDiagnostic *err_d = cctrlMakeDiag(cc, CCTRL_ERROR, error_msg, NULL);
     /* Re-consume tok so the buffer head is back where the caller
      * left it before we start hunting for the hint. */
     cctrlTokenGet(cc);
@@ -125,17 +127,13 @@ void assertTokenIsTerminator(Cctrl *cc, Lexeme *tok, s64 terminator_flags) {
     /* Build a follow-up note pointing at the *previous* line. The
      * statement that almost certainly forgot its terminator and let
      * the next statement collide with our parser. */
-    AoStr *info_msg = cctrlInfoAtPreviousLine(cc, tok,
+    CctrlDiagnostic *info_d = cctrlInfoAtPreviousLine(cc, tok,
             "perhaps a missing `;` at the end of this line?");
 
     /* Push diagnostics in source order: the error fires first
      * (rendered at tok's actual position), then the info hint. */ 
-    CctrlDiagnostic *err_d = cctrlMakeDiag(cc, CCTRL_ERROR, error_msg, NULL);
     cctrlDiagPush(cc, err_d);
-    if (info_msg) {
-        CctrlDiagnostic *info_d = cctrlMakeDiag(cc, CCTRL_INFO, info_msg, NULL);
-        cctrlDiagPush(cc, info_d);
-    }
+    if (info_d) cctrlDiagPush(cc, info_d);
     cctrlTerminate(cc);
 }
 
