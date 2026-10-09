@@ -45,6 +45,10 @@
 #define SQL_BLOB  SQLITE_BLOB
 #define SQL_NULL  SQLITE_NULL
 
+/* Destructor argument of sqlite3_bind_* ((U0 *)-1): sqlite copies the
+ * value, so the caller may free or reuse it right after the call. */
+#define SQLITE_TRANSIENT (-1)
+
 class sqlite3_stmt {};
 class sqlite3 {};
 class sqlite3_value {};
@@ -228,11 +232,11 @@ I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row, SqlParam *params)
         sqlite3_bind_double(pstmt->stmt, i + 1, param->f64);
         break;
       case SQL_TEXT:
-        sqlite3_bind_text(pstmt->stmt, i + 1, param->str, -1, NULL);
+        sqlite3_bind_text(pstmt->stmt, i + 1, param->str, -1, SQLITE_TRANSIENT(U0 *));
         break;
       case SQL_BLOB:
         sqlite3_bind_blob(pstmt->stmt, i + 1, param->blob, param->blob_len,
-            NULL);
+            SQLITE_TRANSIENT(U0 *));
         break;
       case SQL_NULL:
         sqlite3_bind_text(pstmt->stmt, i + 1, NULL, -1, NULL);
@@ -278,11 +282,11 @@ static I32 SqlExecQuery(SqlCtx *ctx, SqlRow *row, U8 *sql, SqlParam *params,
         rc = sqlite3_bind_double(stmt, i + 1, params[i].f64);
         break;
       case SQL_TEXT:
-        rc = sqlite3_bind_text(stmt, i + 1, params[i].str, -1, NULL);
+        rc = sqlite3_bind_text(stmt, i + 1, params[i].str, -1, SQLITE_TRANSIENT(U0 *));
         break;
       case SQL_BLOB:
         rc = sqlite3_bind_blob(stmt, i + 1, params[i].blob,
-            params[i].blob_len, NULL);
+            params[i].blob_len, SQLITE_TRANSIENT(U0 *));
         break;
       default:
         goto err;
