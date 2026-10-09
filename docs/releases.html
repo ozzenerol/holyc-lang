@@ -36,6 +36,46 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.10.0 <small>(2026-10-09)</small></h2>
+<p>UDP and the networking basics. Every change has a regression test that runs compiled and in the
+JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>Socket address and option lengths are <code>U32</code>, like C's <code>socklen_t</code>:
+  <code>accept</code>, <code>getsockname</code>, <code>getpeername</code>, <code>recvfrom</code> and
+  <code>getsockopt</code> take a <code>U32 *</code>, and <code>connect</code>, <code>bind</code>,
+  <code>sendto</code> and <code>setsockopt</code> a <code>U32</code>. Passing an <code>I64</code>
+  length variable still works but gives an "Incompatible function argument" warning; declare it
+  <code>U32</code>.</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li>UDP helpers: <code>NetCreateUdpSocket</code>, <code>NetSendTo</code>, <code>NetRecvFrom</code>
+  (IPv4 and IPv6, the sender's address and port as text), <code>NetSetRecvTimeout</code> and
+  <code>NetGetSocketPort</code>.</li>
+  <li><code>Htons</code>, <code>Ntohs</code>, <code>Htonl</code>, <code>Ntohl</code>.</li>
+  <li><code>Errno()</code> and <code>SetErrno()</code>, with the common error names
+  (<code>EAGAIN</code>, <code>EINTR</code>, <code>EPIPE</code>, <code>ECONNREFUSED</code>, ...) at the
+  right values on Linux and macOS.</li>
+  <li><code>MSG_*</code> flags (including <code>MSG_DONTWAIT</code> and <code>MSG_NOSIGNAL</code>),
+  <code>SHUT_*</code>, <code>SO_RCVTIMEO</code> and friends, <code>IPV6_V6ONLY</code>,
+  <code>poll</code> with <code>pollfd</code>, and <code>signal</code> with <code>SIGPIPE</code>,
+  <code>SIG_IGN</code> and the other common signals.</li>
+  <li><code>NetSend</code>: a <code>send</code> that returns -1 with <code>Errno()</code>
+  <code>EPIPE</code> when the peer has closed, instead of a SIGPIPE that ends the program.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Writing to a socket whose peer had closed killed the program, with no way around it (known
+  issue removed): use <code>NetSend</code>, <code>MSG_NOSIGNAL</code> or
+  <code>signal(SIGPIPE, SIG_IGN)</code>.</li>
+  <li><code>timeval.tv_usec</code> was 4 bytes on Linux, where C uses 8: a <code>timeval</code> passed to
+  <code>setsockopt(SO_RCVTIMEO)</code> could carry garbage in the upper half and be rejected.</li>
+</ul>
+
 <h2>v0.9.2 <small>(2026-10-09)</small></h2>
 <p>Parallel compiles and a much faster test suite.</p>
 
