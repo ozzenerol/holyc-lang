@@ -1301,19 +1301,23 @@ U8 *CatPrint(U8 *_dst,U8 *fmt,...)
   return _dst;
 }
 
+/* CatPrint for a string whose length the caller keeps in `*_len`, so no
+ * StrLen per call. `_dst` may be NULL (with *_len 0) to start one. */
 U8 *CatLenPrint(U8 *_dst, I64 *_len, U8 *fmt, ...)
 {
   I64 len = *_len;
   U8 *s2 = StrPrintJoin(NULL,fmt,argc,argv);
+  if (!s2) return _dst;
   I64 s2len = StrLen(s2);
   I64 size = MSize(_dst);
-  if (len + s2len >= size) {
-    _dst = ReAlloc(_dst,(size*2)+s2len);
+  if (len + s2len >= size) { /* +1 for the '\0' (size is 0 for NULL) */
+    _dst = ReAlloc(_dst,(size*2)+s2len+1);
   }
   MemCpy(_dst+len,s2,s2len);
   len+=s2len;
   _dst[len] = '\0';
   *_len = len;
+  Free(s2); /* the formatted text, now copied */
   return _dst;
 }
 
