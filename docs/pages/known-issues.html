@@ -17,9 +17,6 @@ there works as shown.</p>
     <tr><td>Assigning to an array is only a warning</td>
         <td><code>I64 arr[2]; arr = arr + 1;</code> or <code>arr += 1;</code> compiles</td>
         <td>Use a pointer: <code>I64 *p = arr; p += 1;</code></td></tr>
-    <tr><td>Assigning a <code>U0 *</code> to a function pointer warns</td>
-        <td><code>U0 *v = &amp;F; I64 (*fp)(I64 x) = v;</code>: "'U0 *' is not assignable to type '&lt;fn&gt; I64'"</td>
-        <td>The assignment still works; ignore the warning</td></tr>
     <tr><td>No line continuation in <code>#define</code></td>
         <td>A <code>#define</code> ending in <code>\</code> gives confusing errors placed at an earlier line</td>
         <td>Keep each <code>#define</code> on one line</td></tr>
