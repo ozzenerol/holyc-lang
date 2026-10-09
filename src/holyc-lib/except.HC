@@ -42,6 +42,8 @@ class HCFs
 {
   CatchFrame *catch_top;  /* head of the active-try-frames chain */
   U64 except_ch;          /* value of the most recent throw */
+  U0 *coro_cur;           /* running Coroutine, NULL on the thread's own stack */
+  U0 *coro_root;          /* save slot for the thread's own stack (coroutines.HC) */
 };
 
 /* pthread_once_t is an int on Linux and a signed struct on macOS
@@ -54,8 +56,10 @@ static I64 _fs_once[2] = {0, 0};
 #endif
 static U64 _fs_key = 0;
 
-static U0 FsFree(U0 *fs)
+static U0 FsFree(U0 *p)
 {
+  HCFs *fs = p;
+  free(fs->coro_root);
   free(fs);
 }
 
