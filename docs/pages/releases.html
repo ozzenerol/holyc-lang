@@ -4,6 +4,35 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.5.0 <small>(2026-10-09)</small></h2>
+<p>The C transpiler checks programs before translating them, and the last v0.4.0 known issues
+are fixed. Every fix has a regression test that runs both compiled and in the JIT, on Linux
+x86_64, Linux arm64 and macOS.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>A class value in a local declaration of another type is an error, as it already was for
+  assignments and globals: <code>I64 z = p;</code> stored the class's address, and <code>Q q = p;</code>
+  between different classes copied bytes silently (reading past the source when <code>Q</code> is
+  larger). To reinterpret a class on purpose, go through a pointer: <code>Q q = *(&amp;p)(Q *);</code>.</li>
+  <li><code>-transpile</code> checks the program first, like <code>-jit</code>: on an error it prints the
+  diagnostics and exits 1 without writing C (it used to write C with the bad statements left out,
+  or crash). It also prints the program's warnings, and needs the same <code>-D</code> defines as a
+  compile.</li>
+  <li>Error messages show string and character constants as written, with their quotes
+  (<code>'\n'</code>, <code>"abcd"</code>).</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li><code>I64 v = ;</code> is an error instead of a crash.</li>
+  <li>A function pointer without a name (<code>I64 (*)(I64 x);</code>) gives one error, and parsing
+  continues correctly after it.</li>
+  <li>The transpiler brackets casts in its C, so <code>p(I64 *)[1]</code> and <code>(a + b)(F64)</code>
+  keep their meaning.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.4.0 <small>(2026-10-09)</small></h2>
 <p>Every known issue from v0.3.0 is fixed: two wrong-code bugs, standard-library fixes for
 threads, trees, processes, sockets and JSON, and diagnostics that point at the right place.

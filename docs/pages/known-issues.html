@@ -5,7 +5,20 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td><code>sizeof()</code> with nothing inside crashes hcc</td>
+        <td><code>I64 x = sizeof();</code> segfaults instead of reporting the missing operand</td>
+        <td>Give <code>sizeof</code> a type or an expression; the error is in your code</td></tr>
+    <tr><td>Some missing expressions are accepted</td>
+        <td><code>switch (1) { case : break; }</code> and <code>while () {}</code> compile with no error</td>
+        <td>Check <code>case</code> labels and loop conditions by hand</td></tr>
+    <tr><td>The C transpiler drops a statement that pastes a macro into a string</td>
+        <td>With <code>#define M "mid"</code>, <code>U8 *s = "a" M "b";</code> is missing from the C, so later uses of <code>s</code> don't compile; the transpiler leaves macros unexpanded</td>
+        <td>The transpiler is experimental; write the string out in full</td></tr>
+  </tbody>
+</table>
 
 <h3>Diagnostics</h3>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
