@@ -5,7 +5,15 @@ CFLAGS         ?= '-Wextra -Wall -Wpedantic'
 
 default: all
 
-.PHONY: all
+.PHONY: all build clean install unit-test jit-unit-test lsp-test lib-tos release-unit-test
+
+# Without an explicit rule, make's built-in `%: %.sh` would "build" a file
+# called build by copying build.sh, which then blocks the ./build directory.
+%: %.sh
+
+# Same as ./build.sh (local prefix, no install); pass flags with ARGS="--test".
+build:
+	./build.sh $(ARGS)
 
 # To add sqlite3 support add -DHCC_LINK_SQLITE3=1 to the below like so:
 #```
