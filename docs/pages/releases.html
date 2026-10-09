@@ -4,6 +4,49 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.12.0 <small>(2026-10-09)</small></h2>
+<p>Compiler crash and warning fixes, a coroutine stack cache, an event-loop example, and SQLite and
+fuzzy-matcher fixes. Every change has a regression test that runs compiled and in the JIT on Linux
+x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>return</code> in top-level code (outside any function) is a compile error,
+  "<code>return</code> outside a function"; it used to crash hcc.</li>
+  <li><code>SqlExecPrepared</code> returns the SQLite error (<code>SQLITE_MISMATCH</code> for an unknown
+  parameter type) instead of silently running the statement with that parameter missing.
+  <code>SqlPreparedStmt</code> no longer has the unused <code>params_type</code> field.</li>
+  <li><code>Shlurp</code> writes its temporary file in <code>$TMPDIR</code> (<code>/tmp</code> if
+  unset), like hcc itself.</li>
+  <li>The "control may reach the end of non-void function" warning points at the function name.</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li><code>CoroutineRelease</code> keeps up to 16 stacks per thread for the next
+  <code>CoroutineNew</code> of the same size, so short-lived coroutines don't map and unmap a stack
+  each time; the cache is freed when the thread ends.</li>
+  <li>An echo server example (<code>docs/examples/echo</code>): one coroutine per connection driven by
+  a <code>poll</code> loop, with a built-in loopback self-test.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>A <code>goto</code> into a braced block that follows a <code>return</code> crashed the compiler;
+  such blocks are now compiled.</li>
+  <li>A false "control may reach the end of non-void function" warning after a trailing
+  <code>goto</code>, and a missed one after a label that follows a <code>return</code>.</li>
+  <li><code>FzF</code> gave wrong results when called from several threads at once (the pattern was
+  split with <code>strtok</code>), and allocated and freed a 200 KB buffer it never used on every
+  call.</li>
+</ul>
+
+<h3>Testing</h3>
+<ul>
+  <li>Tests use their own working directory for temporary files instead of fixed <code>/tmp</code>
+  names, so two full suites can run on one machine at once.</li>
+</ul>
+
 <h2>v0.11.0 <small>(2026-10-09)</small></h2>
 <p>Coroutines are a library module on Linux x86_64, Linux arm64 and macOS arm64, tested compiled and
 in the JIT on all three.</p>
