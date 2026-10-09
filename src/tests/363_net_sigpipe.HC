@@ -21,7 +21,8 @@ U0 Check(Bool ok, U8 *what)
 U0 TcpClosedPeer()
 {
   I32 srv, cli, conn, i;
-  I64 len = sizeof(sockaddr_in), rv = 0;
+  U32 len = sizeof(sockaddr_in);
+  I64 rv = 0;
   sockaddr_in sa;
 
   srv = NetCreateServer(0, "127.0.0.1", 4);
