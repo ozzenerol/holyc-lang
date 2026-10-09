@@ -104,10 +104,15 @@ U0 Date2Struct(CDateStruct *_ds,CDate cdt)
 {//Cvt CDate to CDateStruct.
   I64 i,k,date=cdt.date;
   _ds->day_of_week=DayOfWeek(date);
+  /* An estimate, can be a year off either way */
   _ds->year=(date+1)*100000/CDATE_YEAR_DAYS_INT;
   i=YearStartDate(_ds->year);
   while (i>date) {
     _ds->year--;
+    i=YearStartDate(_ds->year);
+  }
+  while (YearStartDate(_ds->year+1)<=date) {
+    _ds->year++;
     i=YearStartDate(_ds->year);
   }
   date-=i;
