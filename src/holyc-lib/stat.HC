@@ -27,6 +27,8 @@ public I32 RmDir(U8 *path, Bool flags=0)
   Dirent *ent;
   result = -1;
 
+  if (!path) return -1;
+
   if (!(flags & RM_RECURSE)) {
     result = rmdir(path);
     if (is_verbose) {
