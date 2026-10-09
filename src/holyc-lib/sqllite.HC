@@ -93,6 +93,9 @@ class SqlRow
   sqlite3_stmt *stmt;
   I64 cols;
   SqlColumn *col;
+  /* FALSE for a row of a prepared statement, which SqlFinalizePrepared
+   * finalizes. */
+  Bool owns_stmt;
 };
 
 class SqlCtx
@@ -258,6 +261,7 @@ I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row, SqlParam *params)
     row->stmt = pstmt->stmt;
     row->cols = 0;
     row->col = NULL;
+    row->owns_stmt = FALSE;
   }
 
   return rc;
@@ -310,6 +314,7 @@ static I32 SqlExecQuery(SqlCtx *ctx, SqlRow *row, U8 *sql, SqlParam *params,
     row->stmt = stmt;
     row->cols = 0;
     row->col = NULL;
+    row->owns_stmt = TRUE;
     stmt = NULL;
   }
 
@@ -326,7 +331,9 @@ U0 SqlRowRelease(SqlRow *row)
     return;
   }
   Free(row->col);
-  sqlite3_finalize(row->stmt);
+  if (row->owns_stmt) {
+    sqlite3_finalize(row->stmt);
+  }
   row->col = NULL;
   row->stmt = NULL;
 }
@@ -344,7 +351,7 @@ Bool SqlQuery(SqlCtx *ctx, U8 *sql, SqlParam *params=NULL, I32 param_count=0)
   return result == SQLITE_DONE || result == SQLITE_ROW;
 }
 
-static Bool SqlIterGeneric(SqlRow *row, I32 free_row)
+static Bool SqlIterGeneric(SqlRow *row)
 {
   if (row->stmt == NULL) {
     return FALSE;
@@ -352,9 +359,7 @@ static Bool SqlIterGeneric(SqlRow *row, I32 free_row)
 
   if (row->col != NULL) {
     if (sqlite3_step(row->stmt) != SQLITE_ROW) {
-      if (free_row) {
-        SqlRowRelease(row);
-      }
+      SqlRowRelease(row);
       return FALSE;
     }
   }
@@ -395,10 +400,10 @@ static Bool SqlIterGeneric(SqlRow *row, I32 free_row)
 
 I32 SqlIter(SqlRow *row)
 {
-  return SqlIterGeneric(row,1);
+  return SqlIterGeneric(row);
 }
 
 I64 SqlIterPrepared(SqlRow *row)
 {
-  return SqlIterGeneric(row,0);
+  return SqlIterGeneric(row);
 }

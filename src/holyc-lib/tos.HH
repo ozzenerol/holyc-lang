@@ -1784,6 +1784,9 @@ class SqlRow
   sqlite3_stmt *stmt;
   I64 cols;
   SqlColumn *col;
+  /* FALSE for a row of a prepared statement, which SqlFinalizePrepared
+   * finalizes. */
+  Bool owns_stmt;
 };
 
 class SqlCtx
