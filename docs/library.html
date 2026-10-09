@@ -383,7 +383,9 @@ member, its value in <code>str</code> / <code>i64</code> / <code>f64</code> /
 its siblings. String escapes are decoded, <code>\uXXXX</code> (and surrogate pairs) to
 UTF-8. <code>JsonToString</code> writes a float in the shortest form that reads back
 as the same value, always with a decimal point (<code>0.75</code>, <code>2.0</code>,
-<code>1.0e+21</code>).</p>
+<code>1.0e+21</code>), and escapes strings so the output parses back (<code>\"</code>,
+<code>\\</code>, <code>\n</code>, <code>\t</code>, ... and <code>\u00XX</code> for other
+control characters).</p>
 
 <h2 id="dates">Dates and time</h2>
 <pre data-run><code>U0 Main()

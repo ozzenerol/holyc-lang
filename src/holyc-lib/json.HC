@@ -492,7 +492,7 @@ static U8 *JsonParseString(JsonParser *p)
           case '\\':
           case '"':
           case '/': str[len++] = JsonPeek(p); break;
-          case 'b': str[len++] = '\b'; break;
+          case 'b': str[len++] = '\x08'; break; /* '\b' lexes as '\\' */
           case 'f': str[len++] = '\f'; break;
           case 'n': str[len++] = '\n'; break;
           case 'r': str[len++] = '\r'; break;
@@ -579,6 +579,39 @@ static U8 *JsonFloatToStr(U8 *buf, F64 f)
   return buf;
 }
 
+/* Appends `str` as a JSON string literal, quotes included */
+static U0 JsonCatQuoted(JsonStringBuilder *js, U8 *str)
+{
+  if (!str) str = "";
+  U8 *buf = MAlloc(StrLen(str) * 6 + 3), *dst = buf, *hex = "0123456789abcdef";
+  U8 ch;
+  *dst++ = '"';
+  while ((ch = *str++)) {
+    switch (ch) {
+      case '"':  *dst++ = '\\'; *dst++ = '"'; break;
+      case '\\': *dst++ = '\\'; *dst++ = '\\'; break;
+      case '\x08': *dst++ = '\\'; *dst++ = 'b'; break; /* \b */
+      case '\f': *dst++ = '\\'; *dst++ = 'f'; break;
+      case '\n': *dst++ = '\\'; *dst++ = 'n'; break;
+      case '\r': *dst++ = '\\'; *dst++ = 'r'; break;
+      case '\t': *dst++ = '\\'; *dst++ = 't'; break;
+      default:
+        if (ch < 0x20) { /* other control characters */
+          *dst++ = '\\'; *dst++ = 'u'; *dst++ = '0'; *dst++ = '0';
+          *dst++ = hex[ch >> 4];
+          *dst++ = hex[ch & 0xF];
+        } else {
+          *dst++ = ch;
+        }
+        break;
+    }
+  }
+  *dst++ = '"';
+  *dst = '\0';
+  js->buf = CatLenPrint(js->buf,&js->len,"%s",buf);
+  Free(buf);
+}
+
 static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
 {
   U8 fbuf[64];
@@ -588,7 +621,10 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
   }
 
   while (J) {
-    if (J->key) js->buf = CatLenPrint(js->buf,&js->len,"\"%Q\": ",J->key);
+    if (J->key) {
+      JsonCatQuoted(js,J->key);
+      js->buf = CatLenPrint(js->buf,&js->len,": ");
+    }
     switch (J->type) {
       case JSON_INT:
         js->buf = CatLenPrint(js->buf,&js->len,"%d",J->i64);
@@ -600,16 +636,16 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
         js->buf = CatLenPrint(js->buf,&js->len,"%s",J->strnum);
         break;
       case JSON_STRING:
-        js->buf = CatLenPrint(js->buf,&js->len,"\"%Q\"",J->str);
+        JsonCatQuoted(js,J->str);
         break;
       case JSON_ARRAY:
         js->buf = CatLenPrint(js->buf,&js->len,"[");
-        JsonToStringInternal(J->array,js);
+        if (J->array) JsonToStringInternal(J->array,js); /* NULL: empty */
         js->buf = CatLenPrint(js->buf,&js->len,"]");
         break;
       case JSON_OBJECT:
         js->buf = CatLenPrint(js->buf,&js->len,"{");
-        JsonToStringInternal(J->object,js);
+        if (J->object) JsonToStringInternal(J->object,js); /* NULL: empty */
         js->buf = CatLenPrint(js->buf,&js->len,"}");
         break;
       case JSON_BOOL:

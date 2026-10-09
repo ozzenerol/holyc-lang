@@ -68,9 +68,6 @@ there works as shown.</p>
     <tr><td><code>IntSet</code> doesn't store anything</td>
         <td><code>IntSetAdd(s, 5);</code> then <code>IntSetHas(s, 5)</code> is 0 and <code>IntSetSize(s)</code> is 0; unions and differences are empty</td>
         <td>Use an <code>IntMap</code> with dummy values</td></tr>
-    <tr><td><code>JsonToString</code> output can't always be parsed back</td>
-        <td>An empty object prints as <code>{(nil)}</code>, and a tab inside a string is written raw instead of <code>\t</code></td>
-        <td>Avoid empty objects and control characters in strings you serialise</td></tr>
     <tr><td><code>%d</code> of the smallest <code>I64</code> prints garbage</td>
         <td><code>"%d\n", 0x8000000000000000;</code> prints punctuation instead of <code>-9223372036854775808</code></td>
         <td>Special-case that value</td></tr>
