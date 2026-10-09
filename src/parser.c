@@ -158,8 +158,11 @@ static Ast *parseFoldInitElement(Ast *init, AstType *dst) {
  * array or an array field of a class) must fit it: the extra items would be
  * written over the elements or fields that follow. Fewer items is fine. A
  * string must fit with its NUL, as for a top-level `U8 buf[N] = "..."`.
- * Called right after the list or string has been consumed. */
-static void parseCheckInnerArrayInit(Cctrl *cc, AstType *sub_type, Ast *init) {
+ * Called right after the list or string has been consumed; `depth` is
+ * parseDeclArrayInitList's. */
+static void parseCheckInnerArrayInit(Cctrl *cc, AstType *sub_type, Ast *init,
+                                     volatile int *depth)
+{
     if (sub_type->kind != AST_TYPE_ARRAY || sub_type->len < 0) {
         return;
     }
@@ -172,7 +175,11 @@ static void parseCheckInnerArrayInit(Cctrl *cc, AstType *sub_type, Ast *init) {
         return;
     }
     if (count > sub_type->len) {
-        /* Point at the list's `}` or at the string. */
+        /* Point at the list's `}` or at the string. A `}` stepped back
+         * onto is open again for the recovery's brace count. */
+        if (init->kind == AST_ARRAY_INIT) {
+            (*depth)++;
+        }
         cctrlTokenRewind(cc);
         cctrlRaiseException(cc,
                 "Invalid array initializer: expected %d items but got %d",
@@ -180,7 +187,9 @@ static void parseCheckInnerArrayInit(Cctrl *cc, AstType *sub_type, Ast *init) {
     }
 }
 
-Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
+/* `depth` counts the `{` of the initialiser consumed and not yet closed,
+ * for the recovery in parseDeclArrayInitInt. */
+static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth) {
     Lexeme *tok = cctrlTokenGetRequired(cc);
     List *initlist;
     Ast *init;
@@ -214,10 +223,12 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
         cctrlRaiseException(cc,"Cannot use an initialiser list, %s is incomplete",
                 astTypeToString(elem_type));
     }
+    (*depth)++;
 
     while (1) {
         tok = cctrlTokenGetRequired(cc);
         if (tokenPunctIs(tok, '}')) {
+            (*depth)--;
             break;
         }
         /* C99 designated initialisers (`.field = value`) are not part of
@@ -257,13 +268,19 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
                         "Cannot use an initialiser list for an element of type %s",
                         astTypeToString(type));
             }
-            init = parseDeclArrayInitInt(cc,sub_type);
-            parseCheckInnerArrayInit(cc,sub_type,init);
+            init = parseDeclArrayInitList(cc,sub_type,depth);
+            parseCheckInnerArrayInit(cc,sub_type,init,depth);
             tok = cctrlTokenGetRequired(cc);
             listAppend(initlist,init);
             if (tokenPunctIs(tok,'}')) {
+                (*depth)--;
                 init = astArrayInit(initlist);
                 return init;
+            }
+            /* As after a plain element, the `,` is optional; anything
+             * else is the next element's (and a `{` must be counted). */
+            if (!tokenPunctIs(tok,',')) {
+                cctrlTokenRewind(cc);
             }
             continue;
         } else {
@@ -276,7 +293,7 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
                           astTypeToString(init->type),
                           astTypeToString(type->ptr));
               }
-              parseCheckInnerArrayInit(cc,type->ptr,init);
+              parseCheckInnerArrayInit(cc,type->ptr,init,depth);
               init = parseFoldInitElement(init, type->ptr);
             } else if (type->kind == AST_TYPE_CLASS) {
                 if (i >= cls_fields->indexes->size) {
@@ -301,6 +318,40 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
         }
     }
     return astArrayInit(initlist);
+}
+
+/* Parse a `{ ... }` initialiser (or a string for a char array). An error
+ * inside it is reported once: the per-statement / top-level recovery
+ * syncs to the next `;` or `}` at its own brace depth, which inside a
+ * nested list is the list's `}`, and then reports what follows as a
+ * second, bogus error. So skip to the end of the whole initialiser
+ * first and hand the error on from there. */
+Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
+    jmp_buf init_recovery;
+    jmp_buf *outer_recovery = cc->current_recovery;
+    volatile int depth = 0;
+    Ast *init;
+
+    if (!outer_recovery) {
+        return parseDeclArrayInitList(cc,type,&depth);
+    }
+
+    cc->current_recovery = &init_recovery;
+    if (setjmp(init_recovery) != 0) {
+        cc->current_recovery = outer_recovery;
+        Lexeme *tok;
+        while (depth > 0 && (tok = cctrlTokenGet(cc)) != NULL) {
+            if (tokenPunctIs(tok,'{')) {
+                depth++;
+            } else if (tokenPunctIs(tok,'}')) {
+                depth--;
+            }
+        }
+        cctrlTerminate(cc);
+    }
+    init = parseDeclArrayInitList(cc,type,&depth);
+    cc->current_recovery = outer_recovery;
+    return init;
 }
 
 void parseFlattenAnnonymous(AstType *anon,

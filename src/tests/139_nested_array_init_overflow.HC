@@ -21,9 +21,19 @@ U0 CleanupNestedInitTest(U0)
   Rm("./a.out");
 }
 
-/* Compile `source`: hcc must exit with status 1 and its first error must
- * be `msg`, at `loc`. (Only the first: what the parser reports after
- * recovering from an error inside an initialiser is not checked here.) */
+I64 CountErrors(U8 *out)
+{
+  I64 n = 0;
+  U8 *p = out;
+  while ((p = strstr(p, "error: "))) {
+    n++;
+    p += 7;
+  }
+  return n;
+}
+
+/* Compile `source`: hcc must exit with status 1 and print exactly one
+ * error, `msg` at `loc`; the recovery skips the rest of the initialiser. */
 Bool CompileFailsWith(U8 *source, U8 *msg, U8 *loc)
 {
   U8 *out, *first;
@@ -44,7 +54,7 @@ Bool CompileFailsWith(U8 *source, U8 *msg, U8 *loc)
     return FALSE;
   }
 
-  ok = res == 1 << 8;
+  ok = res == 1 << 8 && CountErrors(out) == 1;
   first = strstr(out, "error: ");
   if (!first || StrNCmp(first + 7, msg, StrLen(msg))) ok = FALSE;
   else if (!strstr(first, loc)) ok = FALSE;
