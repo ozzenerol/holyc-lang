@@ -664,6 +664,31 @@ U0 Main()
 <p>Unlike C, braces only go around an array, class or union: a scalar can't be
 initialised from a list (<code>I64 x = {1};</code>), and neither can a scalar
 element or field (<code>I64 a[2] = {1, {2}};</code>). Both are compile errors.</p>
+<p>As in C, the braces of an inner array or class can be left out: its items are then
+taken from the list in order, as many as it has, and a list that ends early zero-fills
+the rest. A string still initialises a whole <code>U8</code> array, and a value of the
+class itself a whole class field.</p>
+<pre data-run><code>
+class Point { I64 x, y; };
+class Line { I64 id; Point a, b; };
+
+Line ln = {1, 2, 3, 4, 5};
+Point pts[] = {1, 2, 3};
+
+U0 Main()
+{
+  I64 m[2][2] = {1, 2, 3};
+  "%d (%d %d) (%d %d)\n", ln.id, ln.a.x, ln.a.y, ln.b.x, ln.b.y;
+  "%d: (%d %d) (%d %d)\n", sizeof(pts) / sizeof(Point), pts[0].x, pts[0].y,
+                           pts[1].x, pts[1].y;
+  "%d %d %d %d\n", m[0][0], m[0][1], m[1][0], m[1][1];
+}
+</code></pre>
+<pre class="output">
+1 (2 3) (4 5)
+2: (1 2) (3 0)
+1 2 3 0
+</pre>
 
 <p>The items of a global array or class initialiser need not be constants: an item
 such as another global's value or the address of a function or a global is stored
