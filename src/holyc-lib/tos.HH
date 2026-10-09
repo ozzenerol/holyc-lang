@@ -1527,6 +1527,9 @@ public I32 MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE);
 #define FZF_CASE_IGNORE  1
 #define FZF_CASE_RESPECT 2
 
+/* A match: the score (higher is better) and the size byte offsets in
+ * text that matched, term after term, so they are not sorted when the
+ * pattern has more than one term. */
 public class FzFPosition
 {
   I64 *data;
@@ -1535,8 +1538,23 @@ public class FzFPosition
   I64 score;
 };
 
+/* Match text against an fzf-style pattern: terms separated by spaces
+ * must all match (an escaped space, `\ `, is part of a term), and
+ * `a | b` matches either term. A plain term is fuzzy (its characters in
+ * order, gaps allowed; the greedy V1 algorithm, so the positions are not
+ * always the best ones); `'term` is an exact substring, `^term` a prefix,
+ * `term$` a suffix, `^term$` the whole text (surrounding whitespace
+ * ignored) and `!term` a substring that must not occur (also `!^term`,
+ * `!term$`). With fuzzy FALSE plain terms are exact and `'term` is
+ * fuzzy. FZF_CASE_SMART is case-sensitive only for terms that contain an
+ * upper-case letter, FZF_CASE_IGNORE never, FZF_CASE_RESPECT always.
+ * Returns NULL when text doesn't match or the pattern is empty (a
+ * pattern of only `!` terms that matches gives score 1 and no
+ * positions); free the result with FzFPositionRelease. pattern is not
+ * modified. */
 public FzFPosition *FzF(U8 *text, U8 *pattern,I32 case_mode=FZF_CASE_SMART,
     Bool fuzzy=TRUE);
+/* Free a result of FzF. NULL is ignored. */
 public U0 FzFPositionRelease(FzFPosition *pos);
 
 /* JsonParse flags: none, or keep numbers as their text (JSON_STRNUM) */
@@ -1743,6 +1761,10 @@ class sqlite3_stmt {};
 class sqlite3 {};
 class sqlite3_value {};
 
+/* A value for a `?` parameter: type is SQL_INT (i64), SQL_FLOAT (f64),
+ * SQL_TEXT (str, NUL-terminated), SQL_BLOB (blob, blob_len bytes) or
+ * SQL_NULL. Text and blobs are copied when bound, so the caller may free
+ * or reuse them right after the call. */
 class SqlParam
 {
   I64 type;
@@ -1766,6 +1788,10 @@ class SqlPreparedStmt
   I64 *params_type;
 };
 
+/* One column of the current row: type is SQL_INT, SQL_FLOAT, SQL_TEXT,
+ * SQL_BLOB or SQL_NULL. str and blob point into sqlite's memory and are
+ * only valid until the next SqlIter/SqlIterPrepared or SqlRowRelease;
+ * len is their size in bytes, 0 for the other types. */
 class SqlColumn
 {
   I64 len;
@@ -1779,6 +1805,7 @@ class SqlColumn
   };
 };
 
+/* The current row of a statement: col[0] .. col[cols - 1]. */
 class SqlRow
 {
   sqlite3_stmt *stmt;
@@ -1844,20 +1871,51 @@ public extern "c" I32 sqlite3_column_type(sqlite3_stmt *stmt, I32 iCol);
 public extern "c" Bool sqlite3_open(U8 *dbname, sqlite3 **db);
 public extern "c" U8 *sqlite3_errmsg(sqlite3 *db);
 
+/* Open (or create) the database file dbname, ":memory:" for a private
+ * in-memory one. NULL on failure, printing sqlite's message first when
+ * printerror is TRUE. dbname is kept, not copied. */
 public SqlCtx *SqlCtxNew(U8 *dbname, Bool printerror=FALSE);
+/* Close the database and free ctx. Statements not finalized yet keep
+ * the connection open until SqlFinalizePrepared. NULL is ignored. */
 public U0 SqlCtxRelease(SqlCtx *ctx);
+/* Compile one SQL statement with `?` parameters, to run many times with
+ * SqlExecPrepared. Only whitespace and comments may follow it. NULL on
+ * an error; free it with SqlFinalizePrepared. */
 public SqlPreparedStmt *SqlPrepare(SqlCtx *ctx, U8 *Sql);
+/* Free a statement of SqlPrepare. NULL is ignored. */
 public U0 SqlFinalizePrepared(SqlPreparedStmt *pstmt);
-/* Unsafe */ 
+/* Run every statement in sql, with no parameters (so never with values
+ * from outside the program). NULL on success, otherwise an error message
+ * to Free. */
 public U8 *SqlExecRaw(SqlCtx *ctx, U8 *sql);
+/* Run a prepared statement with params[0] .. params[n - 1] for its n
+ * parameters (NULL params binds them all to NULL). Returns sqlite's
+ * code: SQLITE_ROW when row now holds the first row (read the rest with
+ * SqlIterPrepared), SQLITE_DONE when there are no rows, or an error
+ * (SQLITE_MISUSE for a NULL pstmt). The row belongs to the statement:
+ * it is valid until the next SqlExecPrepared or SqlFinalizePrepared. */
 public I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row,
     SqlParam *params);
+/* Run one SQL statement with param_count parameters and point row at
+ * its first row, if any; read the rows with SqlIter. TRUE if the
+ * statement ran (also with no rows), FALSE on an error, an unknown
+ * parameter type or anything but whitespace and comments after the
+ * statement. The row owns the statement: SqlIter frees it after the
+ * last row, SqlRowRelease when you stop early. */
 public Bool SqlSelect(SqlCtx *ctx, SqlRow *row, U8 *sql,
     SqlParam *params=NULL, I32 param_count=0);
+/* Like SqlSelect, for a statement whose rows you don't need (INSERT,
+ * UPDATE, CREATE, ...). */
 public Bool SqlQuery(SqlCtx *ctx, U8 *sql, SqlParam *params=NULL,
     I32 param_count=0);
+/* Move row to its next row (the first one on the first call): TRUE while
+ * there is one, FALSE after the last, when the row is released. */
 public I32 SqlIter(SqlRow *row);
+/* SqlIter for a row of SqlExecPrepared (the same, but returns I64). */
 public I64 SqlIterPrepared(SqlRow *row);
+/* Release a row before its last row was read: free its columns and, for
+ * a row of SqlSelect, its statement. A row of SqlExecPrepared leaves its
+ * statement to SqlFinalizePrepared. Calling it again does nothing. */
 public U0 SqlRowRelease(SqlRow *row);
 
 #endif /* End of SQLite */
