@@ -176,10 +176,35 @@ U0 SqlCtxRelease(SqlCtx *ctx)
   Free(ctx);
 }
 
+/* Only one statement may be given: anything after the first one other
+ * than whitespace and comments is an error, rather than silently not
+ * run. Preparing such a tail gives SQLITE_OK and no statement. */
+static Bool SqlTailIsEmpty(SqlCtx *ctx, U8 *tail)
+{
+  sqlite3_stmt *extra = NULL;
+  if (!tail || !*tail) {
+    return TRUE;
+  }
+  I32 rc = sqlite3_prepare_v2(ctx->conn, tail, -1, &extra, NULL);
+  if (extra) {
+    sqlite3_finalize(extra);
+    return FALSE;
+  }
+  return rc == SQLITE_OK;
+}
+
 SqlPreparedStmt *SqlPrepare(SqlCtx *ctx, U8 *sql)
 {
   SqlPreparedStmt *pstmt = MAlloc(sizeof(SqlPreparedStmt));
-  sqlite3_prepare_v2(ctx->conn, sql, -1, &(pstmt->stmt), NULL);
+  U8 *tail = NULL;
+  pstmt->stmt = NULL;
+  if (sqlite3_prepare_v2(ctx->conn, sql, -1, &(pstmt->stmt), &tail) != SQLITE_OK ||
+      pstmt->stmt == NULL || !SqlTailIsEmpty(ctx, tail)) {
+    /* A failed prepare leaves stmt NULL; so does an empty string. */
+    sqlite3_finalize(pstmt->stmt);
+    Free(pstmt);
+    return NULL;
+  }
   pstmt->params_count = sqlite3_bind_parameter_count(pstmt->stmt);
   pstmt->params_type = MAlloc(pstmt->params_count * sizeof(I64));
   return pstmt;
@@ -193,6 +218,7 @@ static U0 SqlReset(SqlPreparedStmt *pstmt)
 
 U0 SqlFinalizePrepared(SqlPreparedStmt *pstmt)
 {
+  if (!pstmt) return;
   sqlite3_finalize(pstmt->stmt);
   Free(pstmt->params_type);
   Free(pstmt);
@@ -212,13 +238,17 @@ U8 *SqlExecRaw(SqlCtx *ctx, U8 *sql)
 I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row, SqlParam *params)
 {
   I32 rc = 0;
-  SqlReset(pstmt);
 
   if (row) {
     row->stmt = NULL;
   }
+  if (!pstmt) {
+    return SQLITE_MISUSE;
+  }
+  SqlReset(pstmt);
 
-  for (auto i = 0; i < pstmt->params_count; ++i) {
+  /* NULL params: every parameter is left unbound, which is SQL NULL. */
+  for (auto i = 0; params && i < pstmt->params_count; ++i) {
     SqlParam *param = &params[i];
     switch (param->type) {
       case SQL_INT:
@@ -256,14 +286,19 @@ static I32 SqlExecQuery(SqlCtx *ctx, SqlRow *row, U8 *sql, SqlParam *params,
 {
   I32 rc = SQLITE_ERROR;
   sqlite3_stmt *stmt = NULL;
+  U8 *tail = NULL;
 
   if (row) {
     row->stmt = NULL;
   }
 
-  rc = sqlite3_prepare_v2(ctx->conn, sql, -1, &stmt, NULL);
+  rc = sqlite3_prepare_v2(ctx->conn, sql, -1, &stmt, &tail);
 
   if (rc != SQLITE_OK) {
+    goto err;
+  }
+  if (!SqlTailIsEmpty(ctx, tail)) {
+    rc = SQLITE_ERROR;
     goto err;
   }
 

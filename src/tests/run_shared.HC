@@ -48,10 +48,12 @@ Bool ShouldExclude(U8 *filename, I64 namelen)
     "tests.sh",
     "Makefile",
     "a.out",
-#ifndef __HCC_LINK_SQLITE3__
-    "32_sql.HC",
-#endif
     "test-runner"};
+
+#ifndef __HCC_LINK_SQLITE3__
+  /* The NN_sql*.HC tests need libtos built with --sqlite. */
+  if (strstr(filename, "_sql")) return TRUE;
+#endif
 
   for (U8 *name : exclude) {
     if (!StrNCmp(name,filename,namelen)) return TRUE;
