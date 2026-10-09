@@ -188,6 +188,190 @@ static void parseCheckInnerArrayInit(Cctrl *cc, AstType *sub_type, Ast *init,
     }
 }
 
+static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth);
+
+/* A nested `{ ... }` item of `type`'s list: the next array element or,
+ * in a class, field `i`, which must then be an array or a class
+ * itself. The `{` is the next token. */
+static Ast *parseDeclNestedInit(Cctrl *cc, AstType *type, int is_class,
+                                u64 i, volatile int *depth)
+{
+    AstType *sub_type = type->ptr;
+    if (is_class) {
+        MapNode *entry = astClassInitFieldAt(type, i);
+        if (!entry) {
+            cctrlRaiseException(cc,
+                    "More initialisers than class fields for class: %s",
+                    astTypeToString(type));
+        }
+        sub_type = entry->value;
+        if (sub_type->kind != AST_TYPE_ARRAY &&
+            ((sub_type->kind != AST_TYPE_CLASS &&
+              sub_type->kind != AST_TYPE_UNION) ||
+             sub_type->is_intrinsic))
+        {
+            cctrlRaiseException(cc,
+                    "Cannot use an initialiser list for field %s of type %s",
+                    (char *)entry->key, astTypeToString(sub_type));
+        }
+    } else if (sub_type == NULL) {
+        cctrlRaiseException(cc,
+                "Cannot use an initialiser list for an element of type %s",
+                astTypeToString(type));
+    } else if (sub_type->kind != AST_TYPE_ARRAY &&
+               ((sub_type->kind != AST_TYPE_CLASS &&
+                 sub_type->kind != AST_TYPE_UNION) ||
+                sub_type->is_intrinsic))
+    {
+        /* `I64 a[2] = {1, {2}}`: a scalar element takes a value,
+         * a list for it would be stored as its address. */
+        cctrlRaiseException(cc,
+                "Cannot use an initialiser list for an element of type %s",
+                astTypeToString(sub_type));
+    }
+    Ast *init = parseDeclArrayInitList(cc,sub_type,depth);
+    parseCheckInnerArrayInit(cc,sub_type,init,depth);
+    return init;
+}
+
+/* A value item of `type`'s list, `init`: the next array element or,
+ * in a class, field `i`. */
+static Ast *parseDeclScalarInit(Cctrl *cc, AstType *type, int is_class,
+                                u64 i, volatile int *depth, Ast *init)
+{
+    if (type->ptr) {
+        if ((astGetResultType(AST_BIN_OP_ASSIGN, init->type, type->ptr)) == NULL) {
+            cctrlRaiseException(cc,"Incompatiable types: %s %s",
+                    astTypeToString(init->type),
+                    astTypeToString(type->ptr));
+        }
+        parseCheckInnerArrayInit(cc,type->ptr,init,depth);
+        init = parseFoldInitElement(init, type->ptr);
+    } else if (is_class) {
+        MapNode *entry = astClassInitFieldAt(type, i);
+        if (!entry) {
+            cctrlRaiseException(cc,
+                    "More initialisers than class fields for class: %s",
+                    astTypeToString(type));
+        }
+        AstType *cls_field_type = entry->value;
+        if (init->kind == AST_STRING &&
+            cls_field_type->kind == AST_TYPE_ARRAY &&
+            cls_field_type->ptr->kind == AST_TYPE_CHAR)
+        {
+            /* A `U8 name[8]` field takes the string's bytes. */
+            parseCheckInnerArrayInit(cc,cls_field_type,init,depth);
+        } else {
+            parseTypeCheckClassFieldInitaliser(cc,cls_field_type,init);
+        }
+        init = parseFoldInitElement(init, cls_field_type);
+    }
+    return init;
+}
+
+/* How many items an array or class `type` takes without its braces
+ * (brace elision, as in C: `L l = {1, 2, 3, 4}` is `{1, {2, 3}, 4}`)
+ * when `init` is the first of them; 0 when `init` is a value for the
+ * whole of `type` - a string for a char array, a class of its own
+ * type - or `type` takes no list: a scalar, an intrinsic class, an
+ * unsized array. */
+static s64 parseDeclElidedCount(AstType *type, Ast *init) {
+    if (type->kind == AST_TYPE_ARRAY) {
+        if (type->len <= 0 || !type->ptr ||
+            (init->kind == AST_STRING && type->ptr->kind == AST_TYPE_CHAR)) {
+            return 0;
+        }
+        return type->len;
+    }
+    if ((type->kind == AST_TYPE_CLASS || type->kind == AST_TYPE_UNION) &&
+        !type->is_intrinsic && type->fields)
+    {
+        AstType *init_type = init->type;
+        if (init_type && init_type->kind == type->kind &&
+            (init_type->fields == type->fields ||
+             (init_type->clsname && type->clsname &&
+              aoStrCmp(init_type->clsname, type->clsname)))) {
+            return 0;
+        }
+        s64 count = 0;
+        while (astClassInitFieldAt(type, count)) {
+            count++;
+        }
+        return count;
+    }
+    return 0;
+}
+
+static Ast *parseDeclElidedInitList(Cctrl *cc, AstType *type, s64 count,
+                                    volatile int *depth, Ast *first);
+
+/* Item `i` of `type`'s list, not a braced one: its value, or the
+ * items of an array or class element/field written without braces.
+ * `init` is its first expression, already parsed. */
+static Ast *parseDeclValueInit(Cctrl *cc, AstType *type, int is_class,
+                               u64 i, volatile int *depth, Ast *init)
+{
+    AstType *sub_type = is_class ? astClassFieldAt(type, i) : type->ptr;
+    s64 count = sub_type ? parseDeclElidedCount(sub_type, init) : 0;
+    if (count > 0) {
+        return parseDeclElidedInitList(cc,sub_type,count,depth,init);
+    }
+    return parseDeclScalarInit(cc,type,is_class,i,depth,init);
+}
+
+/* The next item's expression, the item's first token being a value */
+static Ast *parseDeclInitExpr(Cctrl *cc) {
+    Ast *init = parseExpr(cc,16);
+    if (init == NULL) {
+        cctrlRaiseExceptionFromTo(cc,NULL,'{','}',"Array initaliser encountered an unexpected token");
+    }
+    return init;
+}
+
+/* The items of an array or class written without its braces, `first`
+ * (parsed) being the first: at most `count`, stopping early at the `}`
+ * of the list they are in, which is left for it. Each is braced, a
+ * value, or elided again, as in a braced list, and they make the same
+ * list. */
+static Ast *parseDeclElidedInitList(Cctrl *cc, AstType *type, s64 count,
+                                    volatile int *depth, Ast *first)
+{
+    List *initlist = listNew();
+    int is_class = type->kind == AST_TYPE_CLASS ||
+                   type->kind == AST_TYPE_UNION;
+    Lexeme *tok;
+    Ast *init;
+
+    for (s64 i = 0; i < count; ++i) {
+        if (i == 0) {
+            init = parseDeclValueInit(cc,type,is_class,i,depth,first);
+        } else {
+            tok = cctrlTokenGetRequired(cc);
+            cctrlTokenRewind(cc);
+            if (tokenPunctIs(tok, '}')) {
+                break;
+            }
+            if (tokenPunctIs(tok, '.')) {
+                cctrlRaiseException(cc,
+                    "Designated initialisers ('.field = value') are not "
+                    "supported; use a positional initialiser list");
+            }
+            if (tokenPunctIs(tok, '{')) {
+                init = parseDeclNestedInit(cc,type,is_class,i,depth);
+            } else {
+                init = parseDeclValueInit(cc,type,is_class,i,depth,
+                                          parseDeclInitExpr(cc));
+            }
+        }
+        listAppend(initlist,init);
+        tok = cctrlTokenGet(cc);
+        if (!tokenPunctIs(tok, ',')) {
+            cctrlTokenRewind(cc);
+        }
+    }
+    return astArrayInit(initlist);
+}
+
 /* `depth` counts the `{` of the initialiser consumed and not yet closed,
  * for the recovery in parseDeclArrayInitInt. */
 static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth) {
@@ -247,93 +431,17 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
         }
         cctrlTokenRewind(cc);
         if (tokenPunctIs(tok,'{')) {
-            /* A nested list initialises the next array element or, in a
-             * class, the next field, which must then be an array or a
-             * class itself. */
-            AstType *sub_type = type->ptr;
-            if (is_class) {
-                MapNode *entry = astClassInitFieldAt(type, i);
-                if (!entry) {
-                    cctrlRaiseException(cc,
-                            "More initialisers than class fields for class: %s",
-                            astTypeToString(type));
-                }
-                sub_type = entry->value;
-                if (sub_type->kind != AST_TYPE_ARRAY &&
-                    ((sub_type->kind != AST_TYPE_CLASS &&
-                      sub_type->kind != AST_TYPE_UNION) ||
-                     sub_type->is_intrinsic))
-                {
-                    cctrlRaiseException(cc,
-                            "Cannot use an initialiser list for field %s of type %s",
-                            (char *)entry->key, astTypeToString(sub_type));
-                }
-                i++;
-            } else if (sub_type == NULL) {
-                cctrlRaiseException(cc,
-                        "Cannot use an initialiser list for an element of type %s",
-                        astTypeToString(type));
-            } else if (sub_type->kind != AST_TYPE_ARRAY &&
-                       ((sub_type->kind != AST_TYPE_CLASS &&
-                         sub_type->kind != AST_TYPE_UNION) ||
-                        sub_type->is_intrinsic))
-            {
-                /* `I64 a[2] = {1, {2}}`: a scalar element takes a value,
-                 * a list for it would be stored as its address. */
-                cctrlRaiseException(cc,
-                        "Cannot use an initialiser list for an element of type %s",
-                        astTypeToString(sub_type));
-            }
-            init = parseDeclArrayInitList(cc,sub_type,depth);
-            parseCheckInnerArrayInit(cc,sub_type,init,depth);
-            tok = cctrlTokenGetRequired(cc);
-            listAppend(initlist,init);
-            if (tokenPunctIs(tok,'}')) {
-                (*depth)--;
-                init = astArrayInit(initlist);
-                return init;
-            }
-            /* As after a plain element, the `,` is optional; anything
-             * else is the next element's (and a `{` must be counted). */
-            if (!tokenPunctIs(tok,',')) {
-                cctrlTokenRewind(cc);
-            }
-            continue;
+            init = parseDeclNestedInit(cc,type,is_class,i,depth);
         } else {
-            init = parseExpr(cc,16);
-            if (init == NULL) {
-                cctrlRaiseExceptionFromTo(cc,NULL,'{','}',"Array initaliser encountered an unexpected token");
-            } else if (type->ptr) {
-              if ((astGetResultType(AST_BIN_OP_ASSIGN, init->type, type->ptr)) == NULL) {
-                  cctrlRaiseException(cc,"Incompatiable types: %s %s",
-                          astTypeToString(init->type),
-                          astTypeToString(type->ptr));
-              }
-              parseCheckInnerArrayInit(cc,type->ptr,init,depth);
-              init = parseFoldInitElement(init, type->ptr);
-            } else if (is_class) {
-                MapNode *entry = astClassInitFieldAt(type, i);
-                if (!entry) {
-                    cctrlRaiseException(cc, 
-                            "More initialisers than class fields for class: %s",
-                            astTypeToString(type));
-                }
-                AstType *cls_field_type = entry->value;
-                if (init->kind == AST_STRING &&
-                    cls_field_type->kind == AST_TYPE_ARRAY &&
-                    cls_field_type->ptr->kind == AST_TYPE_CHAR)
-                {
-                    /* A `U8 name[8]` field takes the string's bytes. */
-                    parseCheckInnerArrayInit(cc,cls_field_type,init,depth);
-                } else {
-                    parseTypeCheckClassFieldInitaliser(cc,cls_field_type,init);
-                }
-                init = parseFoldInitElement(init, cls_field_type);
-                i++;
-            }
+            init = parseDeclValueInit(cc,type,is_class,i,depth,
+                                      parseDeclInitExpr(cc));
+        }
+        if (is_class) {
+            i++;
         }
         listAppend(initlist,init);
 
+        /* The `,` is optional; anything else is the next item's */
         tok = cctrlTokenGet(cc);
         if (!tokenPunctIs(tok, ',')) {
             cctrlTokenRewind(cc);

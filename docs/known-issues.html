@@ -52,9 +52,6 @@ there works as shown.</p>
     <tr><td>The character constant <code>'\b'</code> is 92</td>
         <td><code>"%d\n", '\b';</code> prints 92 (the backslash) instead of 8; <code>"\b"</code> in a string is correct</td>
         <td>Use <code>'\x08'</code> or <code>8</code></td></tr>
-    <tr><td>No brace elision for class-typed fields</td>
-        <td><code>class L { I64 t; P a; I64 z; }; L l = {1, 2, 3};</code> warns instead of filling <code>a</code>'s fields</td>
-        <td>Brace the inner class: <code>{1, {2, 3}, 4}</code></td></tr>
     <tr><td>Redefining a standard-library function works in the JIT but not AOT</td>
         <td>Defining your own <code>Now()</code> runs under <code>-jit</code>, but in AOT the link fails ("multiple definition of `Now'") as soon as the program uses anything else from the library, with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
         <td>Use a different name for your own functions</td></tr>
@@ -81,7 +78,7 @@ there works as shown.</p>
         <td><code>Take(y);</code> with a class-typed parameter warns at the <code>)</code>, not at <code>y</code></td>
         <td>Check every argument of the call</td></tr>
     <tr><td>A class initialiser warning lands one item late</td>
-        <td><code>class Q { I64 a; P p; }; Q qq = {1, 2, 3};</code> warns at the <code>,</code> after <code>2</code></td>
+        <td><code>class Q { I64 a; I64 *p; }; F64 f; Q qq = {1, f};</code> warns at the <code>}</code> after <code>f</code></td>
         <td>Look at the item before the caret</td></tr>
     <tr><td>Some type errors are reported twice</td>
         <td><code>I64 y = 1; P p; y = p;</code> prints a warning and an error for the same statement</td>
