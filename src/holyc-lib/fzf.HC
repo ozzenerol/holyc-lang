@@ -693,7 +693,9 @@ FzFPattern *FzFParsePattern(I32 case_mode, U8 *pattern, Bool fuzzy=TRUE)
     return pat_obj;
   }
 
-  pattern = StrTrimStart(pattern,pat_len,&pat_len);
+  /* Trimmed in a copy: the caller's string may be a literal. */
+  U8 *pattern_dup = StrNew(pattern);
+  pattern = StrTrimStart(pattern_dup,pat_len,&pat_len);
   while (has_suffix(pattern, pat_len, " ", 1) &&
       !has_suffix(pattern, pat_len, "\\ ", 2)) {
     pattern[pat_len - 1] = 0;
@@ -701,6 +703,7 @@ FzFPattern *FzFParsePattern(I32 case_mode, U8 *pattern, Bool fuzzy=TRUE)
   }
 
   U8 *pattern_copy = str_replace(pattern, "\\ ", "\t");
+  Free(pattern_dup);
   U8 *delim = " ";
   U8 *ptr = strtok(pattern_copy, delim);
 
