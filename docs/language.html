@@ -43,7 +43,8 @@ then <code>Main</code> runs if you defined one. A program can be a single line:<
 <pre class="output">Hello
 </pre>
 <p>Comments are the same as in C: <code>// to the end of the line</code> and
-<code>/* across lines */</code>. Statements end with <code>;</code> and blocks use
+<code>/* across lines */</code>. Block comments don't nest, and one still open at the end
+of a file is an error (<code>unterminated comment</code>). Statements end with <code>;</code> and blocks use
 <code>{ }</code>. Header files conventionally end in <code>.HH</code>.</p>
 
 <h2>Printing</h2>

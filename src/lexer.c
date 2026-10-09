@@ -817,6 +817,8 @@ static void lexSkipCodeComment(Lexer *l) {
         }
     } else if (*l->ptr == '*') {
         int start_line = l->lineno;
+        /* `l->ptr` is on the `*`; the opener's `/` is one before it. */
+        int start_col = (int)(l->ptr - l->line_start_ptr);
         while (*l->ptr != '\0') {
             if (*l->ptr == '*' && *(l->ptr + 1) == '/') {
                 l->ptr += 2;
@@ -828,14 +830,17 @@ static void lexSkipCodeComment(Lexer *l) {
             }
             l->ptr++;
         }
-        /* Walked off EOF without seeing the closing delimiter: treat
-         * the comment as running to EOF and keep going. This is the
-         * editor reality (the user just typed the opener) - and
-         * raising here proved fatal to embedders: the raise can fire
-         * during token PREFILL when no recovery point is armed, and
-         * cctrlTerminate's fallback is exit(). The parser reports the
-         * truncated input on its own. */
-        (void)start_line;
+        /* Walked off the end of the file without seeing the closing
+         * delimiter: report it at the opener and treat the comment as
+         * running to the end of the file. lexReport, not lexRaise:
+         * the raise can fire during token PREFILL when no recovery
+         * point is armed, and cctrlTerminate's fallback is exit().
+         * The CCF_PERMISSIVE re-lexer only sees one line of a
+         * multi-line comment, so it stays quiet. */
+        if (!(l->flags & CCF_PERMISSIVE)) {
+            lexReportAt(l, start_line, start_col, 2,
+                        "unterminated comment");
+        }
     }
 }
 
