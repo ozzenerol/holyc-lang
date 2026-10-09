@@ -1068,7 +1068,7 @@ public extern "c" I64 lseek(I32 __fd, I64 __offset, I32 __whence);
 public extern "c" I32 chdir(U8 *path);
 
 public U8 *FileRead(U8 *path, I64 *_size = NULL);
-public Bool FileWrite(U8 *filename, U8 *buf, I64 size, I64 flags = O_CREAT | O_RDWR);
+public Bool FileWrite(U8 *filename, U8 *buf, I64 size, I64 flags = O_CREAT | O_WRONLY | O_TRUNC);
 public I32 Cd(U8 *path);
 
 #define DT_UNKNOWN 0  /* Type not determined */
