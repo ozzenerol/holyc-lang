@@ -1275,7 +1275,8 @@ the name resolves to. The server's bind address must be numeric (<code>"127.0.0.
 <code>"::1"</code>), <code>"*"</code> for any IPv4 address or <code>"::*"</code> for any IPv6
 address; port 0 lets the kernel pick one. Ports outside 0..65535 give -1.
 Writing to a socket whose peer has closed raises <code>SIGPIPE</code>, which ends the program
-(see <a href="known-issues.html">known issues</a>).</p>
+(see <a href="known-issues.html">known issues</a>); <code>send(fd, buf, len, MSG_NOSIGNAL)</code>
+returns -1 with <code>Errno()</code> <code>EPIPE</code> instead.</p>
 <pre><code>
 I32 srv = NetCreateServer(8080, "127.0.0.1", 16);
 if (srv == -1) {
@@ -1289,6 +1290,36 @@ if (conn != -1) {
 }
 close(srv);
 </code></pre>
+
+<p>For code on the raw socket calls: <code>Htons</code>/<code>Ntohs</code> and
+<code>Htonl</code>/<code>Ntohl</code> convert ports and IPv4 addresses to network byte
+order and back; <code>Errno()</code> is the C <code>errno</code> of the calling thread
+(<code>SetErrno(0)</code> clears it), to compare with <code>EAGAIN</code>
+(= <code>EWOULDBLOCK</code>), <code>EINTR</code>, <code>EINPROGRESS</code>,
+<code>ECONNREFUSED</code>, <code>ECONNRESET</code>, <code>EPIPE</code>,
+<code>EADDRINUSE</code>, <code>ETIMEDOUT</code>, <code>EBADF</code> and
+<code>EINVAL</code>, whose numbers differ between Linux and macOS. The flags
+<code>MSG_NOSIGNAL</code>, <code>MSG_DONTWAIT</code>, <code>MSG_PEEK</code>,
+<code>MSG_WAITALL</code>, <code>MSG_TRUNC</code> and <code>MSG_OOB</code>, and
+<code>SHUT_RD</code>/<code>SHUT_WR</code>/<code>SHUT_RDWR</code> for <code>shutdown</code>,
+have each platform's values. <code>poll(fds, n, timeout_ms)</code> waits on an array of
+<code>pollfd</code> (<code>fd</code>, <code>events</code>, <code>revents</code>) with the
+<code>POLLIN</code>, <code>POLLOUT</code>, <code>POLLERR</code>, <code>POLLHUP</code>,
+<code>POLLNVAL</code> and <code>POLLPRI</code> bits.</p>
+<pre data-run><code>
+U0 Main()
+{
+  "%X %X\n", Htons(0x1F90), Htonl(0x7F000001);
+  "%d\n", inet_addr("127.0.0.1") == Htonl(0x7F000001);
+  if (close(-1) == -1 && Errno() == EBADF)
+    "close(-1): EBADF\n";
+}
+</code></pre>
+<pre class="output">
+901F 100007F
+1
+close(-1): EBADF
+</pre>
 
 <h2 id="fzf">Fuzzy matching</h2>
 <p><code>FzF(text, pattern)</code> matches text the way the fzf tool does and returns the
