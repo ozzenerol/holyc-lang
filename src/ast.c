@@ -869,11 +869,14 @@ Ast *astVarArgs(void) {
     Ast *ast = astNew();
     ast->kind = AST_VAR_ARGS;
     ast->type = NULL;
-    AstType *int_clone = astTypeCopy(ast_int_type);
-    ast->argc = astLVar(int_clone,"argc",4);
-    ast->argv = astLVar(astMakeArrayType(int_clone,0),"argv",4);
+    /* The argv elements are tagged: `argv[i](F64)` reinterprets the
+     * slot's bits. argc gets its own untagged type, or converting it to
+     * a float reinterpreted the count's bits too (0.0). */
+    AstType *slot_type = astTypeCopy(ast_int_type);
+    slot_type->has_var_args = 1;
+    ast->argc = astLVar(astTypeCopy(ast_int_type),"argc",4);
+    ast->argv = astLVar(astMakeArrayType(slot_type,0),"argv",4);
     ast->argv->type->has_var_args = 1;
-    ast->argc->type->has_var_args = 1;
     return ast;
 }
 

@@ -70,9 +70,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>argc</code> converted to a float is 0.0</td>
-        <td><code>F64 A(...) { return argc; }</code>: <code>A(1, 2)</code> is 0.0; <code>F64 f = argc;</code> too</td>
-        <td>Copy it first: <code>I64 n = argc; return n;</code></td></tr>
     <tr><td>The legacy x86 backend lays out global class initialisers without field offsets</td>
         <td>Only with <code>--use-legacy-x86</code>: <code>class P { I32 a; I64 b; }; P g = {1, 2};</code> gives a wrong <code>g.b</code></td>
         <td>Use the default backend</td></tr>
