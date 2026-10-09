@@ -77,9 +77,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>NetAccept</code> returns <code>Bool</code>, and <code>NetCreateServer</code> returns 0 on some failures</td>
-        <td>A socket number over 255 from <code>NetAccept</code> is truncated; 0 from <code>NetCreateServer</code> looks like a valid socket</td>
-        <td>Call <code>accept</code> directly, and treat <code>&lt;= 0</code> from <code>NetCreateServer</code> as failure</td></tr>
     <tr><td>Socket address structs and constants use the BSD/macOS layout and values on Linux</td>
         <td><code>sockaddr_in</code>, <code>sockaddr_in6</code> and <code>sockaddr_un</code> start with a length byte, so a hand-filled address fails <code>bind</code>/<code>connect</code> (family 0x200); <code>SOL_SOCKET</code>, <code>SO_*</code>, <code>AF_INET6</code> and the <code>TCP_*</code> options have macOS values, and <code>IPPROTO_TCP</code> isn't exported. <code>NetCreateUnixServerSocket</code> fails and returns 0, and a path over 104 bytes overflows it</td>
         <td>Use <code>NetCreateServer</code>/<code>NetConnect</code> (they go through <code>getaddrinfo</code>), or declare the Linux structs and constants yourself; use TCP on 127.0.0.1 instead of Unix sockets</td></tr>
