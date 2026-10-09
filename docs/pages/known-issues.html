@@ -30,6 +30,9 @@ there works as shown.</p>
     <tr><td><code>FileRead</code> can't read pipes or <code>/proc</code> files</td>
         <td><code>FileRead("/proc/self/status", &amp;len)</code> gives <code>NULL</code>: only regular files are read, by their size</td>
         <td><code>Shlurp("cat /proc/self/status")</code>, or <code>open</code> and <code>read</code> until 0</td></tr>
+    <tr><td>Writing to a socket whose peer has closed kills the program with <code>SIGPIPE</code></td>
+        <td>Close the accepted socket, then <code>write</code> to the client end twice: the second write raises <code>SIGPIPE</code>, whose default action ends the process, instead of returning -1</td>
+        <td>Have the peer say when it is done before closing (a length prefix or an end marker), so nothing is written after it closes</td></tr>
   </tbody>
 </table>
 
