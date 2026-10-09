@@ -47,7 +47,7 @@ public I64 Write(I64 fd, U8 *buf, I64 len)
 public I32 Sh(U8 *fmt, ...)
 {
   if (!fmt) return -1;
-  if (argc == 0) return System(fmt);
+  /* Formatted even without arguments, so "%%" is always a single % */
   U8 *cmd = StrPrintJoin(NULL,fmt,argc,argv);
   I32 retval = System(cmd);
   Free(cmd);
@@ -77,12 +77,11 @@ public U8 *Shlurp(U8 *fmt, ...)
   if (fd == -1) return NULL;
   close(fd);
 
-  if (argc == 0) user_cmd = fmt;
-  else           user_cmd = StrPrintJoin(NULL,fmt,argc,argv);
+  user_cmd = StrPrintJoin(NULL,fmt,argc,argv);
   /* The braces redirect every command in a list (`a; b`), not just the
    * last one */
   cmd = StrPrint(NULL,"{ %s\n} > %s",user_cmd,tmp_path);
-  if (user_cmd != fmt) Free(user_cmd);
+  Free(user_cmd);
   System(cmd);
   Free(cmd);
 
