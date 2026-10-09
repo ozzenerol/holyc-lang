@@ -23,9 +23,6 @@ there works as shown.</p>
     <tr><td>No line continuation in <code>#define</code></td>
         <td>A <code>#define</code> ending in <code>\</code> gives confusing errors placed at an earlier line</td>
         <td>Keep each <code>#define</code> on one line</td></tr>
-    <tr><td><code>-jit</code> with no <code>Main</code> fails silently</td>
-        <td>A file with no <code>Main</code> (or an empty file): <code>hcc -jit</code> prints nothing and exits 255</td>
-        <td>Define <code>Main</code></td></tr>
     <tr><td>Skipped <code>#if</code> blocks still report some errors</td>
         <td><code>#if 0</code> / <code>I64 x = 0b12;</code> / <code>#endif</code> reports the malformed number; C ignores skipped code</td>
         <td>Keep code inside <code>#if 0</code> lexically valid</td></tr>

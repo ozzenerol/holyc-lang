@@ -43,6 +43,10 @@ I64 RunHcc(U8 *flags, U8 **_out)
   return res;
 }
 
+/* What `hcc -jit` prints for a file holding only a comment: it has no
+ * code and no Main */
+U8 *g_comment_out = NULL;
+
 /* The exit status of `hcc -jit` on a file holding only a comment: what
  * a program with no code and no Main does */
 I64 CommentOnlyStatus(U0)
@@ -52,14 +56,14 @@ I64 CommentOnlyStatus(U0)
   CleanupEmptyTest;
   if (!WriteFile(EMPTY_FILE, "// nothing here\\n")) return -1;
   res = RunHcc("-jit", &out);
-  if (out) Free(out);
+  g_comment_out = out;
   CleanupEmptyTest;
   return res;
 }
 
-/* `content` as the main file: `-jit` (several times, the bug read
- * whatever happened to be in memory) and `-tokens` print nothing, and
- * `-jit` exits like the comment-only file */
+/* `content` as the main file: `-tokens` prints nothing, and `-jit`
+ * (several times, the bug read whatever happened to be in memory)
+ * prints and exits like the comment-only file */
 Bool TestNoCode(U8 *name, U8 *content, I64 want_status)
 {
   U8 *out;
@@ -71,7 +75,8 @@ Bool TestNoCode(U8 *name, U8 *content, I64 want_status)
 
   for (i = 0; i < 3; i++) {
     res = RunHcc("-jit", &out);
-    if (!out || res != want_status || StrLen(out) != 0) {
+    if (!out || !g_comment_out || res != want_status ||
+        StrCmp(out, g_comment_out)) {
       "%s, -jit run %d: status %d (want %d)\n%s\n", name, i, res,
         want_status, out;
       ok = FALSE;
