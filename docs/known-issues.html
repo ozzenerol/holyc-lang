@@ -40,9 +40,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>A definition drops the default arguments of its prototype</td>
-        <td><code>I64 F(I64 *v, I64 n=2);</code> then <code>I64 F(I64 *v, I64 n) { ... }</code>: <code>F(a)</code> fails with "Unexpected number of arguments 1 in call to F(), expected 2 args"</td>
-        <td>Repeat the default in the definition</td></tr>
     <tr><td>A function pointer can't be called as <code>(*fp)()</code></td>
         <td><code>U0 (*fp)() = &amp;G; (*fp)();</code> is an error ("The `*` operator cannot be applied to a function pointer"); C accepts it</td>
         <td>Call it as <code>fp()</code></td></tr>
