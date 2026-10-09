@@ -105,8 +105,10 @@ public U0 IntMapRelease(IntMap *map);
 public Bool IntMapResize(IntMap *map);
 
 U64 IntMapHashFunction(I64 key, U64 mask)
-{
-  return key & mask;
+{/* Mixed first: `key & mask` alone sent keys sharing their low bits
+  * (multiples of a power of two, aligned pointers, `id << 20`) to the
+  * same slots. */
+  return HtFmix64(key) & mask;
 }
 
 IntMap *IntMapNew(U64 capacity)
