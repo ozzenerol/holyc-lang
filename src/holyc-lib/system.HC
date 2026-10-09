@@ -107,6 +107,7 @@ public U8 *ShQuote(U8 *s)
 extern "c" I32 mkstemp(U8 *template);
 extern "c" I32 close(I32 fd);
 extern "c" I32 unlink(U8 *path);
+extern "c" U8 *getenv(U8 *name);
 
 /* Run a shell command, built with `printf`-like formatting, and return
  * what it printed to stdout in a heap allocated string (Free it). One
@@ -116,28 +117,36 @@ extern "c" I32 unlink(U8 *path);
 public U8 *Shlurp(U8 *fmt, ...)
 {
   if (!fmt) return NULL;
-  U8 tmp_path[32];
+  U8 *tmp_path, *tmp_quoted, *tmpdir = getenv("TMPDIR");
   U8 *user_cmd, *cmd, *output;
   I64 len = 0;
   I32 fd;
 
-  /* A unique temporary file per call, so concurrent calls don't share */
-  MemCpy(tmp_path, "/tmp/hcc-shlurp-XXXXXX", 23);
+  /* A unique temporary file per call, so concurrent calls don't share,
+   * in $TMPDIR like the compiler's own temporary files */
+  if (!tmpdir || !tmpdir[0]) tmpdir = "/tmp";
+  tmp_path = StrPrint(NULL,"%s/hcc-shlurp-XXXXXX",tmpdir);
   fd = mkstemp(tmp_path);
-  if (fd == -1) return NULL;
+  if (fd == -1) {
+    Free(tmp_path);
+    return NULL;
+  }
   close(fd);
+  tmp_quoted = ShQuote(tmp_path);
 
   user_cmd = StrPrintJoin(NULL,fmt,argc,argv);
   /* The braces redirect every command in a list (`a; b`), not just the
    * last one. The blank line ends a command that ends in a backslash and
    * `:` keeps the braces from being empty for an empty command. */
-  cmd = StrPrint(NULL,"{\n%s\n\n:\n} > %s",user_cmd,tmp_path);
+  cmd = StrPrint(NULL,"{\n%s\n\n:\n} > %s",user_cmd,tmp_quoted);
   Free(user_cmd);
   System(cmd);
   Free(cmd);
 
+  Free(tmp_quoted);
   output = FileRead(tmp_path,&len);
   unlink(tmp_path);
+  Free(tmp_path);
   if (!output) return NULL;
   if (len > 0 && output[len-1] == '\n') {
     output[len-1] = '\0';

@@ -6,8 +6,8 @@
  * operands are constants, and an integer `/` or `%` by a constant 0 is
  * a located error instead of a crash, wherever it is. */
 
-#define DIVZERO_TEST_SRC "/tmp/hcc-187-divzero.HC"
-#define DIVZERO_TEST_OUT "/tmp/hcc-187-divzero.out"
+#define DIVZERO_TEST_SRC "./hcc-187-divzero.HC"
+#define DIVZERO_TEST_OUT "./hcc-187-divzero.out"
 /* A single literal: adjacent strings don't concatenate inside #define */
 #define DIVZERO_HCC "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 

@@ -7,11 +7,11 @@
  * The program below is run through the JIT with each stream
  * redirected to a file, which is read back. */
 
-#define FD_TEST_PROG "/tmp/hcc-84-prog.HC"
-#define FD_TEST_OUT  "/tmp/hcc-84-out.txt"
-#define FD_TEST_ERR  "/tmp/hcc-84-err.txt"
+#define FD_TEST_PROG "./hcc-84-prog.HC"
+#define FD_TEST_OUT  "./hcc-84-out.txt"
+#define FD_TEST_ERR  "./hcc-84-err.txt"
 /* A single literal: adjacent strings don't concatenate inside #define */
-#define FD_TEST_HCC "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit /tmp/hcc-84-prog.HC"
+#define FD_TEST_HCC "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit ./hcc-84-prog.HC"
 
 U0 CleanupFdTest(U0)
 {

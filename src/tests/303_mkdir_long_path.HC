@@ -19,7 +19,7 @@ I32 Main()
   U8 root[64], *p, *q;
   "Test - MkDir recursive on a long path: ";
 
-  MemCpy(root, "/tmp/hcc-test-303-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-303-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, tests);
     "====\n";

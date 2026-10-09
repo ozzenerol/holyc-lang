@@ -9,8 +9,8 @@
  * real errors are reported - including real ones in the bodies. Covers
  * argument-count and type errors, undefined names and a missing `)`. */
 
-#define IFR_SRC "/tmp/hcc-260-ifr.HC"
-#define IFR_OUT "/tmp/hcc-260-ifr.out"
+#define IFR_SRC "./hcc-260-ifr.HC"
+#define IFR_OUT "./hcc-260-ifr.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)
@@ -74,7 +74,7 @@ I32 Main()
 
   tests++;
   if (Prints(PRE "  if (y == 1 {\n    y = 2;\n  } else {\n    y = 3;\n  }\n}\n",
-             1, 0, "Expected ';' or ')' in `if (...)`, got `{`\n --> /tmp/hcc-260-ifr.HC:5:14\n"))
+             1, 0, "Expected ';' or ')' in `if (...)`, got `{`\n --> ./hcc-260-ifr.HC:5:14\n"))
     correct++;
   else "Failed - missing ) before {\n";
 

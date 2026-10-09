@@ -8,8 +8,8 @@
  * precision as C does. The model cases below were generated from C's
  * printf (ll for every modifier). */
 
-#define FF_SRC "/tmp/hcc-246-ff.HC"
-#define FF_OUT "/tmp/hcc-246-ff.out"
+#define FF_SRC "./hcc-246-ff.HC"
+#define FF_OUT "./hcc-246-ff.out"
 
 I64 bad = 0, total = 0;
 

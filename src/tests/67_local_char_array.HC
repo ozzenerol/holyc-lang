@@ -96,12 +96,12 @@ I32 Main()
   }
 
   /* Too small an array is still a compile error. */
-  System("printf 'U0 Main() { U8 s[3] = \"abc\"; }\\n' > /tmp/hcc-66-small.HC");
+  System("printf 'U0 Main() { U8 s[3] = \"abc\"; }\\n' > ./hcc-66-small.HC");
   if (System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
-             "-jit /tmp/hcc-66-small.HC 2>/dev/null") != 0) {
+             "-jit ./hcc-66-small.HC 2>/dev/null") != 0) {
     correct++;
   }
-  System("rm -f /tmp/hcc-66-small.HC");
+  System("rm -f ./hcc-66-small.HC");
 
   PrintResult(correct, tests);
   "====\n";

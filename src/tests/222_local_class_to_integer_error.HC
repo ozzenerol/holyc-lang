@@ -5,8 +5,8 @@
  * A local declaration the `=` operator rejects is now the same error,
  * and the only diagnostic. */
 
-#define CI_SRC "/tmp/hcc-222-ci.HC"
-#define CI_OUT "/tmp/hcc-222-ci.out"
+#define CI_SRC "./hcc-222-ci.HC"
+#define CI_OUT "./hcc-222-ci.out"
 
 /* Compile `source`; `*_status` gets hcc's exit code; returns its output */
 U8 *Diagnose(U8 *source, I64 *_status)

@@ -4,8 +4,8 @@
  * -transpile: the missing operand parsed as NULL. It is now an error at
  * the token where the operand should be. */
 
-#define SZ_SRC "/tmp/hcc-227-sz.HC"
-#define SZ_OUT "/tmp/hcc-227-sz.out"
+#define SZ_SRC "./hcc-227-sz.HC"
+#define SZ_OUT "./hcc-227-sz.out"
 
 /* Run hcc with `flags` on `source`; `*_status` gets its exit status */
 U8 *Diagnose(U8 *source, U8 *flags, I64 *_status)

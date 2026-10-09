@@ -5,8 +5,8 @@
  * `\`. Messages now show a character constant or a string as written,
  * with its quotes, and the underline covers it. */
 
-#define CCM_SRC "/tmp/hcc-224-ccm.HC"
-#define CCM_OUT "/tmp/hcc-224-ccm.out"
+#define CCM_SRC "./hcc-224-ccm.HC"
+#define CCM_OUT "./hcc-224-ccm.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)

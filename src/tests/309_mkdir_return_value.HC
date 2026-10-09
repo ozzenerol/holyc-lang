@@ -41,7 +41,7 @@ I32 Main()
   U8 root[64], *cmd;
   "Test - MkDir return value: ";
 
-  MemCpy(root, "/tmp/hcc-test-309-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-309-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, 1);
     "====\n";

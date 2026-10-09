@@ -4,8 +4,8 @@
  * and then the error for the same statement. Only the error is printed
  * now; an assignment the operator allows still gets the warning. */
 
-#define DUP_SRC "/tmp/hcc-218-dup.HC"
-#define DUP_OUT "/tmp/hcc-218-dup.out"
+#define DUP_SRC "./hcc-218-dup.HC"
+#define DUP_OUT "./hcc-218-dup.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)

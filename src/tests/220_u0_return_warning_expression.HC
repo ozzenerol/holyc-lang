@@ -6,8 +6,8 @@
  * inside the expression. It now prints the expression as written and
  * points at the `return`, underlining it and the expression. */
 
-#define URE_SRC "/tmp/hcc-220-ure.HC"
-#define URE_OUT "/tmp/hcc-220-ure.out"
+#define URE_SRC "./hcc-220-ure.HC"
+#define URE_OUT "./hcc-220-ure.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)

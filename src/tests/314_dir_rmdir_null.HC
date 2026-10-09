@@ -18,7 +18,7 @@ I32 Main()
   if (RmDir(NULL) == -1 && RmDir(NULL, RM_RECURSE|RM_VERBOSE) == -1) correct++;
   if (Rm(NULL) == -1) correct++;
 
-  MemCpy(root, "/tmp/hcc-test-314-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-314-XXXXXX");
   if (mkdtemp(root)) {
     f = StrPrint(NULL, "%s/f", root);
     FileWrite(f, "k\n", 2);

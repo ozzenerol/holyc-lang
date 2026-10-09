@@ -6,8 +6,8 @@
  * does the one under a character constant (whose escapes were counted
  * as one character). */
 
-#define STRU_SRC "/tmp/hcc-219-stru.HC"
-#define STRU_OUT "/tmp/hcc-219-stru.out"
+#define STRU_SRC "./hcc-219-stru.HC"
+#define STRU_OUT "./hcc-219-stru.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)

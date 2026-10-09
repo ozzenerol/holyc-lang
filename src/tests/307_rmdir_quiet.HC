@@ -74,7 +74,7 @@ I32 Main()
   I32 r;
   "Test - RmDir quiet without RM_VERBOSE: ";
 
-  MemCpy(root, "/tmp/hcc-test-307-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-307-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, tests);
     "====\n";

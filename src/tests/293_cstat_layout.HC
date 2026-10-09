@@ -13,7 +13,7 @@ I32 Main()
   cStat st;
   "Test - cStat layout: ";
 
-  MemCpy(root, "/tmp/hcc-test-293-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-293-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, 1);
     "====\n";

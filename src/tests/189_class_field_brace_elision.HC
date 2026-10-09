@@ -32,8 +32,8 @@ L gwhole = {1, gp, 4};
 I64 gbase = 10;
 L gvals = {gbase, gbase + 1, gbase + 2, gbase + 3};
 
-#define ELIDE_TEST_SRC "/tmp/hcc-189-elide.HC"
-#define ELIDE_TEST_OUT "/tmp/hcc-189-elide.out"
+#define ELIDE_TEST_SRC "./hcc-189-elide.HC"
+#define ELIDE_TEST_OUT "./hcc-189-elide.out"
 /* A single literal: adjacent strings don't concatenate inside #define */
 #define ELIDE_HCC "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 

@@ -31,7 +31,7 @@ I32 Main()
   U8 root[64], *f, *g;
   "Test - FileWrite truncates: ";
 
-  MemCpy(root, "/tmp/hcc-test-302-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-302-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, tests);
     "====\n";

@@ -10,8 +10,8 @@
  * also placed at `file:0` when the format was not the first or second
  * argument (CatLenPrint, StrNPrint); it is now at the format string. */
 
-#define FMT_SRC "/tmp/hcc-261-fmt.HC"
-#define FMT_OUT "/tmp/hcc-261-fmt.out"
+#define FMT_SRC "./hcc-261-fmt.HC"
+#define FMT_OUT "./hcc-261-fmt.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)
@@ -83,7 +83,7 @@ I32 Main()
   tests++;
   if (Prints(MAIN "  s = StrPrint(NULL, \"%Q %d\", \"a\");\n" END, 1, 0,
              "printf format expects 2 arguments but 1 was supplied\n"
-             " --> /tmp/hcc-261-fmt.HC:3:22\n"))
+             " --> ./hcc-261-fmt.HC:3:22\n"))
     correct++;
   else "Failed - too few\n";
 
@@ -102,13 +102,13 @@ I32 Main()
   /* The format as the third argument, after a long one */
   tests++;
   if (Prints(MAIN "  s = CatLenPrint(s, &a[(n + 1) * 2 - sizeof(a) / 16], \"%d %d\", 1);\n" END,
-             1, 0, " --> /tmp/hcc-261-fmt.HC:3:56\n"))
+             1, 0, " --> ./hcc-261-fmt.HC:3:56\n"))
     correct++;
   else "Failed - CatLenPrint location\n";
 
   tests++;
   if (Prints(MAIN "  s = CatPrint(s,\n    \"%d %s\", 1);\n" END, 1, 0,
-             " --> /tmp/hcc-261-fmt.HC:4:5\n"))
+             " --> ./hcc-261-fmt.HC:4:5\n"))
     correct++;
   else "Failed - format on the next line\n";
 
@@ -120,7 +120,7 @@ I32 Main()
   tests++;
   if (!has_strnprint ||
       Prints(MAIN "  U8 b[16];\n  StrNPrint(b, sizeof(b), \"%d %Q\", 1);\n" END, 1, 0,
-             " --> /tmp/hcc-261-fmt.HC:4:27\n"))
+             " --> ./hcc-261-fmt.HC:4:27\n"))
     correct++;
   else "Failed - StrNPrint\n";
 

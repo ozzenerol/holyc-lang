@@ -25,13 +25,13 @@ if (System("printf '"
            "typedef struct B { long a; long b; long c; } B;\n"
            "T CMakeTex(int seed) { T t; t.id = seed; t.w = 640; t.h = 480; t.mip = 1; t.fmt = 7; return t; }\n"
            "long CCallsBack(B (*fn)(long)) { B b = fn(10); return b.a + b.b + b.c; }\n"
-           "' > /tmp/hcc-64-sret.c && "
-           "cc -shared -fPIC /tmp/hcc-64-sret.c -o /tmp/hcc-64-sret.so") == 0) {
+           "' > ./hcc-64-sret.c && "
+           "cc -shared -fPIC ./hcc-64-sret.c -o ./hcc-64-sret.so") == 0) {
   correct++;
 }
 
 System("printf '"
-       "#link \"/tmp/hcc-64-sret.so\"\n"
+       "#link \"'\"$PWD\"'/hcc-64-sret.so\"\n"
        "class T { U32 id; I32 w, h, mip, fmt; };\n"
        "class B { I64 a, b, c; };\n"
        "extern \"c\" T CMakeTex(I32 seed);\n"
@@ -43,19 +43,19 @@ System("printf '"
        "  if (CCallsBack((&HcMakeBig)(U0 *)) != 60) return 2;\n"
        "  return 0;\n"
        "}\n"
-       "' > /tmp/hcc-64-sret.HC");
+       "' > ./hcc-64-sret.HC");
 
-if (System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} /tmp/hcc-64-sret.HC -o /tmp/hcc-64-sret && "
-           "/tmp/hcc-64-sret") == 0) {
+if (System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} ./hcc-64-sret.HC -o ./hcc-64-sret && "
+           "./hcc-64-sret") == 0) {
   correct++;
 }
 
-if (System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit /tmp/hcc-64-sret.HC") == 0) {
+if (System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit ./hcc-64-sret.HC") == 0) {
   correct++;
 }
 
-System("rm -f /tmp/hcc-64-sret.c /tmp/hcc-64-sret.so"
-       " /tmp/hcc-64-sret.HC /tmp/hcc-64-sret");
+System("rm -f ./hcc-64-sret.c ./hcc-64-sret.so"
+       " ./hcc-64-sret.HC ./hcc-64-sret");
 
 PrintResult(correct, tests);
 '===\n';

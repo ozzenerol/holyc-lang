@@ -5,8 +5,8 @@
  * the same string. It is now `\x01`, which a HolyC string literal reads
  * back as the byte (HolyC's `\x` takes at most two hex digits). */
 
-#define PQ_SRC "/tmp/hcc-248-pq.HC"
-#define PQ_OUT "/tmp/hcc-248-pq.out"
+#define PQ_SRC "./hcc-248-pq.HC"
+#define PQ_OUT "./hcc-248-pq.out"
 
 Bool Is(U8 *got, U8 *want)
 {

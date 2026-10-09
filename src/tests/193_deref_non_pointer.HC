@@ -7,9 +7,9 @@
  * `*`. Each source must fail with exit status 1 (not a signal) and the
  * expected message; real two operator expressions still work. */
 
-#define DEREF_TEST_SRC "/tmp/hcc-193-deref.HC"
-#define DEREF_TEST_OUT "/tmp/hcc-193-deref.out"
-#define DEREF_TEST_BIN "/tmp/hcc-193-deref.bin"
+#define DEREF_TEST_SRC "./hcc-193-deref.HC"
+#define DEREF_TEST_OUT "./hcc-193-deref.out"
+#define DEREF_TEST_BIN "./hcc-193-deref.bin"
 /* A single literal: adjacent strings don't concatenate inside #define */
 #define DEREF_HCC "$(command -v timeout >/dev/null 2>&1 && echo timeout 60) ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 

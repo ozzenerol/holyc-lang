@@ -82,7 +82,7 @@ I32 Main()
 
   /* a unix domain peer has no IP address */
   U8 dir[64], path[128];
-  StrCpy(dir, "/tmp/hcc335-XXXXXX");
+  StrCpy(dir, "./hcc335-XXXXXX");
   Check(mkdtemp(dir) != NULL, "mkdtemp");
   StrPrint(path, "%s/s.sock", dir);
   I32 us = NetCreateUnixServerSocket(path, 4);

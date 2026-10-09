@@ -56,7 +56,7 @@ I32 Main()
   "Test - unix server socket keeps other files: ";
   alarm(30);
 
-  StrCpy(dir, "/tmp/hcc336-XXXXXX");
+  StrCpy(dir, "./hcc336-XXXXXX");
   Check(mkdtemp(dir) != NULL, "mkdtemp");
   StrPrint(file, "%s/file", dir);
   StrPrint(sock, "%s/s.sock", dir);
