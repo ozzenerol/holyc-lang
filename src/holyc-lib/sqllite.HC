@@ -154,20 +154,23 @@ public extern "c" sqlite3_value *sqlite3_column_value(sqlite3_stmt *stmt, I32 iC
 public extern "c" I32 sqlite3_column_bytes(sqlite3_stmt *stmt, I32 iCol);
 public extern "c" I32 sqlite3_column_bytes16(sqlite3_stmt *stmt, I32 iCol);
 public extern "c" I32 sqlite3_column_type(sqlite3_stmt *stmt, I32 iCol);
-public extern "c" Bool sqlite3_open(U8 *dbname, sqlite3 **db);
+public extern "c" I32 sqlite3_open(U8 *dbname, sqlite3 **db);
+public extern "c" I32 sqlite3_close_v2(sqlite3 *db);
 public extern "c" U8 *sqlite3_errmsg(sqlite3 *db);
 
 SqlCtx *SqlCtxNew(U8 *dbname, Bool printerror=FALSE)
 {
-  sqlite3 *db;
+  sqlite3 *db = NULL;
   SqlCtx *ctx;
-  Bool ok = sqlite3_open(dbname, &db);
+  I32 rc = sqlite3_open(dbname, &db);
   
-  if (ok != SQLITE_OK) {
+  if (rc != SQLITE_OK) {
     if (printerror) {
       U8 *s = sqlite3_errmsg(db);
       "NOT OK: %s\n", s;
     }
+    /* The handle is allocated even when opening fails. */
+    sqlite3_close(db);
     return NULL;
   }
 
@@ -179,7 +182,10 @@ SqlCtx *SqlCtxNew(U8 *dbname, Bool printerror=FALSE)
 
 U0 SqlCtxRelease(SqlCtx *ctx)
 {
-  sqlite3_close(ctx->conn);
+  if (!ctx) return;
+  /* Unlike sqlite3_close, closes once the last statement is finalized
+   * instead of failing with SQLITE_BUSY and leaking the connection. */
+  sqlite3_close_v2(ctx->conn);
   Free(ctx);
 }
 
@@ -407,7 +413,7 @@ static Bool SqlIterGeneric(SqlRow *row)
    * as this function will be called in a loop */
   Free(row->col);
   row->cols = sqlite3_data_count(row->stmt);
-  row->col = MAlloc(row->cols * sizeof(SqlColumn));
+  row->col = CAlloc(row->cols * sizeof(SqlColumn));
 
   for (auto i = 0; i < row->cols; i++) {
     row->col[i].type = sqlite3_column_type(row->stmt,i);

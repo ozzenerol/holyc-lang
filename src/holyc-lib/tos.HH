@@ -1739,6 +1739,12 @@ public I64 JsonLen(Json *node);
 #define SQLITE_TEXT     3
 #define SQLITE3_TEXT    3
 
+#define SQL_INT   SQLITE_INTEGER
+#define SQL_FLOAT SQLITE_FLOAT
+#define SQL_TEXT  SQLITE3_TEXT
+#define SQL_BLOB  SQLITE_BLOB
+#define SQL_NULL  SQLITE_NULL
+
 class sqlite3_stmt {};
 class sqlite3 {};
 class sqlite3_value {};
@@ -1844,7 +1850,8 @@ public extern "c" sqlite3_value *sqlite3_column_value(sqlite3_stmt *stmt, I32 iC
 public extern "c" I32 sqlite3_column_bytes(sqlite3_stmt *stmt, I32 iCol);
 public extern "c" I32 sqlite3_column_bytes16(sqlite3_stmt *stmt, I32 iCol);
 public extern "c" I32 sqlite3_column_type(sqlite3_stmt *stmt, I32 iCol);
-public extern "c" Bool sqlite3_open(U8 *dbname, sqlite3 **db);
+public extern "c" I32 sqlite3_open(U8 *dbname, sqlite3 **db);
+public extern "c" I32 sqlite3_close_v2(sqlite3 *db);
 public extern "c" U8 *sqlite3_errmsg(sqlite3 *db);
 
 public SqlCtx *SqlCtxNew(U8 *dbname, Bool printerror=FALSE);
