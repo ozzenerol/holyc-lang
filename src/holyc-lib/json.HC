@@ -134,13 +134,21 @@ static Bool JsonCanAdvanceBy(JsonParser *p, I64 jmp)
   return (p->offset + jmp) < p->buflen;
 }
 
+/* Moving past the last character is fine (a top-level value can end the
+ * input), moving past the end is not */
 static U0 JsonAdvance(JsonParser *p)
 {
-  if (JsonCanAdvanceBy(p,1)) {
+  if (p->offset < p->buflen) {
     ++p->offset;
     return;
   }
   p->error = JSON_EOF;
+}
+
+/* Are there `n` more characters, starting at the current one? */
+static Bool JsonHasChars(JsonParser *p, I64 n)
+{
+  return p->offset + n <= p->buflen;
 }
 
 static Bool JsonAdvanceToError(JsonParser *p, I64 jmp, I32 error_code)
@@ -152,6 +160,7 @@ static Bool JsonAdvanceToError(JsonParser *p, I64 jmp, I32 error_code)
 
 static U8 JsonPeek(JsonParser *p)
 {
+  if (p->offset >= p->buflen) return '\0';
   return p->buffer[p->offset];
 }
 
@@ -323,7 +332,7 @@ static Bool JsonParseBool(JsonParser *p)
 
   /* Check if the next character in the buffer is 't' for true */
   if (peek == 't') {
-    if (!JsonCanAdvanceBy(p, 4)) {
+    if (!JsonHasChars(p, 4)) {
       goto error;
     }
     /* check next 3 characters for 'rue' */
@@ -334,7 +343,7 @@ static Bool JsonParseBool(JsonParser *p)
   }
   /* Check if the next character in the buffer is 'f' for false */
   else if (peek == 'f') {
-    if (!JsonCanAdvanceBy(p, 5)) {
+    if (!JsonHasChars(p, 5)) {
       goto error;
     }
 
@@ -361,7 +370,7 @@ error:
 static I32 JsonParseNull(JsonParser *p)
 {
   I32 retval = -1;
-  if (!JsonCanAdvanceBy(p, 4)) {
+  if (!JsonHasChars(p, 4)) {
     p->error = JSON_CANNOT_ADVANCE;
     return -1;
   }
@@ -756,8 +765,10 @@ static Bool JsonParseValue(JsonParser *p)
       break;
 
     case JSON_PARSER_NULL:
-      if (JsonParseNull(p)) {
+      if (JsonParseNull(p) == 1) {
           J->type = JSON_NULL;
+      } else if (p->error == JSON_OK) {
+          p->error = JSON_INVALID_TYPE;
       }
       break;
 
@@ -797,21 +808,17 @@ Json *JsonParseWithLenAndFlags(U8 *raw, I64 len, I32 flags)
 
   JsonAdvanceWhitespace(&p);
 
-  U8 peek = JsonPeek(&p);
-
-  if (peek == '{') {
-    J->type = JSON_OBJECT;
-    J->object = JsonParseObject(&p);
-  } else if (peek = '[') {
-    J->type = JSON_ARRAY;
-    J->array = JsonParseArray(&p);
-  } else {
+  /* Any JSON value can be the top-level one (RFC 8259) */
+  p.ptr = J;
+  if (JsonPeek(&p) == '\0' || !JsonSetExpectedType(&p)) {
     p.error = JSON_CANNOT_START_PARSE;
+  } else {
+    JsonParseValue(&p);
   }
 
   J->state = JsonStateNew();
   J->state->error = p.error;
-  J->state->ch = p.buffer[p.offset];
+  J->state->ch = JsonPeek(&p);
   J->state->offset = p.offset;
   return J;
 }

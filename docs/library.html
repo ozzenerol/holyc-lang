@@ -337,7 +337,8 @@ instead of copying it. Use keys that live as long as the map, such as
 <code>StrNew</code> copies; updating an existing key from a reused buffer is fine.</p></div>
 
 <h2 id="json">JSON</h2>
-<p><code>JsonParse</code> parses text into a tree of <code>Json</code> nodes. Check
+<p><code>JsonParse</code> parses text into a tree of <code>Json</code> nodes; the text can
+be any JSON value (an object, array, string, number, boolean or <code>null</code>). Check
 <code>JsonOk</code> before using the result. <code>JsonSelect</code> walks a path:
 <code>.field</code> for object members and <code>[n]</code> for array elements, with a type
 suffix that must match (<code>:s</code> string, <code>:i</code> integer, <code>:f</code>
