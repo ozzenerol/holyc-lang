@@ -367,7 +367,8 @@ tag repl
 <code>JSON_ARRAY</code>, <code>JSON_OBJECT</code>), a <code>key</code> when it's an object
 member, its value in <code>str</code> / <code>i64</code> / <code>f64</code> /
 <code>boolean</code> / <code>array</code> / <code>object</code>, and <code>next</code> for
-its siblings. <code>JsonToString</code> writes a float in the shortest form that reads back
+its siblings. String escapes are decoded, <code>\uXXXX</code> (and surrogate pairs) to
+UTF-8. <code>JsonToString</code> writes a float in the shortest form that reads back
 as the same value, always with a decimal point (<code>0.75</code>, <code>2.0</code>,
 <code>1.0e+21</code>).</p>
 

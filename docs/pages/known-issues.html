@@ -71,9 +71,6 @@ there works as shown.</p>
     <tr><td><code>IntSet</code> doesn't store anything</td>
         <td><code>IntSetAdd(s, 5);</code> then <code>IntSetHas(s, 5)</code> is 0 and <code>IntSetSize(s)</code> is 0; unions and differences are empty</td>
         <td>Use an <code>IntMap</code> with dummy values</td></tr>
-    <tr><td><code>JsonParse</code> rejects every <code>\u</code> escape</td>
-        <td><code>{"e": "A"}</code> is not <code>JsonOk</code></td>
-        <td>Avoid <code>\u</code> escapes in the input</td></tr>
     <tr><td><code>JsonParse</code> rejects an empty top-level object or array, and top-level scalars</td>
         <td><code>{}</code>, <code>[]</code>, <code>42</code> and <code>"text"</code> are not <code>JsonOk</code> (empty ones nested inside something are fine)</td>
         <td>Wrap the value: <code>{"v": []}</code></td></tr>
