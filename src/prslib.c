@@ -1572,6 +1572,7 @@ Ast *parseExpr(Cctrl *cc, int prec) {
                 cctrlRaiseException(cc,"Expected an L-Value however got a %s - `%s`",
                         astKindToHumanReadable(LHS), ast_str);
             }
+            assertNotArrayAssign(cc,LHS,tok->line,tok->col,tok->len);
             AstUnOp op;
             if (!astUnaryOpFromToken(tok->i64, &op)) {
                 /* This should be impossible to hit as we've already pre-validated */
@@ -1619,6 +1620,8 @@ Ast *parseExpr(Cctrl *cc, int prec) {
         /* Copied: parsing a long right hand side can cycle `tok` out of
          * the token ring before a type check warning needs it. */
         int op_line = tok->line, op_col = tok->col;
+        int is_array_assign = (tokenPunctIs(tok, '=') || compound_assign) &&
+                assertNotArrayAssign(cc,LHS,op_line,op_col,tok->len);
 
         RHS = parseExpr(cc,next_prec);
         if (!RHS) {
@@ -1644,14 +1647,14 @@ Ast *parseExpr(Cctrl *cc, int prec) {
             Ast *value = parseCreateBinaryOpAt(cc, deconstructed_compound_op,
                                                LHS, RHS, tok->i64);
             AstType *ok = astTypeCheck(LHS->type,RHS,compound_assign);
-            if (!ok) {
+            if (!ok && !is_array_assign) {
                 typeCheckWarn(cc,op_line,op_col,LHS,RHS);
             }
             LHS = parseCreateBinaryOp(cc,AST_BIN_OP_ASSIGN, LHS, value);
         } else {
             if (tok->i64 == '=') {
                 AstType *ok = astTypeCheck(LHS->type,RHS,AST_BIN_OP_ASSIGN);
-                if (!ok) {
+                if (!ok && !is_array_assign) {
                     typeCheckWarn(cc,op_line,op_col,LHS,RHS);
                 }
             }
@@ -1831,6 +1834,7 @@ static Ast *parsePostFixOps(Cctrl *cc, Ast *ast) {
                 cctrlRaiseException(cc,"Expected an L-Value however got a %s - `%s`",
                         astKindToHumanReadable(ast), ast_str);
             }
+            assertNotArrayAssign(cc,ast,tok->line,tok->col,tok->len);
             if (tok->i64 == TK_PLUS_PLUS) {
                 return astUnaryOperator(ast->type,AST_UN_OP_POST_INC,ast);
             } else {
@@ -1971,6 +1975,10 @@ Ast *parseUnaryExpr(Cctrl *cc) {
                 if (!addr_cast) addr_cast = operand->type;
                 operand = operand->operand;
             }
+        }
+
+        if (unary_op == AST_UN_OP_PRE_INC || unary_op == AST_UN_OP_PRE_DEC) {
+            assertNotArrayAssign(cc,operand,op_line,op_col,op_len);
         }
 
         switch (unary_op) {

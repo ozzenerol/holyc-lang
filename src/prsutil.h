@@ -45,6 +45,8 @@ void assertIsPointer(Ast *ast, s64 lineno);
 
 void typeCheckWarn(Cctrl *cc, int op_line, int op_col, Ast *expected,
                    Ast *actual);
+int assertNotArrayAssign(Cctrl *cc, Ast *lhs, int op_line, int op_col,
+                         int op_len);
 void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func, 
                              AstType *check, Ast *retval);
 #endif // PRS_UTIL
