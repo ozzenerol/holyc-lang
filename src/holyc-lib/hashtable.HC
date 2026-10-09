@@ -85,6 +85,18 @@ static U64 HtCapacity(U64 capacity)
   return RoundUpToNextPowerOf2(capacity);
 }
 
+static U64 HtFmix64(U64 h)
+{/* murmur3's 64-bit finaliser: every bit of `h` affects every bit of the
+  * result, so keys that differ only in bits above the mask still land in
+  * different slots. */
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccd;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53;
+  h ^= h >> 33;
+  return h;
+}
+
 public Bool IntMapSet(IntMap *map, I64 key, U0 *value);
 public Bool IntMapHas(IntMap *map, I64 key);
 public IntMap *IntMapNew(U64 capacity=32);
@@ -445,6 +457,19 @@ U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key))
   map->_free_key = _free_key;
 }
 
+static U64 StrMapHash(U8 *key, I64 key_len)
+{/* FNV-1a over exactly the `key_len` bytes the lookup compares, then
+  * mixed. Set, Get, Has and Delete hash a NUL-terminated key's StrLen bytes
+  * and GetLen/HasLen their `key_len`, so `("hello world", 5)` finds
+  * "hello". */
+  U64 h = 0xcbf29ce484222325;
+  for (I64 i = 0; i < key_len; i++) {
+    h ^= key[i];
+    h *= 0x100000001b3;
+  }
+  return HtFmix64(h);
+}
+
 StrMapNode *StrMapNodeNew(U8 *key, I64 key_len, U0 *value)
 {
   StrMapNode *n = MAlloc(sizeof(StrMapNode));
@@ -460,7 +485,7 @@ static U64 StrMapGetNextIdx(StrMap *map, U8 *key, I64 key_len, Bool *_is_free)
  // into (*_is_free = TRUE): the first tombstone on the probe chain, or the
  // empty slot that ends it.
   U64 mask = map->mask;
-  U64 idx = StrHash(key) & mask;
+  U64 idx = StrMapHash(key, key_len) & mask;
   U64 tombstone = HT_DELETED;
   StrMapNode *cur;
 
@@ -485,7 +510,7 @@ static U64 StrMapGetNextIdx(StrMap *map, U8 *key, I64 key_len, Bool *_is_free)
 static I64 StrMapGetIdx(StrMap *map, U8 *key, I64 key_len)
 {// Slot holding `key`, or HT_DELETED. Tombstones are skipped, not stopped at.
   U64 mask = map->mask;
-  U64 idx = StrHash(key) & mask;
+  U64 idx = StrMapHash(key, key_len) & mask;
   StrMapNode **entries = map->entries;
   StrMapNode *cur;
 
