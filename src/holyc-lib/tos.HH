@@ -422,13 +422,6 @@ class ThreadWorker
   I32 id;
 };
 
-class ThreadSemaphore
-{
-  pthread_cond_t cond;
-  pthread_mutex_t lk;
-  I32 val;
-}; 
-
 public class ThreadWorkerJob;
 public class ThreadWorkerJob {
   U0 *(*callback)(U0 *priv_data, U0 *argv);
@@ -440,8 +433,7 @@ public class ThreadPool {
   U64 worker_count, alive_threads, active_threads;
   Bool run;
   pthread_cond_t has_work, no_work;
-  pthread_mutex_t lock, qlock;
-  ThreadSemaphore *sem;
+  pthread_mutex_t lock;
   ThreadWorker *workers;
   List *jobs;
   U0 *priv_data;
@@ -468,9 +460,12 @@ public extern "c" I32 pthread_attr_init(pthread_attr_t *attr);
 ThreadPool *ThreadPoolNew(I64 worker_count);
 public U0 ThreadPoolEnqueue(ThreadPool *pool, U0 *argv,
            U0 (*callback)(U0 *priv_data, U0 *argv));
+/* Block until the queue is empty and no job is running. */
 public U0 ThreadPoolWait(ThreadPool *pool);
 public ThreadPool *ThreadPoolNew(I64 worker_count);
+/* Run every job still queued, then stop and join the workers. */
 public U0 ThreadPoolStop(ThreadPool *pool);
+/* ThreadPoolStop (queued jobs still run), then free the pool. NULL is ignored. */
 public U0 ThreadPoolRelease(ThreadPool *pool);
 
 public extern "c" I32 wait(I32 *statloc);

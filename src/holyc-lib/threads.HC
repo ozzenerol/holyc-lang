@@ -155,13 +155,6 @@ class ThreadWorker
   I32 id;
 };
 
-class ThreadSemaphore
-{
-  pthread_cond_t cond;
-  pthread_mutex_t lk;
-  I32 val;
-}; 
-
 class ThreadWorkerJob;
 class ThreadWorkerJob
 {
@@ -170,13 +163,14 @@ class ThreadWorkerJob
   ThreadWorkerJob *next;
 };
 
+/* `lock` guards `jobs`, `run`, `active_threads` and `alive_threads`.
+ * Workers sleep on `has_work`; ThreadPoolWait sleeps on `no_work`. */
 class ThreadPool
 {
   U64 worker_count,alive_threads,active_threads;
   Bool run;
   pthread_cond_t has_work,no_work;
-  pthread_mutex_t lock, qlock;
-  ThreadSemaphore *sem;
+  pthread_mutex_t lock;
   ThreadWorker *workers;
   List *jobs;
   U0 *priv_data;
@@ -199,45 +193,16 @@ public extern "c" I32 pthread_exit(U0 *data=NULL);
 public extern "c" I32 pthread_detach(pthread_t *th);
 public extern "c" I32 pthread_attr_setstacksize(pthread_attr_t *attr, U64 stacksize);
 
-static U0 ThreadSemaphoreSignal(ThreadSemaphore *sem)
-{
-  pthread_mutex_lock(&sem->lk);
-  sem->val = 1;
-  pthread_cond_signal(&sem->cond);
-  pthread_mutex_unlock(&sem->lk);
-}
-
-static U0 ThreadSemaphoreWait(ThreadSemaphore *sem)
-{
-  pthread_mutex_lock(&sem->lk);
-  while (sem->val != 1) {
-    pthread_cond_wait(&sem->cond,&sem->lk);
-  }
-  sem->val = 0;
-  pthread_mutex_unlock(&sem->lk);
-}
-
 U0 ThreadPoolEnqueue(ThreadPool *pool, U0 *argv, U0 (*callback)(U0 *priv_data, U0 *argv))
 {// Enqueue a job
   ThreadWorkerJob *job = MAlloc(sizeof(ThreadWorkerJob));
   job->callback = callback;
   job->argv = argv;
   job->next = NULL;
-  pthread_mutex_lock(&pool->qlock);
+  pthread_mutex_lock(&pool->lock);
   ListAppend(pool->jobs,job);
-  ThreadSemaphoreSignal(pool->sem);
-  pthread_mutex_unlock(&pool->qlock);
-}
-
-static ThreadWorkerJob *ThreadPoolDequeue(ThreadPool *pool)
-{
-  pthread_mutex_lock(&pool->qlock);
-  ThreadWorkerJob *job = ListDeque(pool->jobs);
-  if (job) {
-    ThreadSemaphoreSignal(pool->sem);
-  }
-  pthread_mutex_unlock(&pool->qlock);
-  return job;
+  pthread_cond_signal(&pool->has_work);
+  pthread_mutex_unlock(&pool->lock);
 }
 
 U0 ThreadPoolWait(ThreadPool *pool)
@@ -250,83 +215,67 @@ U0 ThreadPoolWait(ThreadPool *pool)
 }
 
 static U0 *ThreadPoolMain(U0 *argv)
-{// This takes jobs of the queue, calls them and waits for more work
+{// This takes jobs of the queue, calls them and waits for more work.
+ // Once the pool is stopped it finishes the queued jobs, then returns.
   ThreadPool *pool = argv(ThreadPool *);
   ThreadWorkerJob *job;
 
   pthread_mutex_lock(&pool->lock);
   pool->alive_threads++;
-  pthread_mutex_unlock(&pool->lock);
-  
-  while (pool->run) {
-    ThreadSemaphoreWait(pool->sem);
-    pthread_mutex_lock(&pool->lock);
+  while (TRUE) {
+    while (pool->run && ListEmpty(pool->jobs)) {
+      pthread_cond_wait(&pool->has_work,&pool->lock);
+    }
+    job = ListDeque(pool->jobs);
+    if (!job) {
+      break; /* stopped and the queue is drained */
+    }
     pool->active_threads++;
     pthread_mutex_unlock(&pool->lock);
 
-    if ((job = ThreadPoolDequeue(pool)) != NULL) {
-      job->callback(pool->priv_data,job->argv);
-      Free(job);
-    }
+    job->callback(pool->priv_data,job->argv);
+    Free(job);
 
     pthread_mutex_lock(&pool->lock);
     pool->active_threads--;
-    if (pool->active_threads == 0) {
-      pthread_cond_signal(&pool->no_work);
+    if (pool->active_threads == 0 && ListEmpty(pool->jobs)) {
+      pthread_cond_broadcast(&pool->no_work);
     }
-    pthread_mutex_unlock(&pool->lock);
-
   }
-  pool->worker_count--;
-  if (pool->active_threads == 0) {
-    pthread_cond_signal(&pool->no_work);
-  }
+  pool->alive_threads--;
   pthread_mutex_unlock(&pool->lock);
-  pthread_exit();
   return NULL;
 }
 
 ThreadPool *ThreadPoolNew(I64 worker_count)
 {// Create a new pool
   ThreadPool *pool = MAlloc(sizeof(ThreadPool));
-  ThreadSemaphore *sem = MAlloc(sizeof(ThreadSemaphore));
   ThreadWorker *workers = MAlloc(sizeof(ThreadWorker) * worker_count);
 
   pool->jobs = ListNew();
   pool->run = TRUE;
   pool->active_threads = 0;
   pool->alive_threads = 0;
-  pool->sem = sem;
   pool->worker_count = worker_count;
   pool->workers = workers;
   pool->priv_data = NULL;
 
-  sem->val = 0;
-
-  pthread_mutex_init(&sem->lk);
-  pthread_cond_init(&sem->cond);
-
   pthread_cond_init(&pool->no_work);
   pthread_cond_init(&pool->has_work);
   pthread_mutex_init(&pool->lock);
-  pthread_mutex_init(&pool->qlock);
 
+  /* The workers stay joinable so ThreadPoolStop can wait for them */
   for (I64 i = 0; i < pool->worker_count; ++i) {
     ThreadWorker *worker = workers + i;
     worker->id = i;
     pthread_create(&worker->th,NULL,&ThreadPoolMain,pool);
-    pthread_detach(worker->th);
   }
-  while (pool->alive_threads != pool->worker_count);
   return pool;
 }
 
 U0 ThreadPoolStop(ThreadPool *pool)
-{// Wait for all the jobs to be done
+{// Finish every queued job, then stop and join the workers
   pthread_mutex_lock(&pool->lock);
-  while (pool->active_threads != 0) {
-    pthread_cond_wait(&pool->has_work,&pool->lock);
-  }
   pool->run = FALSE;
   pthread_cond_broadcast(&pool->has_work);
   pthread_mutex_unlock(&pool->lock);
@@ -335,28 +284,21 @@ U0 ThreadPoolStop(ThreadPool *pool)
     pthread_join(pool->workers[i].th);
   }
   pool->worker_count = 0;
-  pthread_cond_signal(&pool->no_work);
 }
 
 U0 ThreadPoolRelease(ThreadPool *pool)
-{// abrubtly stop the pool, destroy conditions, locks and free structures
+{// Stop the pool (queued jobs still run, see ThreadPoolStop), destroy
+ // conditions and locks and free the structures
   if (pool) {
-    pthread_cond_t *sem_cond = &(pool->sem->cond);
-    auto sem = pool->sem;
-    pool->run = FALSE;
     ThreadPoolStop(pool);
 
     pthread_cond_destroy(&pool->has_work);
     pthread_cond_destroy(&pool->no_work);
     pthread_mutex_destroy(&pool->lock);
-    pthread_mutex_destroy(&pool->qlock);
-
-    pthread_mutex_destroy(&sem->lk);
-    pthread_cond_destroy(sem_cond);
-    ListRelease(pool->jobs,NULL);
+    /* Only jobs enqueued after ThreadPoolStop can be left */
+    ListRelease(pool->jobs,&Free);
 
     Free(pool->workers);
-    Free(sem);
     Free(pool);
   }
 }
