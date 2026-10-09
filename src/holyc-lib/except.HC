@@ -96,14 +96,49 @@ public U0 HCC_TryLeave(CatchFrame *f)
   Fs()->catch_top = f->prev;
 }
 
+/* Report a throw no try catches on stderr and exit with 1: a character
+ * constant whose bytes are all printable as text ('Late'), any other
+ * value as a signed decimal number. */
+static U0 HCC_Uncaught(U64 v)
+{
+  U8 buf[64], digits[24];
+  U8 *msg = "uncaught throw: ";
+  I64 len = 0, n = 0, i;
+  U64 u, c;
+  Bool text = v != 0;
+
+  for (u = v; u; u >>= 8) {
+    c = u & 0xFF;
+    if (c < ' ' || c > '~') text = FALSE;
+  }
+  while (*msg) buf[len++] = *msg++;
+  if (text) {
+    buf[len++] = '\'';
+    for (u = v; u; u >>= 8) buf[len++] = u & 0xFF;
+    buf[len++] = '\'';
+  } else {
+    if (v(I64) < 0) {
+      buf[len++] = '-';
+      u = -v(I64);
+    } else {
+      u = v;
+    }
+    do {
+      digits[n++] = '0' + u % 10;
+      u /= 10;
+    } while (u);
+    for (i = n - 1; i >= 0; i--) buf[len++] = digits[i];
+  }
+  buf[len++] = '\n';
+  Write(STDERR, buf, len);
+  Exit(1);
+}
+
 public U0 HCC_Throw(U64 v)
 {
   HCFs *fs = Fs();
   fs->except_ch = v;
   auto t = fs->catch_top;
-  if (!t) {
-    "uncaught throw: %X\n", v;
-    Exit(1);
-  }
+  if (!t) HCC_Uncaught(v);
   longjmp(t->jb, 1);
 }
