@@ -53,19 +53,19 @@ public I32 RmDir(U8 *path, Bool flags=0)
         r2 = RmDir(buf,flags);
       } else if (ent->type & DT_REG) {
 
-        if ((r2 = unlink(buf)) == 0 && flags & RM_VERBOSE) {
-          "Rm: %s\n",buf;
-        } else {
-          "Error Rm: %s\n",buf;
+        r2 = unlink(buf);
+        if (is_verbose) {
+          if (r2 == 0) "Rm: %s\n",buf;
+          else         "Error Rm: %s\n",buf;
         }
       } else if (!stat(buf,&st)) {
           if ((st.st_mode & S_IFMT) == S_IFDIR) {
             r2 = RmDir(path,flags);
           } else {
-            if ((r2 = unlink(buf)) == 0 && flags & RM_VERBOSE) {
-              "Rm: %s\n",buf;
-            } else {
-              "Error Rm: %s\n",buf;
+            r2 = unlink(buf);
+            if (is_verbose) {
+              if (r2 == 0) "Rm: %s\n",buf;
+              else         "Error Rm: %s\n",buf;
             }
           }
         }
