@@ -302,6 +302,8 @@ Cctrl *cctrlNew(enum CliTarget target) {
     cc->tmp_gvar_decl = NULL;
     cc->tmp_gvar_base_type = NULL;
     cc->token_buffer = NULL;
+    memset(cc->macro_uses, 0, sizeof(cc->macro_uses));
+    cc->macro_use_next = 0;
     cc->diagnostics = vecNew(&vec_diagnostic_type);
     cc->n_errors = 0;
     cc->current_recovery = NULL;
@@ -467,6 +469,9 @@ void cctrlInitParse(Cctrl *cc, Lexer *lexer_) {
         cc->token_buffer = tokenRingBufferStaticNew();
     }
     cc->token_buffer->got_eof = 0;
+    /* New tokens: forget the last parse's macro uses */
+    memset(cc->macro_uses, 0, sizeof(cc->macro_uses));
+    cc->macro_use_next = 0;
     cctrLoadNextTokens(cc, cc->token_buffer->capacity);
 }
 
@@ -479,6 +484,8 @@ void cctrlInitMacroProcessor(Cctrl *cc) {
     ring_buffer->size = 0;
     ring_buffer->got_eof = 0;
     cc->token_buffer = ring_buffer;
+    memset(cc->macro_uses, 0, sizeof(cc->macro_uses));
+    cc->macro_use_next = 0;
     cc->ast_list = NULL;
     cc->tmp_locals = NULL;
     cc->tmp_func = NULL;
@@ -494,9 +501,44 @@ Lexeme *cctrlMaybeExpandToken(Cctrl *cc, Lexeme *token) {
         if (cc->flags & CCTRL_PASTE_DEFINES) {
             return token;
         }
-        return maybe_define;
+        /* The macro's value, at the line and column the macro is used:
+         * the stored lexeme carries the #define's position, which put
+         * an error on the use on the #define line. */
+        for (int i = 0; i < CCTRL_MACRO_USE_CACHE_SIZE; ++i) {
+            CctrlMacroUse *mu = &cc->macro_uses[i];
+            if (mu->use == token && mu->macro == maybe_define) {
+                return mu->expansion;
+            }
+        }
+        CctrlMacroUse *mu = &cc->macro_uses[cc->macro_use_next];
+        cc->macro_use_next = (cc->macro_use_next + 1) % CCTRL_MACRO_USE_CACHE_SIZE;
+        mu->use = token;
+        mu->macro = maybe_define;
+        mu->expansion = lexemeCopy(maybe_define);
+        mu->expansion->line = token->line;
+        mu->expansion->col = token->col;
+        return mu->expansion;
     }
     return token; 
+}
+
+/* The macro use `tok` was expanded from, or NULL if it is not an
+ * expansion. */
+static CctrlMacroUse *cctrlMacroUseOf(Cctrl *cc, Lexeme *tok) {
+    if (!tok) return NULL;
+    for (int i = 0; i < CCTRL_MACRO_USE_CACHE_SIZE; ++i) {
+        if (cc->macro_uses[i].expansion == tok) {
+            return &cc->macro_uses[i];
+        }
+    }
+    return NULL;
+}
+
+/* Width of `tok` in the source: the macro name for an expansion, whose
+ * own `len` is the length of the value. */
+static s64 cctrlTokenSourceLen(Cctrl *cc, Lexeme *tok) {
+    CctrlMacroUse *mu = cctrlMacroUseOf(cc, tok);
+    return mu ? mu->use->len : tok->len;
 }
 
 Lexeme *cctrlTokenPeekBy(Cctrl *cc, int cnt) {
@@ -787,7 +829,14 @@ AoStr *cctrlCreateErrorLine(Cctrl *cc, s64 lineno, char *msg,
     Lexeme *peek = cctrlTokenPeek(cc);
     s64 line = peek ? peek->line : lineno;
     s64 col  = peek ? peek->col  : 0;
-    s64 len  = peek ? peek->len  : 0;
+    s64 len  = peek ? cctrlTokenSourceLen(cc, peek) : 0;
+    /* At a macro use the token shown is the macro's value: say so */
+    CctrlMacroUse *mu = cctrlMacroUseOf(cc, peek);
+    if (mu && !suggestion) {
+        char *note = mprintf("expanded from macro `%.*s`",
+                             mu->use->len, mu->use->start);
+        return cctrlCreateErrorLineAt(cc, line, col, len, msg, severity, note);
+    }
     return cctrlCreateErrorLineAt(cc, line, col, len, msg, severity, suggestion);
 }
 
@@ -947,7 +996,8 @@ CctrlDiagnostic *cctrlMakeDiag(Cctrl *cc,
         d->line = cur->line;
         d->col = cur->col;
         d->end_line = cur->line;
-        d->end_col = cur->col + (cur->len > 0 ? cur->len : 1);
+        s64 len = cctrlTokenSourceLen(cc, cur);
+        d->end_col = cur->col + (len > 0 ? len : 1);
     } else {
         d->line = (int)cc->lineno;
         d->col = 0;
