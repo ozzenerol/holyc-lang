@@ -1918,6 +1918,13 @@ Ast *parseExpr(Cctrl *cc, int prec) {
     }
 }
 
+/* `sizeof()`, `sizeof;`: no operand. parseUnaryExpr gives NULL for a
+ * token that can't start an expression, which then crashed. Reported at
+ * the token that should have been the operand (the `)` of `()`). */
+static void parseRaiseMissingSizeofOperand(Cctrl *cc, char *keyword) {
+    cctrlRaiseException(cc, "`%s` needs a type or an expression", keyword);
+}
+
 Ast *parseSizeof(Cctrl *cc) {
     Lexeme *tok = cctrlTokenGet(cc);
     Lexeme *peek = cctrlTokenPeek(cc);
@@ -1929,6 +1936,10 @@ Ast *parseSizeof(Cctrl *cc) {
     if (tok == NULL) {
         cctrlRaiseException(cc, "Unexpected end of input after `sizeof`");
     }
+    if (tokenPunctIs(tok,'(') && tokenPunctIs(peek,')')) {
+        cctrlTokenGet(cc);
+        parseRaiseMissingSizeofOperand(cc, "sizeof");
+    }
     if (tokenPunctIs(tok,'(') && peek &&
         cctrlIsKeyword(cc,peek->start,peek->len)) {
         type = parseFullType(cc);
@@ -1936,6 +1947,9 @@ Ast *parseSizeof(Cctrl *cc) {
     } else {
         cctrlTokenRewind(cc);
         ast = parseUnaryExpr(cc);
+        if (!ast || !ast->type) {
+            parseRaiseMissingSizeofOperand(cc, "sizeof");
+        }
         type = ast->type;
     }
 
@@ -1968,13 +1982,21 @@ Ast *parseAlignof(Cctrl *cc) {
     if (tok == NULL) {
         cctrlRaiseException(cc, "Unexpected end of input after `alignof`");
     }
+    if (tokenPunctIs(tok,'(') && tokenPunctIs(peek,')')) {
+        cctrlTokenGet(cc);
+        parseRaiseMissingSizeofOperand(cc, "alignof");
+    }
     if (tokenPunctIs(tok,'(') && peek &&
         cctrlIsKeyword(cc,peek->start,peek->len)) {
         type = parseFullType(cc);
         cctrlTokenExpect(cc,')');
     } else {
         cctrlTokenRewind(cc);
-        type = parseUnaryExpr(cc)->type;
+        Ast *ast = parseUnaryExpr(cc);
+        if (!ast || !ast->type) {
+            parseRaiseMissingSizeofOperand(cc, "alignof");
+        }
+        type = ast->type;
     }
 
     return astI64Type(astTypeAlign(type));
