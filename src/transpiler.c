@@ -416,6 +416,36 @@ char *transpileHighlightString(TranspileCtx *ctx, char *str) {
     }
 }
 
+/* `"a" M "b"` as written (see AST_FLAG_RAW_C_STRING); each macro named
+ * in it is marked used so its #define is written */
+static void transpileRawCString(TranspileCtx *ctx, AoStr *raw) {
+    char *s = raw->data;
+    u64 i = 0;
+    while (i < raw->len) {
+        if (s[i] == '"') {
+            u64 start = i++;
+            while (i < raw->len && s[i] != '"') {
+                if (s[i] == '\\') i++;
+                i++;
+            }
+            i++;
+            AoStr *lit = aoStrDupRaw(s + start + 1, i - start - 2);
+            aoStrCat(ctx->buf, transpileHighlightString(ctx, lit->data));
+            aoStrRelease(lit);
+        } else if (isalpha((unsigned char)s[i]) || s[i] == '_') {
+            u64 start = i;
+            while (i < raw->len && (isalnum((unsigned char)s[i]) || s[i] == '_')) {
+                i++;
+            }
+            char *name = mprintf("%.*s", (int)(i - start), s + start);
+            transpileCtxAddDefine(ctx, name);
+            aoStrCatLen(ctx->buf, s + start, i - start);
+        } else {
+            aoStrPutChar(ctx->buf, s[i++]);
+        }
+    }
+}
+
 char *transpileHighlightFloat(TranspileCtx *ctx, double floatingpoint) {
     static char buf[64];
     if (ctx->flags & TRANSPILE_FLAG_ISATTY) {
@@ -634,6 +664,10 @@ void transpileAstInternal(Ast *ast, TranspileCtx *ctx, s64 *indent) {
         break;
 
         case AST_STRING: {
+            if (ast->flags & AST_FLAG_RAW_C_STRING) {
+                transpileRawCString(ctx, ast->sval);
+                break;
+            }
             char *defn = transpileHighlightString(ctx,ast->sval->data);
             aoStrCat(buf,defn);
             break;
