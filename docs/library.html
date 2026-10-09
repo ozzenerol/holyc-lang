@@ -390,6 +390,26 @@ as the same value, always with a decimal point (<code>0.75</code>, <code>2.0</co
 <code>1.0e+21</code>), and escapes strings so the output parses back (<code>\"</code>,
 <code>\\</code>, <code>\n</code>, <code>\t</code>, ... and <code>\u00XX</code> for other
 control characters).</p>
+<p>The optional arguments are the length to parse (-1, the default, reads up to the
+terminating NUL) and flags. With <code>JSON_STRNUM_FLAG</code> numbers are not converted:
+each one becomes a <code>JSON_STRNUM</code> node whose <code>strnum</code> is the number
+exactly as written, so large integers and decimals keep every digit, and
+<code>JsonToString</code> writes it back unchanged. The <code>:i</code> and
+<code>:f</code> suffixes don't match these nodes; select them without a suffix.</p>
+<pre data-run><code>U0 Main()
+{
+  Json *doc = JsonParse("{\"id\": 123456789012345678901234567890, \"price\": 9.90}",
+                        -1, JSON_STRNUM_FLAG);
+  "id %s\n", JsonSelect(doc, ".id")-&gt;strnum;
+  "price %s\n", JsonSelect(doc, ".price")-&gt;strnum;
+  "%s\n", JsonToString(doc);
+  JsonRelease(doc);
+}
+</code></pre>
+<pre class="output">id 123456789012345678901234567890
+price 9.90
+{"id": 123456789012345678901234567890,"price": 9.90}
+</pre>
 
 <h2 id="dates">Dates and time</h2>
 <pre data-run><code>U0 Main()
