@@ -1805,12 +1805,6 @@ Ast *parseExpr(Cctrl *cc, int prec) {
             }
             LHS = parseCreateBinaryOp(cc,AST_BIN_OP_ASSIGN, LHS, value);
         } else {
-            if (tok->i64 == '=') {
-                AstType *ok = astTypeCheck(LHS->type,RHS,AST_BIN_OP_ASSIGN);
-                if (!ok && !is_array_assign) {
-                    typeCheckWarn(cc,op_line,op_col,LHS,RHS);
-                }
-            }
             AstBinOp binop;
             if (!astBinOpFromToken(tok->i64,&binop)) {
                 cctrlRaiseException(cc,"Invalid binary operator %c => %d", (char)tok->i64, tok->i64);
@@ -1819,7 +1813,17 @@ Ast *parseExpr(Cctrl *cc, int prec) {
                 lexemePrint(tok);
             }
 
+            /* Build the operation first: when it is invalid (`y = p`
+             * with a class `p`) its error is the one diagnostic, not a
+             * type warning followed by it. */
+            Ast *dst = LHS;
             LHS = parseCreateBinaryOp(cc,binop,LHS,RHS);
+            if (tok->i64 == '=') {
+                AstType *ok = astTypeCheck(dst->type,RHS,AST_BIN_OP_ASSIGN);
+                if (!ok && !is_array_assign) {
+                    typeCheckWarn(cc,op_line,op_col,dst,RHS);
+                }
+            }
         }
     }
 }

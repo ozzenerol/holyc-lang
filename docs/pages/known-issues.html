@@ -33,9 +33,6 @@ there works as shown.</p>
     <tr><td>A class initialiser warning lands one item late</td>
         <td><code>class Q { I64 a; I64 *p; }; F64 f; Q qq = {1, f};</code> warns at the <code>}</code> after <code>f</code></td>
         <td>Look at the item before the caret</td></tr>
-    <tr><td>Some type errors are reported twice</td>
-        <td><code>I64 y = 1; P p; y = p;</code> prints a warning and an error for the same statement</td>
-        <td>Read the error and ignore the warning</td></tr>
     <tr><td>The underline under a string token leaves out its quotes</td>
         <td><code>I64 s = 2 "abcd" 3;</code> underlines 4 characters from the opening quote</td>
         <td>None needed</td></tr>
