@@ -3467,12 +3467,14 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
         }
 
         if (name->tk_type != TK_IDENT) {
-            /* Point at `name`, not at the token after it (on the next
-             * line for `I64 a, ;`). A function pointer's name was
-             * peeked, not consumed. */
-            if (!is_fnptr) {
-                cctrlTokenRewind(cc);
+            /* A function pointer without a name was reported by
+             * parseFunctionPointerType: skip the declaration. */
+            if (is_fnptr) {
+                cctrlTerminate(cc);
             }
+            /* Point at `name`, not at the token after it (on the next
+             * line for `I64 a, ;`). */
+            cctrlTokenRewind(cc);
             cctrlRaiseException(cc,"Identifier expected: got %s",lexemeToString(name));
         }
 
