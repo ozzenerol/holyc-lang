@@ -8,9 +8,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>A modulo by a variable inside a subscript crashes hcc</td>
-        <td><code>I64 a[4]; I64 n = 3, i = 5; a[i % n] = 1;</code>: hcc dies with a floating-point exception while trying to fold the index</td>
-        <td>Compute the index first: <code>I64 k = i % n; a[k] = 1;</code></td></tr>
     <tr><td>Two bad statements in a row can crash hcc</td>
         <td><code>I64 x = 1 2;</code> followed by <code>"ab" y;</code> in the same function: segmentation fault (each one alone is reported normally)</td>
         <td>Fix the first error and recompile</td></tr>
