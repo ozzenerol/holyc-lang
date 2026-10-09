@@ -748,6 +748,9 @@ public U0 JsonRelease(Json *J)
         break;
     }
 
+    if (ptr->state) { /* only on the node JsonParse returns */
+      Free(ptr->state);
+    }
     Free(ptr);
     ptr = next;
   }
@@ -794,7 +797,7 @@ static Json *JsonParseArray(JsonParser *p)
       } else if (ch == ']' && !can_advance) {
         break;
       } else {
-        Free(val);
+        JsonRelease(val); /* the whole list parsed so far, keys and values */
         p->error = JSON_INVALID_ARRAY_CHARACTER;
         return NULL;
       }
@@ -827,7 +830,7 @@ Json *JsonParseObject(JsonParser *p)
     JsonAdvanceWhitespace(p);
 
     if (JsonPeek(p) != '"') {
-      Free(val);
+      JsonRelease(val); /* the whole list parsed so far, keys and values */
       p->error = JSON_INVALID_KEY_TERMINATOR_CHARACTER;
       return NULL;
     }
@@ -835,7 +838,7 @@ Json *JsonParseObject(JsonParser *p)
     J->key = JsonParseString(p);
     JsonAdvanceToTerminator(p, ':');
     if (JsonPeek(p) != ':') {
-      Free(val);
+      JsonRelease(val); /* the whole list parsed so far, keys and values */
       p->error = JSON_INVALID_KEY_TERMINATOR_CHARACTER;
       return NULL;
     }
@@ -857,7 +860,7 @@ Json *JsonParseObject(JsonParser *p)
       } else if (ch == '}' && !can_advance) {
         break;
       } else {
-        Free(val);
+        JsonRelease(val); /* the whole list parsed so far, keys and values */
         p->error = JSON_INVALID_JSON_TYPE_CHAR;
         return NULL;
       }

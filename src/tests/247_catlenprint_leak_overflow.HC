@@ -4,19 +4,10 @@
  * leaked a block (JsonToString, built on it, leaked one per piece), and
  * CatLenPrint(NULL, ...) allocated no room for the '\0' it then wrote. */
 
-extern "c" U0 *mallinfo2(U0 *out);
-class MI
-{
-  U64 arena, ordblks, smblks, hblks, hblkhd, usmblks, fsmblks, uordblks,
-      fordblks, keepcost;
-};
-
-/* Bytes in use on the heap */
+/* Bytes in use on the heap (HeapInUse() is in testhelper.HC) */
 I64 InUse()
 {
-  MI m;
-  mallinfo2(&m);
-  return m.uordblks;
+  return HeapInUse();
 }
 
 I32 Main()
@@ -25,19 +16,26 @@ I32 Main()
   I64 correct = 0, tests = 0, len, i, before;
   U8 *s;
 
-  /* No leak: 20000 appends only grow the one string */
+  /* No leak: 20000 appends only grow the one string, so once it is
+   * freed the heap is back where it was (each leaked temporary was 256+
+   * bytes, 5 MB in all). The string is built once first so the
+   * allocator's own bookkeeping is in place, and some slack is allowed:
+   * macOS's allocator keeps ~100 KB of the freed blocks counted. */
   tests++;
-  len = 0;
-  s = MAlloc(16);
-  s[0] = '\0';
-  s = CatLenPrint(s, &len, "x");
-  before = InUse() - MSize(s);
-  for (i = 0; i < 20000; i++) {
-    s = CatLenPrint(s, &len, "%d,", i % 10);
+  I64 pass, grew = 0;
+  for (pass = 0; pass < 2; pass++) {
+    before = InUse();
+    len = 0;
+    s = MAlloc(16);
+    s[0] = '\0';
+    for (i = 0; i < 20000; i++) {
+      s = CatLenPrint(s, &len, "%d,", i % 10);
+    }
+    Free(s);
+    grew = InUse() - before;
   }
-  if (InUse() - MSize(s) - before < 4096 && len == 40001) correct++;
-  else "heap grew %d\n", InUse() - MSize(s) - before;
-  Free(s);
+  if (grew < 512 * 1024 && len == 40000) correct++;
+  else "heap grew %d (len %d)\n", grew, len;
 
   /* The text is right */
   tests++;
