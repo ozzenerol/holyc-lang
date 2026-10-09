@@ -1,5 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +36,6 @@
 
 int is_terminal;
 
-#define ASM_TMP_FILE "/tmp/holyc-asm.s"
 #define LIB_BUFSIZ 256
 
 #ifndef INSTALL_PREFIX
@@ -213,16 +214,73 @@ int hccLibInit(Cctrl *cc, hccLib *lib, CliArgs *args, char *name) {
     return 1;
 }
 
+/* Temporary files of this compile: the intermediate assembly and the
+ * binary of `-run`. Each compile gets its own (mkstemp), so concurrent
+ * compiles don't overwrite each other's, and they are removed on exit,
+ * on a fatal error (loggerPanic exits) and on a terminating signal. */
+static char asm_tmp_file[PATH_MAX];
+static char run_tmp_file[PATH_MAX];
+
+static void removeTmpFiles(void) {
+    if (asm_tmp_file[0]) unlink(asm_tmp_file);
+    if (run_tmp_file[0]) unlink(run_tmp_file);
+    asm_tmp_file[0] = run_tmp_file[0] = '\0';
+}
+
+static void removeTmpFilesOnSignal(int sig) {
+    if (asm_tmp_file[0]) unlink(asm_tmp_file);
+    if (run_tmp_file[0]) unlink(run_tmp_file);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+/* Create a unique file `$TMPDIR/hcc-<what>-XXXXXX<suffix>` in `path`. */
+static int makeTmpFile(char *path, const char *what, const char *suffix) {
+    static int cleanup_installed = 0;
+    const char *dir = getenv("TMPDIR");
+    if (dir == NULL || dir[0] == '\0') dir = "/tmp";
+
+    if (!cleanup_installed) {
+        int signals[] = {SIGHUP, SIGINT, SIGTERM};
+        atexit(removeTmpFiles);
+        for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); ++i) {
+            if (signal(signals[i], removeTmpFilesOnSignal) == SIG_IGN) {
+                signal(signals[i], SIG_IGN);
+            }
+        }
+        cleanup_installed = 1;
+    }
+
+    int len = snprintf(path, PATH_MAX, "%s%shcc-%s-XXXXXX%s", dir,
+            dir[strlen(dir)-1] == '/' ? "" : "/", what, suffix);
+    if (len < 0 || len >= PATH_MAX) {
+        path[0] = '\0';
+        loggerPanic("Temporary directory path too long: %s\n", dir);
+    }
+    int fd = mkstemps(path, strlen(suffix));
+    if (fd == -1) {
+        int err = errno;
+        path[0] = '\0';
+        loggerPanic("Failed to create a temporary file in %s: %s\n",
+                dir, strerror(err));
+    }
+    return fd;
+}
+
 int writeAsmToTmp(AoStr *asmbuf) {
     int fd;
     s64 written = 0;
     u64 towrite = 0;
     char *ptr;
-    ptr = asmbuf->data;
 
-    if ((fd = open(ASM_TMP_FILE,O_RDWR|O_TRUNC|O_CREAT,0644)) == -1) {
-        loggerPanic("Failed to create file for intermediary assembly: %s\n",
-                strerror(errno));
+    if (asm_tmp_file[0]) {
+        fd = open(asm_tmp_file,O_WRONLY|O_TRUNC);
+        if (fd == -1) {
+            loggerPanic("Failed to open file for intermediary assembly: %s\n",
+                    strerror(errno));
+        }
+    } else {
+        fd = makeTmpFile(asm_tmp_file, "asm", ".s");
     }
 
     towrite = asmbuf->len;
@@ -231,7 +289,7 @@ int writeAsmToTmp(AoStr *asmbuf) {
     while (towrite > 0) {
         written = write(fd,ptr,towrite);
         if (written < 0) {
-            if (written == EINTR) {
+            if (errno == EINTR) {
                 continue;
             }
             close(fd);
@@ -257,7 +315,7 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
         aoStrCatPrintf(cmd, "%s -c %s %s "CLIBS" %s -o ./%s",
                 cc->CC,
                 fPIC,
-                ASM_TMP_FILE,
+                asm_tmp_file,
                 args->clibs,
                 object_file_name);
         safeSystem(cmd->data, 0);
@@ -287,7 +345,7 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
         hccLibInit(cc, &lib,args,args->lib_name);
         aoStrCatPrintf(cmd, "%s -shared -fPIC -c %s -o ./%s",
                 cc->CC,
-                ASM_TMP_FILE,args->obj_outfile);
+                asm_tmp_file,args->obj_outfile);
         safeSystem(cmd->data,1);
         /* The archive first: install_cmd copies it, so building it
          * afterwards would ship a stale (or absent) one. */
@@ -320,27 +378,22 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
             /* Link to a private temporary binary rather than ./a.out so a
              * user's a.out is never clobbered, run it with the extra
              * command line arguments and exit with its status. */
-            char bin[] = "/tmp/hcc-run-XXXXXX";
-            int bin_fd = mkstemp(bin);
-            if (bin_fd == -1) {
-                loggerPanic("Failed to create temporary binary: %s\n",
-                        strerror(errno));
-            }
-            close(bin_fd);
+            char *bin = run_tmp_file;
+            close(makeTmpFile(bin, "run", ""));
 
             writeAsmToTmp(asmbuf);
             aoStrCatPrintf(cmd, "%s -L%s/lib %s %s %s %s -ltos "CLIBS" -o %s",
                     cc->CC,
                     args->install_dir,
-                    ASM_TMP_FILE,
+                    asm_tmp_file,
                     ofiles->data,
                     link_flags->data,
                     args->clibs ? args->clibs : "",
                     bin);
             int link_ok = system(cmd->data);
-            remove(ASM_TMP_FILE);
+            unlink(asm_tmp_file);
+            asm_tmp_file[0] = '\0';
             if (link_ok != 0) {
-                unlink(bin);
                 loggerPanic("Failed to execute command: '%s'\n", cmd->data);
             }
 
@@ -358,7 +411,6 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
             int status = 0;
             pid_t pid = fork();
             if (pid == -1) {
-                unlink(bin);
                 loggerPanic("Failed to fork: %s\n", strerror(errno));
             } else if (pid == 0) {
                 execv(bin, run_argv);
@@ -367,7 +419,7 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
                 _exit(127);
             }
             while (waitpid(pid, &status, 0) == -1 && errno == EINTR);
-            unlink(bin);
+            removeTmpFiles();
             free(run_argv);
 
             if (WIFEXITED(status)) {
@@ -389,7 +441,7 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
         aoStrCatPrintf(cmd, "%s -L%s/lib %s %s %s %s -ltos "CLIBS" -o %s",
                 cc->CC,
                 args->install_dir,
-                ASM_TMP_FILE,
+                asm_tmp_file,
                 ofiles->data,
                 link_flags->data,
                 clibs,
@@ -397,7 +449,7 @@ void emitFile(Cctrl *cc, AoStr *asmbuf, CliArgs *args) {
 
         safeSystem(cmd->data, 0);
     }
-    remove(ASM_TMP_FILE);
+    removeTmpFiles();
     aoStrRelease(cmd);
     aoStrRelease(asmbuf);
 }
@@ -406,21 +458,18 @@ void assemble(Cctrl *cc, CliArgs *args) {
     AoStr *run_cmd = aoStrNew();
 
     if (args->run) {
-        s64 len = 0;
-        char *buffer = lexReadfile(args->infile,&len);
-        AoStr asm_buf = {
-            .data = buffer,
-            .len = len,
-            .capacity = len,
-        };
-        writeAsmToTmp(&asm_buf);
+        /* Link straight from the input into a private temporary binary
+         * (not ./a.out, which concurrent runs would share). */
+        close(makeTmpFile(run_tmp_file, "run", ""));
         aoStrCatPrintf(run_cmd,
-                "%s -L"INSTALL_PREFIX"/lib %s "CLIBS" -ltos && ./a.out && rm ./a.out",
+                "%s -L"INSTALL_PREFIX"/lib %s "CLIBS" -ltos -o %s && %s",
                 cc->CC,
-                ASM_TMP_FILE);
-        free(buffer);
+                args->infile,
+                run_tmp_file,
+                run_tmp_file);
         int ret = system(run_cmd->data);
         (void)ret;
+        removeTmpFiles();
     } else {
         aoStrCatPrintf(run_cmd, "%s %s -L"INSTALL_PREFIX"/lib "CLIBS" -ltos",
                 cc->CC, args->infile);
