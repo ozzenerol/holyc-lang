@@ -5,10 +5,25 @@ class Coroutine
   Bool is_done;
 };
 
-#define STACK_CAPACITY (635421)
+/* A multiple of the page size, so the stack top is 16-byte aligned */
+#define STACK_CAPACITY (655360)
+/* An inaccessible page below each stack: an overflow faults instead of
+ * writing over whatever is mapped below */
+#define STACK_GUARD    (4096)
 
-extern "c" U0 *mmap(U0 *addr, U64 len, I32 prot, I32 flags, I32 fd, I32 offset);
-extern "c" U0 *munmap(U0 *addr, U64 len);
+#define CORO_PROT_NONE  0x0
+#define CORO_PROT_READ  0x1
+#define CORO_PROT_WRITE 0x2
+#define CORO_MAP_PRIVATE 0x02
+#ifdef IS_MACOS
+#define CORO_MAP_ANONYMOUS 0x1000
+#else
+#define CORO_MAP_ANONYMOUS 0x20
+#endif
+
+extern "c" U0 *mmap(U0 *addr, U64 len, I32 prot, I32 flags, I32 fd, I64 offset);
+extern "c" I32 munmap(U0 *addr, U64 len);
+extern "c" I32 mprotect(U0 *addr, U64 len, I32 prot);
 
 static Coroutine *coroutine_stack[1000];
 static I64 coroutine_sp = 0;
@@ -143,17 +158,27 @@ U0 CoroutineFinish()
 U0 CoroutineRelease(Coroutine *c)
 {
   if (c) {
-    munmap(c->stack_base, STACK_CAPACITY);
+    munmap(c->stack_base, STACK_GUARD + STACK_CAPACITY);
     Free(c);
   }
 }
 
 Coroutine *CoroutineNew(U0 (*cb)(U0 *_arg), U0 *arg)
-{
+{// NULL if the stack can't be mapped
   Coroutine *c = MAlloc(sizeof(Coroutine));
   c->is_done = 0;
-  c->stack_base = mmap(NULL, STACK_CAPACITY, 0x02|0x01, 0x1|0x2, -1, 0);
-  U0 **_rsp = (c->stack_base + STACK_CAPACITY)(U0 **);
+  c->stack_base = mmap(NULL, STACK_GUARD + STACK_CAPACITY,
+      CORO_PROT_READ|CORO_PROT_WRITE, CORO_MAP_PRIVATE|CORO_MAP_ANONYMOUS, -1, 0);
+  if (c->stack_base(I64) == -1) { /* MAP_FAILED */
+    Free(c);
+    return NULL;
+  }
+  if (mprotect(c->stack_base, STACK_GUARD, CORO_PROT_NONE) != 0) {
+    munmap(c->stack_base, STACK_GUARD + STACK_CAPACITY);
+    Free(c);
+    return NULL;
+  }
+  U0 **_rsp = (c->stack_base + STACK_GUARD + STACK_CAPACITY)(U0 **);
 
   *(--_rsp) = &CoroutineFinish;
   *(--_rsp) = cb;
@@ -168,6 +193,7 @@ Coroutine *CoroutineNew(U0 (*cb)(U0 *_arg), U0 *arg)
   return c;
 }
 
+#ifndef COROUTINES_NO_DEMO
 U0 Fib(U0 *arg)
 {
   I64 max = arg(I64);
@@ -189,3 +215,4 @@ U0 Main()
     "%d\n",it;
   }
 }
+#endif

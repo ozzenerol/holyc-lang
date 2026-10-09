@@ -38,7 +38,6 @@ MODULES = [
     ("fzf.HC",       "Fuzzy matching",    "fzf-style fuzzy string matching."),
     ("except.HC",    "Exceptions",        "The runtime behind try / catch / throw."),
     ("threads.HC",   "Threads",           "pthreads bindings and helpers."),
-    ("coroutines.HC","Coroutines",        "Cooperative coroutines."),
     ("net.HC",       "Networking",        "Sockets and address resolution."),
     ("sqllite.HC",   "SQLite",            "SQLite bindings, available when hcc is built with sqlite."),
     ("builtins.HC",  "Builtins",          "Small helpers available everywhere."),
