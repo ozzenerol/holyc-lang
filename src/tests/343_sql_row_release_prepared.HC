@@ -58,13 +58,18 @@ I32 Main()
   }
   tests++; if (ps && RunPrepared(ps, 1) == 4) correct++;
 
-  /* No column array is leaked per execution. */
+  /* No column array is leaked per execution: a leaked one is 64 bytes,
+   * 1.28 MB over these 20000 runs. On macOS the heap total can also step
+   * up by a few KB with nothing leaked: each CPU's malloc magazine keeps
+   * its last freed block cached and counted as in use, and the thread may
+   * move to another core during the loop (16 cores: up to ~128 KB). So
+   * many runs, and an allowance of 128 KB. */
   if (ps) {
     for (i = 0; i < 20; i++) RunPrepared(ps, 1);
     before = HeapInUse();
-    for (i = 0; i < 2000; i++) RunPrepared(ps, 1);
+    for (i = 0; i < 20000; i++) RunPrepared(ps, 1);
     delta = HeapInUse() - before;
-    tests++; if (delta < 4096) correct++; else "leaked %d bytes\n", delta;
+    tests++; if (delta < 128 * 1024) correct++; else "leaked %d bytes\n", delta;
   }
   SqlFinalizePrepared(ps);
 
