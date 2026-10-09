@@ -114,8 +114,9 @@ I32 Main()
   /* `y += d` is fine and no longer reported against `CDate d = 5;`. */
   if (Lacks(out, "'CDate' is not assignable to type 'I64'") &&
       Lacks(out, "CDate d = 5;")) correct++;
-  /* A real class still can't become an integer... */
-  if (Contains(out, "warning: Incompatible types 'P' is not assignable to type 'I64'")) correct++;
+  /* A real class still can't become an integer (an error since test
+   * 222)... */
+  if (Contains(out, "`I64 = P` is invalid")) correct++;
   if (Contains(out, "I64 z = p;")) correct++;
   /* An intrinsic class converts to a float like an integer, silently. */
   if (Lacks(out, "'CDate' is not assignable to type 'F64'")) correct++;
