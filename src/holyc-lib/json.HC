@@ -492,7 +492,7 @@ static U8 *JsonParseString(JsonParser *p)
           case '\\':
           case '"':
           case '/': str[len++] = JsonPeek(p); break;
-          case 'b': str[len++] = '\x08'; break; /* '\b' lexes as '\\' */
+          case 'b': str[len++] = '\b'; break;
           case 'f': str[len++] = '\f'; break;
           case 'n': str[len++] = '\n'; break;
           case 'r': str[len++] = '\r'; break;
@@ -590,7 +590,7 @@ static U0 JsonCatQuoted(JsonStringBuilder *js, U8 *str)
     switch (ch) {
       case '"':  *dst++ = '\\'; *dst++ = '"'; break;
       case '\\': *dst++ = '\\'; *dst++ = '\\'; break;
-      case '\x08': *dst++ = '\\'; *dst++ = 'b'; break; /* \b */
+      case '\b': *dst++ = '\\'; *dst++ = 'b'; break;
       case '\f': *dst++ = '\\'; *dst++ = 'f'; break;
       case '\n': *dst++ = '\\'; *dst++ = 'n'; break;
       case '\r': *dst++ = '\\'; *dst++ = 'r'; break;

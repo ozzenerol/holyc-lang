@@ -17,9 +17,6 @@ there works as shown.</p>
     <tr><td><code>\x</code> escapes followed by a hex digit differ between AOT and JIT</td>
         <td><code>U8 *s = "\x01b";</code>: the JIT gives 2 bytes (1, 'b'), a compiled program gives 1 byte (27) because the assembler reads <code>\x01b</code> as one escape; a <code>U8 a[] = "\x42";</code> array also gets no terminating NUL</td>
         <td>Escape the next character too: <code>"\x01\x62"</code> (splitting the literal doesn't help, the pieces are joined first)</td></tr>
-    <tr><td>The character constant <code>'\b'</code> is 92</td>
-        <td><code>"%d\n", '\b';</code> prints 92 (the backslash) instead of 8; <code>"\b"</code> in a string is correct</td>
-        <td>Use <code>'\x08'</code> or <code>8</code></td></tr>
     <tr><td>No brace elision for class-typed fields</td>
         <td><code>class L { I64 t; P a; I64 z; }; L l = {1, 2, 3};</code> warns instead of filling <code>a</code>'s fields</td>
         <td>Brace the inner class: <code>{1, {2, 3}, 4}</code></td></tr>
