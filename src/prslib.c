@@ -1,5 +1,7 @@
 #include <assert.h>
+#include <ctype.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -476,8 +478,80 @@ static Vec *parseGetFunctionParams(Ast *def) {
     }
 }
 
+/* Where a call is written, for the argument count errors: from the
+ * function's name (or the `(` / first token of the arguments) to the
+ * closing `)`. line 0 means unknown. */
+typedef struct ParseCallLoc {
+    int line, col, len;
+} ParseCallLoc;
+
+/* The token parsed last, by stepping back over it */
+static Lexeme *parseLastToken(Cctrl *cc) {
+    cctrlTokenRewind(cc);
+    return cctrlTokenGet(cc);
+}
+
+/* Call before the arguments are parsed, with the `(` (or the token before
+ * the arguments) just consumed. Starts at the name when it is right
+ * before that token on the same line. */
+static ParseCallLoc parseCallLocStart(Cctrl *cc, char *fname, int len) {
+    ParseCallLoc loc = {0, 0, 0};
+    Lexeme *tok = parseLastToken(cc);
+    if (!tok) return loc;
+    loc.line = tok->line;
+    loc.col = tok->col;
+    loc.len = tok->len;
+    if (cc->lexer_ && tokenPunctIs(tok,'(')) {
+        char *line_buffer = lexerReportLine(cc->lexer_, tok->line);
+        int end = tok->col - 1; /* index of the `(` */
+        if (end <= (int)strlen(line_buffer)) {
+            while (end > 0 && isspace((unsigned char)line_buffer[end - 1])) end--;
+            int name_idx = end - len;
+            if (name_idx >= 0 && !strncmp(line_buffer + name_idx, fname, len)) {
+                loc.col = name_idx + 1;
+                loc.len = tok->col + tok->len - loc.col;
+            }
+        }
+    }
+    return loc;
+}
+
+/* Call after the arguments are parsed: extends `loc` to the last token
+ * (the closing `)`) when it is on the same line. */
+static void parseCallLocEnd(Cctrl *cc, ParseCallLoc *loc) {
+    Lexeme *tok = parseLastToken(cc);
+    if (!tok || !loc->line || tok->line != loc->line || tok->col < loc->col) {
+        return;
+    }
+    loc->len = tok->col + tok->len - loc->col;
+}
+
+/* An argument count error at `loc`, or around the `(`...`)` on the
+ * current line when the call's position isn't known. */
+static void parseRaiseCallError(Cctrl *cc, ParseCallLoc *loc, char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    char *msg = mprintVa(fmt, ap, NULL);
+    va_end(ap);
+    if (!loc || !loc->line) {
+        cctrlRaiseExceptionFromTo(cc, NULL, '(', ')', "%s", msg);
+    }
+    AoStr *bold = aoStrNew();
+    aoStrCatColoured(bold, ESC_BOLD, msg);
+    AoStr *buf = cctrlCreateErrorLineAt(cc, loc->line, loc->col, loc->len,
+                                        bold->data, CCTRL_ERROR, NULL);
+    aoStrRelease(bold);
+    CctrlDiagnostic *d = cctrlMakeDiag(cc, CCTRL_ERROR, buf, NULL);
+    d->line = d->end_line = loc->line;
+    d->col = loc->col;
+    d->end_col = loc->col + loc->len;
+    cctrlDiagPush(cc, d);
+    cctrlTerminate(cc);
+}
+
 /* We use this to check function calls against their definitions reusably */
-static void parseFunctionArgumentCheck(Cctrl *cc, Ast *def, Vec *argv, char *fname, int len)
+static void parseFunctionArgumentCheck(Cctrl *cc, Ast *def, Vec *argv, char *fname, int len,
+                                       ParseCallLoc *loc)
 {
     Vec *params = parseGetFunctionParams(def);
     int param_count = params ? (int)params->size : 0;
@@ -505,12 +579,12 @@ static void parseFunctionArgumentCheck(Cctrl *cc, Ast *def, Vec *argv, char *fna
             if (param->kind == AST_DEFAULT_PARAM) continue;
 
             if (default_count) {
-                cctrlRaiseExceptionFromTo(cc, NULL, '(', ')',
+                parseRaiseCallError(cc, loc,
                         "Unexpected number of arguments %d in call to %.*s(), argument %d is required",
                         arg_count, len, fname, i + 1);
             }
 
-            cctrlRaiseExceptionFromTo(cc, NULL, '(', ')',
+            parseRaiseCallError(cc, loc,
                     "Unexpected number of arguments %d in call to %.*s(), expected %d args",
                     arg_count, len, fname, fixed_param_count);
         }
@@ -527,7 +601,7 @@ static void parseFunctionArgumentCheck(Cctrl *cc, Ast *def, Vec *argv, char *fna
     /* vararg calls allow extras, but still require fixed args */
     if (fixed_param_count != param_count) {
         if (arg_count < required_count) {
-            cctrlRaiseExceptionFromTo(cc, NULL, '(', ')',
+            parseRaiseCallError(cc, loc,
                     "Unexpected number of arguments %d in call to %.*s(), expected at least %d args",
                     arg_count, len, fname, required_count);
         }
@@ -537,12 +611,12 @@ static void parseFunctionArgumentCheck(Cctrl *cc, Ast *def, Vec *argv, char *fna
     /* non-vararg calls cannot use more than the fixed parameter count */
     if (arg_count > fixed_param_count) {
         if (default_count) {
-            cctrlRaiseExceptionFromTo(cc, NULL, '(', ')',
+            parseRaiseCallError(cc, loc,
                     "Unexpected number of arguments %d in call to %.*s(), expected args in range %d to %d",
                     arg_count, len, fname, required_count, fixed_param_count);
         }
 
-        cctrlRaiseExceptionFromTo(cc, NULL, '(', ')',
+        parseRaiseCallError(cc, loc,
                 "Unexpected number of arguments %d in call to %.*s(), expected %d args",
                 arg_count, len, fname, fixed_param_count);
     }
@@ -981,10 +1055,12 @@ Ast *parseFunctionArguments(Cctrl *cc, char *fname, int len, s64 terminator) {
         }
     }
 
+    ParseCallLoc loc = parseCallLocStart(cc, fname, len);
     Vec *argv = parseArgv(cc,maybe_fn,terminator,fname,len);
+    parseCallLocEnd(cc, &loc);
 
     if (maybe_fn) {
-        parseFunctionArgumentCheck(cc,maybe_fn,argv,fname,len);
+        parseFunctionArgumentCheck(cc,maybe_fn,argv,fname,len,&loc);
         parseFlattenDefaultArgs(maybe_fn, argv);
         parseAddEmptyVarArgCount(maybe_fn, argv);
         parseCoerceArgs(maybe_fn, argv);
@@ -1173,7 +1249,15 @@ static Ast *parseIdentifierOrFunction(Cctrl *cc,
              * address. */
             if (parseIsFunction(ast)) {
                 Vec *argv = astVecNew();
-                parseFunctionArgumentCheck(cc,ast,argv,ast->fname->data,ast->fname->len);
+                /* Underline the name, the token before the one in hand */
+                Lexeme *name_tok = parseLastToken(cc);
+                ParseCallLoc loc = {0, 0, 0};
+                if (name_tok) {
+                    loc.line = name_tok->line;
+                    loc.col = name_tok->col;
+                    loc.len = name_tok->len;
+                }
+                parseFunctionArgumentCheck(cc,ast,argv,ast->fname->data,ast->fname->len,&loc);
                 parseFlattenDefaultArgs(ast, argv);
                 parseAddEmptyVarArgCount(ast, argv);
                 if (ast->flags & AST_FLAG_INLINE && !(cc->flags & CCTRL_TRANSPILING)) {
@@ -1452,8 +1536,10 @@ static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
         else if (base->kind == AST_CLASS_REF) name = base->field;
     }
     int len = strlen(name);
+    ParseCallLoc loc = parseCallLocStart(cc, name, len);
     Vec *argv = parseArgv(cc,class_ref,')',name,len);
-    parseFunctionArgumentCheck(cc,class_ref,argv,name,len);
+    parseCallLocEnd(cc, &loc);
+    parseFunctionArgumentCheck(cc,class_ref,argv,name,len,&loc);
     parseFlattenDefaultArgs(class_ref, argv);
     parseAddEmptyVarArgCount(class_ref, argv);
     parseCoerceArgs(class_ref, argv);
