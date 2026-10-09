@@ -1139,6 +1139,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
   }
 
   ptr = dst;
+  *ptr = '\0'; /* SPutChar terminates after each char: an empty result needs it too */
   while (ch = *fmt++) {
     if (ch == '%') {
       spec = fmt - 1; /* the '%', for an unsupported conversion */
