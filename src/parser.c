@@ -3303,6 +3303,7 @@ static void parseInheritDefaultParams(Cctrl *cc, AstType *rettype,
 }
 
 Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int is_inline) {
+    cctrlNoteHeaderName(cc, fname, len);
     /* Anchor: the name token was just consumed, so the cursor still
      * sits on its line - stamp the function Ast with the NAME's
      * position, not the body's `{` (which is where the node is
@@ -3388,6 +3389,7 @@ Ast *parseAsmFunctionBinding(Cctrl *cc) {
     }
 
     asm_fname = aoStrDupRaw(tok->start, tok->len);
+    cctrlNoteHeaderName(cc, tok->start, tok->len);
     /* No existence check here, deliberately: a binding's label is
      * usually EXTERNAL - stdlib headers bind `_extern _MALLOC`-style
      * labels whose bodies live in libtos, and the lib itself binds
@@ -3533,6 +3535,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                     }
                     type = parseArrayDimensions(cc, type);
                     cctrlTokenExpect(cc,';');
+                    cctrlNoteHeaderName(cc, name->start, name->len);
                     Ast *gvar = astGVar(type, name->start, name->len, 0);
                     Ast *decl = astDecl(gvar, NULL);
                     decl->flags |= AST_FLAG_EXTERN;

@@ -5,9 +5,18 @@
  * writing the NUL) and crashed on a negative len. It is now strndup: at
  * most len bytes, stopping at the NUL, always terminated, len < 0 is 0.
  * fzf's internal str_replace called it as if it were C's strncpy (leaking
- * the copy and leaving the result unwritten); that use is fixed too. */
+ * the copy and leaving the result unwritten); that use is fixed too. It
+ * is checked through FzF, whose pattern parsing uses it to turn an escaped
+ * space (`\ `) into one that is part of the term. */
 
-U8 *str_replace(U8 *orig, U8 *rep, U8 *with);
+/* FzF(text, pattern) found a match covering `size` characters */
+Bool Matches(U8 *text, U8 *pattern, I64 size)
+{
+  FzFPosition *pos = FzF(text, pattern);
+  Bool ok = pos && pos->size == size;
+  if (pos) FzFPositionRelease(pos);
+  return ok;
+}
 
 I32 Main()
 {
@@ -27,10 +36,11 @@ I32 Main()
   tests++; if (MSize(b) == 3 && MSize(a) == 4) correct++;
   Free(a); Free(b); Free(c); Free(d); Free(e); Free(f);
 
-  U8 *r = str_replace("a b\\ c\\ d", "\\ ", "\t");
-  tests++; if (r && !StrCmp(r, "a b\tc\td")) correct++;
-  else "str_replace -> \"%s\"\n", r;
-  Free(r);
+  tests++;
+  if (Matches("xa bx", "a\\ b", 3) && !FzF("xabx", "a\\ b") &&
+      Matches("a b c d", "b\\ c\\ d", 5))
+    correct++;
+  else "FzF with escaped spaces\n";
 
   PrintResult(correct, tests);
   "====\n";

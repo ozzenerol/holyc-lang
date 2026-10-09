@@ -84,6 +84,10 @@ void asmEmitFunctionSymbol(Cctrl *cc, AoStr *buf, char *label, Ast *func) {
     if (func && (func->flags & AST_FLAG_STATIC)) {
         return;
     }
+    /* A library function the header doesn't declare is internal */
+    if (func && !cctrlIsExported(cc, func->fname)) {
+        return;
+    }
     asmEmitFunctionGlobal(cc, buf, label);
 }
 
