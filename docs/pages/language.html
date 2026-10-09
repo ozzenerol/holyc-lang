@@ -821,6 +821,8 @@ running as a compiled binary
 <h3>#include and #link</h3>
 <p><code>#include "file.HC"</code> is relative to the including file;
 <code>#include &lt;file.HH&gt;</code> searches the installed include directory.
+A file that can't be opened or read (a directory, say) is reported as an error at the
+<code>#include</code>, and the rest of the file is still checked.
 <code>#link</code> records a library dependency in the source itself (see
 <a href="#calling-c">calling C</a>).</p>
 
