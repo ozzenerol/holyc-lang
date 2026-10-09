@@ -164,12 +164,12 @@ int hccLibInit(Cctrl *cc, hccLib *lib, CliArgs *args, char *name) {
     char *lib_install_dir = tprintf("%s/lib", args->install_dir);
 
     /* `-Bsymbolic` binds libtos's internal global references (e.g. the
-     * `Fs` exception object shared by HCC_PushFrame/HCC_Throw) to
-     * libtos's own definitions. That makes those symbols non-preemptible,
+     * pthread key the exception runtime keeps its per-thread state
+     * under) to libtos's own definitions. That makes those symbols non-preemptible,
      * which is what lets the code generators use direct RIP-relative /
      * adrp+add addressing (already position independent) rather than
      * routing every global access through the GOT. The symbols stay in
-     * the dynamic table, so the JIT can still dlsym them (e.g. `Fs`). */
+     * the dynamic table, so the JIT can still dlsym them. */
     aoStrCatPrintf(dylib_cmd,
             "%s -fPIC -shared -Wl,-Bsymbolic -Wl,-soname,%s %s -o %s "CLIBS" %s",
             cc->CC,
@@ -186,11 +186,10 @@ int hccLibInit(Cctrl *cc, hccLib *lib, CliArgs *args, char *name) {
      * Deliberately NO unversioned `libtos.so` symlink: that would make
      * `-ltos` prefer the shared object and dynamic-link AOT. Because
      * libtos is built with `-Bsymbolic` (see above), a dynamically
-     * linked executable gets a COPY relocation for exported data like
-     * `Fs` while libtos's own functions keep writing their internal
-     * copy - two `Fs` objects, so the first `throw` null-derefs. Static
-     * linking keeps a single `Fs`; `-ltos` finds the archive because no
-     * `libtos.so` exists beside it. */
+     * linked executable gets a COPY relocation for exported data while
+     * libtos's own functions keep using their internal copy - two
+     * objects for one global. Static linking keeps a single one; `-ltos`
+     * finds the archive because no `libtos.so` exists beside it. */
     aoStrCatPrintf(installcmd,
             "cp -pPR ./%s %s/%s && ",
             lib->stylib_name,

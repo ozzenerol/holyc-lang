@@ -14,12 +14,17 @@
  * The HolyC `class CatchFrame` below pads to exactly 256 bytes so the
  * layout the runtime sees matches what the compiler allocated.
  *
- * Single-thread for now: Fs is a process-wide global. Multi-thread
- * support requires a pthread_key_t-backed Fs (future work). */
+ * Each thread has its own HCFs (catch chain and thrown value), kept
+ * under a pthread key: a throw only ever reaches a try of the thread
+ * that threw. Fs() returns the calling thread's HCFs. */
 #include "./defs.HH"
 
 public extern "c" I32 setjmp(U0 *env);
 public extern "c" U0 longjmp(U0 *env, I32 val);
+extern "c" I32 pthread_once(U0 *once, U0 (*init)());
+extern "c" I32 pthread_key_create(U64 *key, U0 (*destructor)(U0 *));
+extern "c" U0 *pthread_getspecific(U64 key);
+extern "c" I32 pthread_setspecific(U64 key, U0 *value);
 
 /* Compiler reserves 256 bytes per CatchFrame. We split that into a
  * 248-byte jmp_buf storage region (setjmp owns the format) plus the
@@ -39,13 +44,41 @@ class HCFs
   U64 except_ch;          /* value of the most recent throw */
 };
 
-/* Canonical storage + global pointer. tos.HH declares `Fs` as
- * `extern HCFs *Fs;` so user TUs reference rather than redefine. We
- * initialise lazily on first try, since HolyC lifts non-constant
- * global initialisers into a hidden Main wrapper that would conflict
- * with the user's Main. */
-static HCFs _fs_storage;
-public HCFs *Fs;
+/* pthread_once_t is an int on Linux and a signed struct on macOS
+ * (PTHREAD_ONCE_INIT is {0x30B1BCBA, {0}}); pthread_key_t is 4 bytes on
+ * Linux and 8 on macOS, so 8 zeroed bytes hold either. */
+#ifdef IS_MACOS
+static I64 _fs_once[2] = {0x30B1BCBA, 0};
+#else
+static I64 _fs_once[2] = {0, 0};
+#endif
+static U64 _fs_key = 0;
+
+static U0 FsFree(U0 *fs)
+{
+  free(fs);
+}
+
+static U0 FsKeyCreate()
+{
+  pthread_key_create(&_fs_key, &FsFree);
+}
+
+/* The calling thread's HCFs, created on its first use. */
+public HCFs *Fs()
+{
+  pthread_once(_fs_once, &FsKeyCreate);
+  HCFs *fs = pthread_getspecific(_fs_key);
+  if (!fs) {
+    fs = calloc(1, sizeof(HCFs));
+    if (!fs) {
+      "out of memory for the exception state\n";
+      Exit(1);
+    }
+    pthread_setspecific(_fs_key, fs);
+  }
+  return fs;
+}
 
 /* Push the frame onto the catch-stack. The setjmp call itself MUST
  * stay inline in the user function (it captures the caller's frame,
@@ -53,28 +86,21 @@ public HCFs *Fs;
  * mutation is the only thing we delegate to a helper. */
 public U0 HCC_PushFrame(CatchFrame *f)
 {
-  if (!Fs) Fs = &_fs_storage;
-  f->prev = Fs->catch_top;
-  Fs->catch_top = f;
+  HCFs *fs = Fs();
+  f->prev = fs->catch_top;
+  fs->catch_top = f;
 }
 
 public U0 HCC_TryLeave(CatchFrame *f)
 {
-  Fs->catch_top = f->prev;
+  Fs()->catch_top = f->prev;
 }
 
 public U0 HCC_Throw(U64 v)
 {
-  /* Fs is lazily initialised by HCC_PushFrame on the first `try`. A
-   * throw before any `try` would otherwise null-deref on the assign
-   * below. No prior try also means no catch frame, so go straight to
-   * the uncaught path. */
-  if (!Fs) {
-    "uncaught throw: %X (no active try)\n", v;
-    Exit(1);
-  }
-  Fs->except_ch = v;
-  auto t = Fs->catch_top;
+  HCFs *fs = Fs();
+  fs->except_ch = v;
+  auto t = fs->catch_top;
   if (!t) {
     "uncaught throw: %X\n", v;
     Exit(1);
