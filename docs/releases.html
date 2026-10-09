@@ -36,6 +36,37 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.11.0 <small>(2026-10-09)</small></h2>
+<p>Coroutines are a library module on Linux x86_64, Linux arm64 and macOS arm64, tested compiled and
+in the JIT on all three.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>coroutines.HC</code> was a stand-alone x86_64 demo; it is now part of the library with a
+  new API, so code written against the demo (<code>CoroutineInit</code>, the fixed coroutine table,
+  <code>U0</code> coroutine functions) needs updating.</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li><code>CoroutineNew(fn, arg, stack_size)</code>, <code>CoroutineNext(c, send)</code>,
+  <code>CoroutineYield(value)</code>, <code>CoroutineDone</code>, <code>CoroutineSelf</code> and
+  <code>CoroutineRelease</code>. A coroutine function is <code>U0 *fn(U0 *arg)</code>; values go both
+  ways (<code>Yield(v)</code> hands <code>v</code> to <code>Next</code>, <code>Next(c, x)</code> makes the
+  paused <code>Yield</code> return <code>x</code>) and the function's return value comes back from the
+  last <code>Next</code>.</li>
+  <li>Each thread has its own coroutines, each coroutine its own catch chain: a <code>try</code> can span
+  a yield, and an uncaught <code>throw</code> in a coroutine is rethrown by the <code>CoroutineNext</code>
+  that resumed it.</li>
+  <li>Stacks are 256 KiB by default, with a guard page the size of a real memory page (16 KiB on macOS
+  arm64), so an overflow crashes instead of overwriting memory.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>A coroutine finishing entered its exit code with a misaligned stack on x86_64.</li>
+</ul>
+
 <h2>v0.10.0 <small>(2026-10-09)</small></h2>
 <p>UDP and the networking basics. Every change has a regression test that runs compiled and in the
 JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
