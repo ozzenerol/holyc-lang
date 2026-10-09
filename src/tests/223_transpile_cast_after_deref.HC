@@ -3,9 +3,9 @@
 /* `I64 v = **pp(I64 *);` with `Pt **pp`: a cast is postfix, so this is
  * `**(pp(I64 *))`, and the second `*` dereferences an I64. -jit and AOT
  * report that; -transpile printed "Unary type is being assigned as NULL"
- * and segfaulted. It now writes the C (which the C compiler rejects, as
- * the program is wrong). The transpiler also wrote a cast unbracketed,
- * so `p(I64 *)[1]` became `(long *)p[1]` (a cast of `p[1]` in C). */
+ * and segfaulted. It now reports the error like -jit (test 226). The
+ * transpiler also wrote a cast unbracketed, so `p(I64 *)[1]` became
+ * `(long *)p[1]` (a cast of `p[1]` in C). */
 
 #define TC_FILE "__223_transpile.HC"
 #define TC_C    "__223_transpile.c"
@@ -86,13 +86,14 @@ U0 Main()
   else "jit: %d %s\n", res, out;
   Free(out);
 
-  /* ...and -transpile no longer crashes on it */
+  /* ...and -transpile no longer crashes on it: it reports the same
+   * error (test 226) */
   tests++;
   res = System(TC_HCC "-transpile " TC_FILE " > " TC_C " 2> " TC_OUT);
   out = FileRead(TC_OUT);
   U8 *code = FileRead(TC_C);
-  if (res == 0 && out && !strstr(out, "NULL") && code &&
-      strstr(code, "long v = **((long *)pp);")) correct++;
+  if (res == 1 && out && !strstr(out, "NULL") &&
+      strstr(out, "`*` on `I64` is invalid")) correct++;
   else "transpile: %d %s\n", res, out;
   Free(out);
   Free(code);

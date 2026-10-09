@@ -59,9 +59,16 @@ void parseRegModifier(Cctrl *cc, int *kind_out, AoStr **reg_out) {
     }
 }
 
+static int range_loop_idx = 0;
+
 static AoStr *getRangeLoopIdx(void) {
-    static int id = 0;
-    return aoStrPrintf("___tmp%d___", ++id);
+    return aoStrPrintf("___tmp%d___", ++range_loop_idx);
+}
+
+/* Start the range-loop temporaries from `___tmp1___` again, for a second
+ * parse of the same input (-transpile checks it with a compile first) */
+void parseResetRangeLoopIdx(void) {
+    range_loop_idx = 0;
 }
 
 /* Kinda cheating converting it to a string and calling printf */
@@ -1151,6 +1158,18 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags,
     }
 
     init = parseExpr(cc,16);
+    if (!init) {
+        /* `I64 v = ;`: the same error as the assignment `v = ;` (this
+         * went on with no initialiser and crashed) */
+        Lexeme *bad = cctrlTokenPeek(cc);
+        cctrlTokenRewind(cc);
+        char *name = astLValueToString(var,0);
+        char *msg = mprintf("`%s = var2` is the expected usage however got `%s`",
+                            name, lexemeAsWritten(bad));
+        cctrlRaiseSuggestion(cc,msg,"Second operand missing to `%s =` got invalid %s `%s`",
+                             name, lexemeTypeToString(bad->tk_type),
+                             lexemeAsWritten(bad));
+    }
     Lexeme *tok = cctrlTokenGet(cc);
     assertTokenIsTerminator(cc,tok,terminator_flags);
     if (var->kind == AST_GVAR && var->type->kind == AST_TYPE_INT) {
