@@ -395,6 +395,50 @@ static Bool JsonSetExpectedType(JsonParser *p)
   return TRUE;
 }
 
+/* Reads the 4 hex digits after the 'u' of a \u escape, leaving the parser on
+ * the last one. Returns the code unit, or -1 if they aren't 4 hex digits. */
+static I64 JsonParseHex4(JsonParser *p)
+{
+  I64 i, val = 0;
+  U8 ch;
+  if (!JsonCanAdvanceBy(p, 4)) {
+    return -1;
+  }
+  for (i = 1; i <= 4; i++) {
+    ch = JsonUnsafePeekAt(p, p->offset + i);
+    val <<= 4;
+    if ('0' <= ch <= '9')      val |= ch - '0';
+    else if ('a' <= ch <= 'f') val |= ch - 'a' + 10;
+    else if ('A' <= ch <= 'F') val |= ch - 'A' + 10;
+    else return -1;
+  }
+  JsonUnsafeAdvanceBy(p, 4);
+  return val;
+}
+
+/* Writes code point `cp` as UTF-8 to `dst`, returns the number of bytes */
+static I64 JsonUtf8Encode(U8 *dst, I64 cp)
+{
+  if (cp < 0x80) {
+    dst[0] = cp;
+    return 1;
+  } else if (cp < 0x800) {
+    dst[0] = 0xC0 | (cp >> 6);
+    dst[1] = 0x80 | (cp & 0x3F);
+    return 2;
+  } else if (cp < 0x10000) {
+    dst[0] = 0xE0 | (cp >> 12);
+    dst[1] = 0x80 | ((cp >> 6) & 0x3F);
+    dst[2] = 0x80 | (cp & 0x3F);
+    return 3;
+  }
+  dst[0] = 0xF0 | (cp >> 18);
+  dst[1] = 0x80 | ((cp >> 12) & 0x3F);
+  dst[2] = 0x80 | ((cp >> 6) & 0x3F);
+  dst[3] = 0x80 | (cp & 0x3F);
+  return 4;
+}
+
 static U8 *JsonParseString(JsonParser *p)
 {
   Bool run = TRUE;
@@ -445,9 +489,36 @@ static U8 *JsonParseString(JsonParser *p)
           case 'r': str[len++] = '\r'; break;
           case 't': str[len++] = '\t'; break;
           case 'u': {
-            /* XXX: handle unicode */
-            p->error = JSON_INVALID_ESCAPE_CHARACTER;
-            goto err;
+            I64 cp = JsonParseHex4(p);
+            if (cp < 0) {
+              p->error = JSON_INVALID_HEX;
+              goto err;
+            }
+            if (0xDC00 <= cp <= 0xDFFF) { /* lone low surrogate */
+              p->error = JSON_INVALID_UTF16_SURROGATE;
+              goto err;
+            }
+            if (0xD800 <= cp <= 0xDBFF) { /* needs a \uDC00-\uDFFF after it */
+              if (!JsonCanAdvanceBy(p, 2) ||
+                  JsonUnsafePeekAt(p, p->offset + 1) != '\\' ||
+                  JsonUnsafePeekAt(p, p->offset + 2) != 'u') {
+                p->error = JSON_INVALID_UTF16_SURROGATE;
+                goto err;
+              }
+              JsonUnsafeAdvanceBy(p, 2);
+              I64 lo = JsonParseHex4(p);
+              if (lo < 0) {
+                p->error = JSON_INVALID_HEX;
+                goto err;
+              }
+              if (!(0xDC00 <= lo <= 0xDFFF)) {
+                p->error = JSON_INVALID_UTF16_SURROGATE;
+                goto err;
+              }
+              cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+            }
+            len += JsonUtf8Encode(str + len, cp);
+            break;
           }
           default:
             p->error = JSON_INVALID_ESCAPE_CHARACTER;
