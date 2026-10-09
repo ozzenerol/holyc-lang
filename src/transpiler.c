@@ -30,6 +30,10 @@ typedef struct TranspileCtx {
     Set *used_defines;
     Set *skip_defines;
     Set *skip_types;
+    /* Classes and unions whose definition has been written, and the
+     * ones being written (see transpileTypeDefinition) */
+    Set *done_types;
+    Set *visiting_types;
     Cctrl *cc;
     AoStr *buf;
 } TranspileCtx;
@@ -272,6 +276,8 @@ TranspileCtx *transpileCtxNew(Cctrl *cc) {
     TranspileCtx *ctx = (TranspileCtx *)malloc(sizeof(TranspileCtx));
     ctx->used_types = setNew(32, &set_cstring_type);
     ctx->used_defines = setNew(32, &set_cstring_type);
+    ctx->done_types = setNew(32, &set_cstring_type);
+    ctx->visiting_types = setNew(32, &set_cstring_type);
 
     transpileInitMaps();
     ctx->skip_types = transpile_skip_classes_set;
@@ -1171,7 +1177,7 @@ static void transpileTypeInternal(TranspileCtx *ctx, AstType *type, TypeInfo *in
     }
 
     case AST_TYPE_FLOAT:
-        info->base_name = aoStrPrintf("double");
+        info->base_name = aoStrPrintf(type->size == 4 ? "float" : "double");
         break;
 
     case AST_TYPE_POINTER: {
@@ -1351,8 +1357,24 @@ static void transpileFields(TranspileCtx *ctx,
             transpileTypeInternal(ctx,field,&info);
             AoStr *decl = transpileVarDeclInfo(ctx,&info,n->key);
 
-            if (!strncmp(clsname,info.base_name->data,info.base_name->len)) {
-                aoStrCatFmt(buf,"struct %S;\n", decl);
+            /* A pointer to a class whose typedef is not written yet (this
+             * class itself, or one written later) needs its tag. */
+            AstType *base = field;
+            while (base->kind == AST_TYPE_POINTER ||
+                   base->kind == AST_TYPE_ARRAY) {
+                base = base->ptr;
+            }
+            if (info.stars && base->clsname &&
+                (base->kind == AST_TYPE_CLASS ||
+                 base->kind == AST_TYPE_UNION) &&
+                !setHasLen(ctx->done_types, base->clsname->data,
+                           base->clsname->len) &&
+                transpileCtxShouldEmitType(ctx, base->clsname->data,
+                                           base->clsname->len))
+            {
+                aoStrCatFmt(buf,"%s %S;\n",
+                            base->kind == AST_TYPE_UNION ? "union" : "struct",
+                            decl);
             } else {
                 aoStrCatFmt(buf,"%S;\n", decl);
             }
@@ -1361,9 +1383,69 @@ static void transpileFields(TranspileCtx *ctx,
     }
 }
 
-void transpileClassDefinitions(Cctrl *cc, TranspileCtx *ctx, Map *built_in_types) {
-    AoStr *buf = ctx->buf;
+static void transpileTypeDefinition(TranspileCtx *ctx, char *name, s64 len,
+                                    AstType *cls);
+
+/* Write the classes and unions used by value in `fields` (members,
+ * array members, members of anonymous nested classes) before the type
+ * that holds them: C needs a complete type there. */
+static void transpileTypeDependencies(TranspileCtx *ctx, Map *fields) {
+    Cctrl *cc = ctx->cc;
+    MapIter it;
+    mapIterInit(fields, &it);
+    while (mapIterNext(&it)) {
+        MapNode *n = it.node;
+        AstType *field = n->value;
+        while (field->kind == AST_TYPE_ARRAY) {
+            field = field->ptr;
+        }
+        if (field->kind != AST_TYPE_CLASS && field->kind != AST_TYPE_UNION) {
+            continue;
+        }
+        if (!strncmp(n->key, str_lit("cls_label "))) {
+            transpileTypeDependencies(ctx, field->fields);
+            continue;
+        }
+        if (!field->clsname) continue;
+        Map *defs = field->kind == AST_TYPE_UNION ? cc->uniondefs : cc->clsdefs;
+        AstType *dep = mapGetLen(defs, field->clsname->data, field->clsname->len);
+        if (dep && transpileCtxShouldEmitType(ctx, field->clsname->data,
+                                              field->clsname->len)) {
+            transpileTypeDefinition(ctx, field->clsname->data,
+                                    field->clsname->len, dep);
+        }
+    }
+}
+
+/* Write one class or union typedef, after the types it holds by value.
+ * Once each: a type is only `done` when its definition is written. */
+static void transpileTypeDefinition(TranspileCtx *ctx, char *name, s64 len,
+                                    AstType *cls)
+{
     s64 indent = 4;
+    AoStr *buf = ctx->buf;
+    if (setHasLen(ctx->done_types, name, len) ||
+        setHasLen(ctx->visiting_types, name, len)) {
+        return;
+    }
+    setAdd(ctx->visiting_types, name);
+    transpileTypeDependencies(ctx, cls->fields);
+
+    /* `seen` dedupes a class's flattened base/anonymous field copies
+     * against the nested struct that renders them - it must be scoped
+     * to ONE class, or a field name reused by a later class (or
+     * inherited from an already-rendered base) is silently dropped. */
+    Map *seen = astTypeMapNew();
+    char *kw = cls->kind == AST_TYPE_UNION ? "union" : "struct";
+    aoStrCatFmt(buf, "typedef %s %s {\n", kw, name);
+    transpileFields(ctx,cls->fields,seen,name,buf,&indent);
+    aoStrCatFmt(buf, "} %s;\n\n", name);
+    mapRelease(seen);
+    setAdd(ctx->done_types, name);
+}
+
+/* Classes, then unions, each after the types it holds by value. */
+void transpileClassDefinitions(Cctrl *cc, TranspileCtx *ctx, Map *built_in_types) {
     MapIter it;
     mapIterInit(cc->clsdefs, &it);
 
@@ -1384,25 +1466,10 @@ void transpileClassDefinitions(Cctrl *cc, TranspileCtx *ctx, Map *built_in_types
         if (cls->kind != AST_TYPE_CLASS) {
             loggerPanic("Should not be here\n"); 
         }
-
-        /* `seen` dedupes a class's flattened base/anonymous field copies
-         * against the nested struct that renders them - it must be scoped
-         * to ONE class, or a field name reused by a later class (or
-         * inherited from an already-rendered base) is silently dropped. */
-        Map *seen = astTypeMapNew();
-        aoStrCatFmt(buf, "typedef struct %s {\n", n->key);
-        transpileFields(ctx,cls->fields,seen,n->key,buf,&indent);
-        aoStrCatFmt(buf, "} %s;\n\n", n->key);
-        mapRelease(seen);
+        transpileTypeDefinition(ctx, n->key, n->key_len, cls);
     }
-}
 
-void transpileUnionDefinitions(Cctrl *cc, TranspileCtx *ctx) {
-    s64 indent = 4;
-    AoStr *buf = ctx->buf;
-    MapIter it;
     mapIterInit(cc->uniondefs, &it);
-
     while (mapIterNext(&it)) {
         MapNode *n = it.node;
         if (!transpileCtxShouldEmitType(ctx, n->key, n->key_len)) {
@@ -1415,12 +1482,7 @@ void transpileUnionDefinitions(Cctrl *cc, TranspileCtx *ctx) {
             mapPrint(cc->clsdefs);
             loggerPanic("Should not be here: %s\n", astTypeToColorString(cls)); 
         }
-
-        Map *seen = astTypeMapNew();
-        aoStrCatFmt(buf, "typedef union %s {\n", n->key);
-        transpileFields(ctx,cls->fields,seen,n->key,buf,&indent);
-        aoStrCatFmt(buf, "} %s;\n\n", n->key);
-        mapRelease(seen);
+        transpileTypeDefinition(ctx, n->key, n->key_len, cls);
     }
 }
 
@@ -1718,20 +1780,15 @@ AoStr *transpileToC(Cctrl *cc, CliArgs *args) {
     transpileCtxSetBuffer(ctx, class_buf);
     transpileClassDefinitions(cc,ctx, built_in_types);
 
-    AoStr *union_buf = aoStrNew();
-    transpileCtxSetBuffer(ctx, union_buf);
-    transpileUnionDefinitions(cc,ctx);
-
     AoStr *buffers[] = {
         include_buf,
         define_buf,
         class_buf,
-        union_buf,
         ast_buf,
     };
 
     AoStr *code = aoStrAlloc(ast_buf->len + define_buf->len +
-                             class_buf->len + union_buf->len);
+                             class_buf->len);
 
     s64 len = static_size(buffers);
     for (s64 i = 0; i < len; ++i) {
