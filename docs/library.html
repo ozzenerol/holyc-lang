@@ -1279,8 +1279,41 @@ size first. The <code>MSG_*</code> flags (<code>MSG_PEEK</code>, <code>MSG_TRUNC
 sockaddr_storage from;
 U32 fromlen = sizeof(sockaddr_storage);
 U8 buf[512];
-I64 n = recvfrom(fd, buf, sizeof(buf), 0, (&amp;amp;from)(sockaddr *), &amp;amp;fromlen);
+I64 n = recvfrom(fd, buf, sizeof(buf), 0, (&amp;from)(sockaddr *), &amp;fromlen);
 </code></pre>
+<p>For UDP, <code>NetCreateUdpSocket(port, bindaddr)</code> returns a bound datagram
+socket (the same bind addresses as <code>NetCreateServer</code>, port 0 picks one:
+<code>NetGetSocketPort</code> tells which), <code>NetSendTo(sock, buf, len, addr, port)</code>
+sends one datagram and <code>NetRecvFrom(sock, buf, len, from, from_size, &amp;port)</code>
+receives one and says who sent it, so a server answers with
+<code>NetSendTo(sock, reply, n, from, port)</code>. Both work with IPv4 and IPv6 and return
+-1 on failure. A datagram longer than the buffer is cut. <code>NetSetRecvTimeout(sock, ms)</code>
+makes reads give up with -1 after <code>ms</code> milliseconds.</p>
+<pre data-run><code>U0 Main()
+{
+  I32 srv = NetCreateUdpSocket(0, "127.0.0.1");
+  I32 cli = NetCreateUdpSocket(0, "127.0.0.1");
+  U8 buf[64], from[INET6_ADDRSTRLEN];
+  I32 port;
+  I64 n;
+
+  NetSendTo(cli, "ping", 4, "127.0.0.1", NetGetSocketPort(srv));
+  n = NetRecvFrom(srv, buf, sizeof(buf) - 1, from, sizeof(from), &amp;port);
+  buf[n] = '\0';
+  "server got %s from %s\n", buf, from;
+  NetSendTo(srv, "pong", 4, from, port);   // answer the sender
+
+  NetSetRecvTimeout(cli, 1000);
+  n = NetRecvFrom(cli, buf, sizeof(buf) - 1);
+  buf[n] = '\0';
+  "client got %s\n", buf;
+  close(srv);
+  close(cli);
+}
+</code></pre>
+<pre class="output">server got ping from 127.0.0.1
+client got pong
+</pre>
 
 <p>For code on the raw socket calls: <code>Htons</code>/<code>Ntohs</code> and
 <code>Htonl</code>/<code>Ntohl</code> convert ports and IPv4 addresses to network byte

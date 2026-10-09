@@ -11,6 +11,11 @@
   #define SO_OOBINLINE    10  /* leave received OOB data in line */
   #define SO_REUSEPORT    15  /* allow local address & port reuse */
   #define SO_TIMESTAMP    29  /* timestamp received dgram traffic */
+  #define SO_SNDBUF       7               /* Send buffer size */
+  #define SO_RCVBUF       8               /* Receive buffer size */
+  #define SO_ERROR        4               /* Get and clear the pending error */
+  #define SO_RCVTIMEO     20              /* Read timeout (a timeval) */
+  #define SO_SNDTIMEO     21              /* Write timeout (a timeval) */
 #else
 /*
  * Option flags per-socket.
@@ -27,6 +32,11 @@
   #define SO_REUSEPORT    0x0200          /* allow local address & port reuse */
   #define SO_TIMESTAMP    0x0400          /* timestamp received dgram traffic */
   #define SO_TIMESTAMP_MONOTONIC  0x0800  /* Monotonically increasing timestamp on rcvd dgram */
+  #define SO_SNDBUF       0x1001          /* Send buffer size */
+  #define SO_RCVBUF       0x1002          /* Receive buffer size */
+  #define SO_ERROR        0x1007          /* Get and clear the pending error */
+  #define SO_RCVTIMEO     0x1006          /* Read timeout (a timeval) */
+  #define SO_SNDTIMEO     0x1005          /* Write timeout (a timeval) */
 #endif
 
 /*
@@ -675,4 +685,140 @@ public I32 NetCreateUnixClientSocket(U8 *name)
     return -1;
   }
   return sockfd;
+}
+
+public I32 NetGetSocketPort(I32 sockfd)
+{// The local port of sockfd, or -1
+  sockaddr_storage ss;
+  U32 len = sizeof(sockaddr_storage);
+
+  if (getsockname(sockfd, (&ss)(sockaddr *), &len) == -1)
+    return -1;
+  if (ss.ss_family == AF_INET)
+    return Ntohs((&ss)(sockaddr_in *)->sin_port);
+  if (ss.ss_family == AF_INET6)
+    return Ntohs((&ss)(sockaddr_in6 *)->sin6_port);
+  return -1;
+}
+
+public I32 NetCreateUdpSocket(I32 port, U8 *bindaddr, I32 addrfam=AF_UNSPEC,
+    Bool non_blocking=FALSE)
+{// Returns the bound UDP socket, or -1 on failure
+  I32 sockfd = -1;
+  U8 strport[6];
+  addrinfo hints, *servinfo, *ptr;
+
+  if (port < 0 || port > 65535)
+    return -1;
+  if (addrfam != AF_UNSPEC && addrfam != AF_INET && addrfam != AF_INET6)
+    return -1;
+  snprintf(strport, sizeof(strport), "%d", port);
+
+  /* The same bind addresses as NetCreateServer */
+  if (bindaddr != NULL && !StrCmp("::*", bindaddr)) {
+    if (addrfam == AF_INET)
+      return -1;
+    addrfam = AF_INET6;
+    bindaddr = NULL;
+  } else if (bindaddr != NULL && !StrCmp("*", bindaddr)) {
+    bindaddr = NULL;
+  }
+  if (bindaddr == NULL && addrfam == AF_UNSPEC)
+    addrfam = AF_INET;
+
+  MemSet(&hints, 0, sizeof(addrinfo));
+  hints.ai_family = addrfam;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
+
+  if (getaddrinfo(bindaddr, strport, &hints, &servinfo) != 0)
+    return -1;
+
+  for (ptr = servinfo; ptr != NULL; ptr = ptr->ai_next) {
+    if ((sockfd = socket(ptr->ai_family, ptr->ai_socktype,
+            ptr->ai_protocol)) == -1)
+      continue;
+    if (bind(sockfd, ptr->ai_addr, ptr->ai_addrlen) == -1) {
+      close(sockfd); /* try the next address */
+      sockfd = -1;
+      continue;
+    }
+    if (non_blocking && !NetSetSocketNonBlocking(sockfd)) {
+      close(sockfd);
+      sockfd = -1;
+    }
+    break;
+  }
+
+  freeaddrinfo(servinfo);
+  return sockfd;
+}
+
+public I64 NetSendTo(I32 sockfd, U0 *buf, I64 len, U8 *addr, I32 port)
+{// Returns the bytes sent, or -1 on failure
+  sockaddr_storage me;
+  U32 melen = sizeof(sockaddr_storage);
+  U8 strport[6];
+  addrinfo hints, *servinfo;
+  I64 sent;
+
+  if (port < 0 || port > 65535 || addr == NULL)
+    return -1;
+  /* Resolve addr in the socket's own family */
+  if (getsockname(sockfd, (&me)(sockaddr *), &melen) == -1)
+    return -1;
+  snprintf(strport, sizeof(strport), "%d", port);
+  MemSet(&hints, 0, sizeof(addrinfo));
+  hints.ai_family = me.ss_family;
+  hints.ai_socktype = SOCK_DGRAM;
+
+  if (getaddrinfo(addr, strport, &hints, &servinfo) != 0)
+    return -1;
+  /* like NetSend: a socket that can't deliver gives -1, never SIGPIPE */
+  sent = sendto(sockfd, buf, len, __NET_MSG_NOSIGNAL, servinfo->ai_addr,
+      servinfo->ai_addrlen);
+  freeaddrinfo(servinfo);
+  return sent;
+}
+
+public I64 NetRecvFrom(I32 sockfd, U0 *buf, I64 len, U8 *from_addr=NULL,
+    I64 from_size=0, I32 *from_port=NULL)
+{// Returns the bytes received, or -1
+  sockaddr_storage from;
+  U32 fromlen = sizeof(sockaddr_storage);
+  I64 got;
+
+  if (len < 0)
+    return -1;
+  MemSet(&from, 0, sizeof(sockaddr_storage));
+  got = recvfrom(sockfd, buf, len, 0, (&from)(sockaddr *), &fromlen);
+  if (got == -1)
+    return -1;
+
+  if (from_addr != NULL && from_size > 0) {
+    if (!NetGetIpv4Address((&from)(sockaddr *), from.ss_family, from_addr, from_size))
+      from_addr[0] = '\0';
+  }
+  if (from_port != NULL) {
+    if (from.ss_family == AF_INET)
+      *from_port = Ntohs((&from)(sockaddr_in *)->sin_port);
+    else if (from.ss_family == AF_INET6)
+      *from_port = Ntohs((&from)(sockaddr_in6 *)->sin6_port);
+    else
+      *from_port = -1;
+  }
+  return got;
+}
+
+public Bool NetSetRecvTimeout(I32 sockfd, I64 ms)
+{// TRUE if SO_RCVTIMEO was set
+  timeval tv;
+
+  if (ms < 0)
+    return FALSE;
+  /* tv_usec is a long on Linux, an int on macOS: zero the whole struct */
+  MemSet(&tv, 0, sizeof(timeval));
+  tv.tv_sec = ms / 1000;
+  tv.tv_usec = (ms % 1000) * 1000;
+  return setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(timeval)) == 0;
 }
