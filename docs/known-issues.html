@@ -61,9 +61,6 @@ there works as shown.</p>
     <tr><td>Assigning a <code>U0 *</code> to a function pointer warns</td>
         <td><code>U0 *v = &amp;F; I64 (*fp)(I64 x) = v;</code>: "'U0 *' is not assignable to type '&lt;fn&gt; I64'"</td>
         <td>The assignment still works; ignore the warning</td></tr>
-    <tr><td>No line continuation in <code>#define</code></td>
-        <td>A <code>#define</code> ending in <code>\</code> gives confusing errors placed at an earlier line</td>
-        <td>Keep each <code>#define</code> on one line</td></tr>
     <tr><td><code>-jit</code> with no <code>Main</code> fails silently</td>
         <td>A file with no <code>Main</code> (or an empty file): <code>hcc -jit</code> prints nothing and exits 255</td>
         <td>Define <code>Main</code></td></tr>

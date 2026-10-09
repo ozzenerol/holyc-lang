@@ -849,7 +849,8 @@ logical operator (<code>&amp;&amp;</code>, <code>||</code>, <code>!</code>) is a
 A postfix cast to a built-in type works and gives the macro that type:
 <code>#define BIG (5(U64) % 3)</code> is a <code>U64</code>, <code>#define HALF (5(F64) / 2)</code>
 an <code>F64</code> (2.5). Classes are not known to the preprocessor, so
-<code>0(MyClass*)</code> is an error in a macro.</p>
+<code>0(MyClass*)</code> is an error in a macro. A long value can go on over several lines:
+end each line but the last with a <code>\</code>, as in C.</p>
 <pre data-run><code>
 #define MAX_USERS 64
 #define APP_NAME  "demo"

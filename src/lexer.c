@@ -1671,6 +1671,16 @@ static int lexCore(Lexer *l, Lexeme *le) {
                 return 1;
 
             case '\\':
+                /* A `\` that ends a line joins the next one to it, as in
+                 * C: how a long #define goes on over several lines */
+                if (lexPeek(l) == '\n' ||
+                    (lexPeek(l) == '\r' && l->ptr[1] == '\n')) {
+                    if (lexPeek(l) == '\r') l->ptr++;
+                    l->ptr++;
+                    l->lineno++;
+                    l->line_start_ptr = l->ptr;
+                    break;
+                }
                 lexemeAssignOp(le,start,1,'\\',l->lineno);
                 return 1;
 
