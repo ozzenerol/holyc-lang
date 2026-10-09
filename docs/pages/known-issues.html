@@ -17,9 +17,6 @@ there works as shown.</p>
     <tr><td>The C transpiler gets array members wrong</td>
         <td>With <code>class Leaf { I64 a, b; };</code>, <code>Leaf leaves[2];</code> is written as <code>Leaf leaves[32];</code> (bytes, not elements), and <code>b.leaves[1].a</code> as <code>*(b.leaves[1]).a</code>, which doesn't compile</td>
         <td>The transpiler is experimental; fix the C output by hand</td></tr>
-    <tr><td>Cross-compiling to macOS from Linux fails to assemble</td>
-        <td><code>--target=*-apple-darwin</code> on Linux still emits <code>.section .note.GNU-stack</code>, which the Mach-O assembler rejects</td>
-        <td>Build on the Mac</td></tr>
   </tbody>
 </table>
 
