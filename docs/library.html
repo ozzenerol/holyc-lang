@@ -358,6 +358,23 @@ shell couldn't be run.</p>
 newline, as a string to <code>Free</code>; format arguments are optional. It doesn't
 capture stderr or return the exit status: a failing command gives whatever it printed,
 often <code>""</code>. <code>Exit(code)</code> ends the program.</p>
+<p>The command is shell text, so a string from elsewhere (a file name, user input) must
+not be pasted in as it is: a space splits it and <code>$</code>, <code>`</code>,
+<code>;</code> or <code>*</code> run or expand things. <code>ShQuote(s)</code> returns
+<code>s</code> in single quotes as a new string to <code>Free</code>, with each
+<code>'</code> written as <code>'\''</code> (and <code>''</code> for <code>NULL</code>),
+so the shell gets it as one word, unchanged.</p>
+<pre data-run><code>U0 Main()
+{
+  U8 *q = ShQuote("it's $HOME; *");
+  U8 *out = Shlurp("printf '%%s' %s", q);
+  "[%s]\n", out;
+  Free(out);
+  Free(q);
+}
+</code></pre>
+<pre class="output">[it's $HOME; *]
+</pre>
 
 <h2 id="lists">Lists</h2>
 <p><code>List</code> is a circular doubly linked list of <code>U0 *</code> values. The list

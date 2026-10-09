@@ -664,6 +664,11 @@ public I64 Write(I64 fd, U8 *buf, I64 len);
  * signal, could not be run, or fmt is NULL. */
 public I32 Sh(U8 *fmt, ...);
 public U8 *Shlurp(U8 *fmt, ...);
+/* s in single quotes for sh, as a new string to Free: each ' becomes
+ * '\'' and NULL gives ''. The shell expands nothing in it, so use it for
+ * any text that goes into a command: q = ShQuote(s); Sh("ls %s", q);
+ * Free(q). */
+public U8 *ShQuote(U8 *s);
 
 /* TempleOS-style try/catch/throw. CatchFrame is 256 bytes (matches
  * what the compiler reserves per `try` block); the runtime stores its
