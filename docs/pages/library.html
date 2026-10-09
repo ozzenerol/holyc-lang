@@ -225,24 +225,24 @@ U0 Main()
 fixed
 </pre>
 <p><code>StrCleanEnd(s, chars)</code> removes any of the characters in <code>chars</code> from the end
-of <code>s</code>, in place, and returns <code>s</code>. Use it to drop the line ending from text you
-read, before comparing it. Pass a pointer as the third argument to get the new length.</p>
+of <code>s</code>, in place, and returns the new length. Use it to drop the line ending from text
+you read, before comparing it.</p>
 <pre data-run><code>
 U0 Main()
 {
   U8 buf[32];
   StrCpy(buf, "exit\r\n");
-  I64 len;
-  StrCleanEnd(buf, "\r\n", &len);
+  I64 len = StrCleanEnd(buf, "\r\n");
   "[%s] %d %d\n", buf, len, StrCmp(buf, "exit") == 0;
 
   StrCpy(buf, "Hello!!!...");
-  "[%s]\n", StrCleanEnd(buf, ".!");
+  len = StrCleanEnd(buf, ".!");
+  "[%s] %d\n", buf, len;
 }
 </code></pre>
 <pre class="output">
 [exit] 4 1
-[Hello]
+[Hello] 5
 </pre>
 
 <h3>Splitting paths and names</h3>
