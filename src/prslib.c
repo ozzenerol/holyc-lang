@@ -817,7 +817,10 @@ Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len) {
                     "(unterminated `( ... )`?)", len, fname);
         }
         if (!tokenPunctIs(tok,',')) {
-            cctrlRewindUntilPunctMatch(cc, tok->i64, NULL);
+            /* Point at `tok`. Matching its i64 as a punctuator would
+             * rewind up to 6 tokens when it is an identifier, a string
+             * or a number, out of this statement */
+            cctrlTokenRewind(cc);
             /* We could have a malformed string as a function argument */
             int is_string = tok->tk_type == TK_STR;
             char terminator = is_string ? '"' : ')';
