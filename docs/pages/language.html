@@ -693,6 +693,26 @@ U0 Main()
 3 4 8
 2 5 9
 </pre>
+<p>A string for a <code>U8</code> array field or row is copied in the same way, and
+must fit with its NUL. A <code>U8 *</code> field points at the string instead:</p>
+<pre data-run><code>
+class Item { I64 id; U8 name[8]; U8 *note; };
+
+U8 days[3][4] = {"Mon", "Tue", "Wed"};
+Item first = {1, "pen", "blue"};
+
+U0 Main()
+{
+  Item second = {2, "ink\n", "black"};
+  "%s %s %s\n", days[0], days[2], first.name;
+  "%s%s %s %d\n", second.name, first.note, second.note, sizeof(Item);
+}
+</code></pre>
+<pre class="output">
+Mon Wed pen
+ink
+blue black 24
+</pre>
 
 <h3>Inheritance</h3>
 <p>A class can extend one other class. It starts with all of the base class's fields, so a

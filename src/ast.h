@@ -479,6 +479,8 @@ Ast *astI64Type(s64 val);
 Ast *astF64Type(double val);
 Ast *astCharType(s64 ch);
 Ast *astString(char *str, int len, s64 real_len);
+/* Decode a string literal's escapes into `out` (sval->len + 1 bytes). */
+int astStringDecode(Ast *str, char *out);
 
 /* Declarations */
 Ast *astDecl(Ast *var, Ast *init);

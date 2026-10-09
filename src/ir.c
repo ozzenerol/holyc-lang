@@ -1297,6 +1297,21 @@ static void irStoreConstBytes(IrCtx *ctx,
     }
 }
 
+/* Store the string literal `str` into the `n_bytes` char-array slot at
+ * `base + offset_bytes`: its decoded bytes (escapes such as `\n` are
+ * kept textual by the lexer), then zeros. */
+static void irStoreConstString(IrCtx *ctx,
+                               IrValue *base,
+                               int offset_bytes,
+                               int n_bytes,
+                               Ast *str)
+{
+    char *data = (char *)malloc(str->sval->len + 1);
+    int len = astStringDecode(str, data);
+    irStoreConstBytes(ctx, base, offset_bytes, n_bytes, data, len);
+    free(data);
+}
+
 /* Whether the brace list `init` sets every element and field of a `ty`
  * object (padding aside). C zero-fills whatever a shorter list leaves
  * out, so an object it doesn't cover is cleared before the stores. */
@@ -1355,6 +1370,12 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
             int foff = offset_bytes + (fld ? fld->offset : idx * 8);
             if (item->kind == AST_ARRAY_INIT) {
                 irLowerArrayInitWalk(ctx, base, foff, fld, item);
+            } else if (item->kind == AST_STRING && fld &&
+                       astTypeIsArray(fld))
+            {
+                /* `U8 name[8]` field: the string's bytes, not its
+                 * address. */
+                irStoreConstString(ctx, base, foff, fld->size, item);
             } else {
                 IrValue *val = irExpr(ctx, item);
                 AstType *cty = fld ? fld : item->type;
@@ -1397,10 +1418,7 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
             astTypeIsArray(elem_ty))
         {
             int slot_size = elem_ty->size;
-            int str_len = item->sval ? (int)item->sval->len : 0;
-            const char *str_data = item->sval ? item->sval->data : NULL;
-            irStoreConstBytes(ctx, base, offset_bytes, slot_size,
-                              str_data, str_len);
+            irStoreConstString(ctx, base, offset_bytes, slot_size, item);
             offset_bytes += slot_size;
             continue;
         }
