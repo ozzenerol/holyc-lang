@@ -46,6 +46,9 @@ public class CDateStruct
   I64 zone_diff;
 };
 
+/* zone_diff when there is no zone; no +-hhmm offset can be this */
+#define CDATE_NO_ZONE I64_MIN
+
 U64 mon_start_days1[12]={
   0,31,59,90,120,151,181,212,243,273,304,334};
 U64 mon_start_days2[12]={
