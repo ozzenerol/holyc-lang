@@ -745,6 +745,10 @@ public extern "c" F64 fdim(F64 f1, F64 f2);
 public extern "c" F64 fmax(F64 f1, F64 f2);
 public extern "c" F64 fmin(F64 f1, F64 f2);
 public extern "c" F64 fma(F64 f1, F64 f2, F64 f3);
+/* The absolute value of an integer. The result is a U64, so comparisons
+ * with it are unsigned: `Abs(x) > -1` is always FALSE (-1 becomes
+ * U64_MAX). Abs(I64_MIN) is 2^63, which `%d` prints as I64_MIN. For an
+ * F64 use fabs. */
 #ifdef IS_X86_64
 public _extern _ABS U64 Abs(I64 num);
 #endif
@@ -753,7 +757,12 @@ public _extern _ABS U64 Abs(I64 num);
 public U64 Abs(I64 num);
 #endif
 public U64 Gcd(I64 a, I64 b);
+/* `a` to the integer power `b` (negative `b` gives 1 / a^-b, and
+ * Pow(x, 0) is 1). The exponent is an I64, so a fractional one is
+ * truncated: Pow(4.0, 0.5) is 1.0. Use pow for real exponents. */
 public F64 Pow(F64 a, I64 b);
+/* @TempleOS: returns *k % m and sets *k to *k / m, unsigned. A divisor of
+ * 0 traps (SIGFPE), like any integer division by zero. */
 public U64 ModU64(U64 *k, U64 m);
 
 public extern "c" U0 *memchr(U0 *__s, I32 __c, U64 __n);
@@ -762,15 +771,32 @@ public extern "c" U0 *memmove(U0 *__dst, U0 *__src, U64 __len);
 public extern "c" U0 free(U0 *ptr);
 public extern "c" U0 *malloc(U64 size);
 
-/* MAlloc has a hand-rolled asm trampoline (`_MALLOC`) on both arches,
- * so its binding is declared unconditionally. The remaining core memory
- * ops are asm on x86 but ordinary HolyC on ARM, so those stay split. */
+/* The core memory functions are hand-written assembly on both x86_64 and
+ * arm64 (memory.HC). Each block from MAlloc, CAlloc and ReAlloc is
+ * preceded by a hidden 8-byte header holding the size it was asked for,
+ * so only these blocks can be passed to Free, MSize and ReAlloc, not
+ * pointers from C's malloc. */
+
+/* `size` uninitialised bytes; NULL when out of memory or when `size` is
+ * too large (such as a negative number passed as a U64). */
 public _extern _MALLOC U0 *MAlloc(U64 size);
+/* Free a block from MAlloc, CAlloc or ReAlloc. NULL is ignored. */
 public _extern _FREE U0 Free(U0 *ptr);
+/* The size the block was asked for (not the capacity malloc rounded it up
+ * to); 0 for NULL. */
 public _extern _MSIZE U64 MSize(U0 *ptr);
+/* Set `len` bytes at `dst` to the low byte of `ch`; returns `dst`. */
 public _extern _MEMSET U0 *MemSet(U0 *dst, I32 ch, U64 len);
+/* Copy `len` bytes from `src` to `dst`, front to back; returns `dst`.
+ * Overlapping buffers are not supported: use memmove for those. */
 public _extern _MEMCPY U0 *MemCpy(U0 *dst, U0 *src, U64 len);
+/* `new_size` zeroed bytes. One argument, the total size, unlike C's
+ * calloc(count, size). NULL when out of memory. */
 public _extern _CALLOC U0 *CAlloc(U64 new_size);
+/* A new block of `new_size` bytes holding the start of `ptr` (as much as
+ * fits); `ptr` is freed and the result is always a different pointer.
+ * ReAlloc(NULL, n) is MAlloc(n). When out of memory it returns NULL and
+ * leaves `ptr` as it was, still yours to free. */
 public _extern _REALLOC U0 *ReAlloc(U0 *ptr, U64 new_size);
 
 /* The size StrPrint and MPrintQ start a new buffer at (it grows). */
@@ -2060,16 +2086,27 @@ public class RBTree
   RBNode *nil; /* this tree's sentinel leaf */
 };
 
+/* A sorted map from U0 * keys to U0 * values (a red-black tree): insert,
+ * lookup and delete are O(log n). `key_cmp(a, b)` orders the keys: less
+ * than 0 when a comes first, 0 when equal, more than 0 otherwise.
+ * `free_key` and `free_value` may be NULL; when set, the tree frees keys
+ * and values with them. */
 public RBTree *RBTreeNew(U0 (*free_key)(U0 *),
                          U0 (*free_value)(U0 *), 
-                         U0 (*key_cmp)(U0 *, U0 *));
+                         I64 (*key_cmp)(U0 *, U0 *));
 /* Insert or update. Updating an existing key keeps the stored key; the
  * destructors (if set) free the passed duplicate key and the old value. */
 public U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value);
+/* The value stored for `key`, or NULL when it is missing, which is also
+ * what a stored NULL gives: use RBTreeHas to tell them apart. */
 public U0 *RBTreeGet(RBTree *tree, U0 *key);
+/* TRUE when `key` is in the tree */
 public Bool RBTreeHas(RBTree *tree, U0 *key);
-/* Remove `key`, freeing its key and value with the destructors, if set. */
+/* Remove `key`, freeing its key and value with the destructors, if set.
+ * Nothing happens if it is not there. */
 public U0 RBTreeDelete(RBTree *tree, U0 *key);
+/* Call `callback(user_data, key, value)` for every entry, in key order.
+ * Don't insert or delete entries from the callback. */
 public U0 RBTreeForEach(RBTree *tree,
                         U0 *user_data,
                         U0 (*callback)(U0 *user_data,
@@ -2087,8 +2124,13 @@ public class RBIter
   RBNode *node;
 };
 
+/* An iterator over the tree's entries in key order:
+ *   while ((node = RBIterNext(it))) ... node->key, node->value ...
+ * Don't insert or delete entries while iterating. */
 public RBIter *RBIterNew(RBTree *tree);
+/* Free the iterator (not the tree) */
 public U0 RBIterRelease(RBIter *it);
+/* The next node, or NULL after the last one */
 public RBNode *RBIterNext(RBIter *it);
 
 public class IntSet

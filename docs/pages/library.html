@@ -9,13 +9,23 @@ without an <code>#include</code>. For every function and class, see the
   <thead><tr><th>Function</th><th>Does</th></tr></thead>
   <tbody>
     <tr><td><code>MAlloc(size)</code></td><td>Allocate <code>size</code> bytes</td></tr>
-    <tr><td><code>CAlloc(size)</code></td><td>Allocate zeroed bytes</td></tr>
+    <tr><td><code>CAlloc(size)</code></td><td>Allocate <code>size</code> zeroed bytes</td></tr>
     <tr><td><code>ReAlloc(ptr, size)</code></td><td>Resize an allocation</td></tr>
     <tr><td><code>Free(ptr)</code></td><td>Release it (<code>NULL</code> is fine)</td></tr>
-    <tr><td><code>MSize(ptr)</code></td><td>Usable size of an allocation</td></tr>
-    <tr><td><code>MemCpy(dst, src, n)</code>, <code>MemSet(dst, byte, n)</code></td><td>Copy and fill</td></tr>
+    <tr><td><code>MSize(ptr)</code></td><td>The size an allocation was asked for (0 for <code>NULL</code>)</td></tr>
+    <tr><td><code>MemCpy(dst, src, n)</code>, <code>MemSet(dst, byte, n)</code></td><td>Copy and fill; both return <code>dst</code></td></tr>
   </tbody>
 </table>
+<p><code>CAlloc</code> takes one argument, the total size, unlike C's
+<code>calloc(count, size)</code>. <code>MAlloc</code>, <code>CAlloc</code> and
+<code>ReAlloc</code> return <code>NULL</code> when out of memory or when the size is too
+large (a negative size passed as a <code>U64</code>, say). <code>ReAlloc</code> always
+moves the block and copies as much of it as fits; <code>ReAlloc(NULL, size)</code> is
+<code>MAlloc(size)</code>, and when it fails the old block is left as it was, so keep
+the old pointer until you know it worked. Each block carries its size in a hidden header,
+so only pointers from these functions can go to <code>Free</code>, <code>MSize</code> and
+<code>ReAlloc</code>. <code>MemCpy</code> copies front to back: for overlapping buffers
+use <code>memmove</code>.</p>
 <pre data-run><code>
 class Player
 {
@@ -526,6 +536,92 @@ lowest -3.25, highest 21.50, capacity 4
 after clear: size 0, last -1.0, ok 0
 </pre>
 
+<h2 id="sets">Sets and trees</h2>
+<p><code>IntSet</code> is a sorted set of <code>I64</code> values. <code>IntSetAdd</code>,
+<code>IntSetDelete</code> and <code>IntSetHas</code> are O(log n); adding a value that is
+there, or deleting one that isn't, changes nothing. <code>IntSetUnion</code>,
+<code>IntSetIntersection</code>, <code>IntSetDiff</code> (in the first set, not the
+second) and <code>IntSetSymDiff</code> (in exactly one) return a new set and leave their
+arguments alone; <code>IntSetEq</code> compares two sets. An iterator, <code>IntSetToVec</code>
+and <code>IntSetToString</code> give the values in ascending order. Don't add or delete
+values while iterating. The functions that only read a set, and
+<code>IntSetRelease</code>, treat <code>NULL</code> as the empty set.</p>
+<pre data-run><code>
+U0 Main()
+{
+  IntSet *evens = IntSetNew();
+  IntSet *threes = IntSetNew();
+  I64 i;
+  for (i = 1; i <= 6; i++) IntSetAdd(evens, i * 2);
+  for (i = 1; i <= 4; i++) IntSetAdd(threes, i * 3);
+  IntSetAdd(evens, 4);
+  IntSetDelete(evens, 10);
+  "has 4: %d, has 5: %d, size %d\n",
+    IntSetHas(evens, 4), IntSetHas(evens, 5), IntSetSize(evens);
+
+  IntSet *both = IntSetIntersection(evens, threes);
+  U8 *str = IntSetToString(both);
+  "both: %s\n", str;
+  Free(str);
+
+  IntSet *either = IntSetUnion(evens, threes);
+  IntSetIter *it = IntSetIterNew(either);
+  IntSetEntry *e;
+  while ((e = IntSetIterNext(it))) "%d ", e->key;
+  "\n";
+  IntSetIterRelease(it);
+
+  IntSetRelease(either);
+  IntSetRelease(both);
+  IntSetRelease(threes);
+  IntSetRelease(evens);
+}
+</code></pre>
+<pre class="output">
+has 4: 1, has 5: 0, size 5
+both: {6, 12}
+2 3 4 6 8 9 12 
+</pre>
+<p><code>RBTree</code>, which <code>IntSet</code> is built on, maps <code>U0 *</code> keys to
+<code>U0 *</code> values in the order of a comparison function you pass to
+<code>RBTreeNew(free_key, free_value, key_cmp)</code>: <code>key_cmp(a, b)</code> returns
+less than 0 when <code>a</code> comes first, 0 when they are equal and more than 0
+otherwise. The two free functions may be <code>NULL</code>; when set, the tree frees keys
+and values with them on delete, release and when an insert replaces a value (an insert of
+an existing key keeps the stored key). <code>RBTreeGet</code> returns <code>NULL</code> for
+a missing key, the same as a stored <code>NULL</code>, so ask <code>RBTreeHas</code> to tell
+them apart. <code>RBIterNew</code> and <code>RBTreeForEach</code> visit the entries in key
+order; don't insert or delete while they run.</p>
+<pre data-run><code>
+I64 StrKeyCmp(U0 *a, U0 *b)
+{
+  return StrCmp(a, b);
+}
+
+U0 Main()
+{
+  RBTree *ages = RBTreeNew(NULL, NULL, &StrKeyCmp);
+  RBTreeInsert(ages, "linus", 55(U0 *));
+  RBTreeInsert(ages, "ada", 36(U0 *));
+  RBTreeInsert(ages, "grace", 85(U0 *));
+  RBTreeInsert(ages, "ada", 37(U0 *));
+  RBTreeDelete(ages, "grace");
+  "ada %d, has grace: %d, %d entries\n",
+    RBTreeGet(ages, "ada"), RBTreeHas(ages, "grace"), ages->size;
+
+  RBIter *it = RBIterNew(ages);
+  RBNode *node;
+  while ((node = RBIterNext(it))) "%s = %d\n", node->key, node->value;
+  RBIterRelease(it);
+  RBTreeRelease(ages);
+}
+</code></pre>
+<pre class="output">
+ada 37, has grace: 0, 2 entries
+ada = 37
+linus = 55
+</pre>
+
 <h2 id="hash-tables">Hash tables</h2>
 <p><code>StrMap</code> maps strings to <code>U0 *</code> values and <code>IntMap</code> maps
 <code>I64</code> keys. Values are pointers, so cast integers when storing them:
@@ -959,9 +1055,15 @@ U0 Main()
 <h2 id="maths">Maths</h2>
 <p>The C maths library is declared under its usual names (<code>sqrt</code>,
 <code>pow</code>, <code>sin</code>, <code>floor</code>, <code>fabs</code>, …, all on
-<code>F64</code>), plus <code>Abs</code>, <code>Gcd</code> and <code>Pow</code>.
+<code>F64</code>), plus <code>Abs</code>, <code>Gcd</code> and <code>Pow</code>, and the
+constants <code>M_PI</code>, <code>M_E</code>, <code>M_SQRT2</code> and the rest of C's
+<code>M_*</code> set.
 <code>Gcd</code> ignores signs: <code>Gcd(0, n)</code> is <code>|n|</code> and
-<code>Gcd(0, 0)</code> is 0.</p>
+<code>Gcd(0, 0)</code> is 0. <code>Pow</code> takes an integer exponent (an
+<code>I64</code>, so <code>Pow(4.0, 0.5)</code> is <code>Pow(4.0, 0)</code>, 1.0); use
+<code>pow</code> for real exponents. <code>Abs</code> returns a <code>U64</code>, so
+<code>Abs(x) &gt; -1</code> is always false (the -1 becomes <code>U64_MAX</code>) and
+<code>Abs(I64_MIN)</code> is 2<sup>63</sup>; use <code>fabs</code> for floats.</p>
 <pre data-run><code>
 U0 Main()
 {
@@ -1007,6 +1109,5 @@ close(srv);
   <code>TCP_*</code> and <code>AI_*</code> the platform's values.</li>
   <li><a href="stdlib.html#csv">CSV</a>: <code>CsvParserInit</code> and <code>CsvParse</code>, a streaming tokenizer.</li>
   <li><a href="stdlib.html#fzf">Fuzzy matching</a>: fzf-style scoring.</li>
-  <li><a href="stdlib.html#set">Sets</a>: red-black-tree-backed integer and string sets.</li>
   <li><a href="stdlib.html#sqllite">SQLite</a>: when hcc is built with <code>--sqlite</code>.</li>
 </ul>
