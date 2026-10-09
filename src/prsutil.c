@@ -400,6 +400,29 @@ static int evalIsTrue(Ast *ast, int *_ok) {
     return evalIntConstExprOrErr(ast, _ok) != 0;
 }
 
+/* `/` and `%` only fold when both operands are constants and the
+ * divisor isn't 0: `i % n` must not divide the placeholder 0s of two
+ * variables, and `5 % 0` is left to the caller, which reports it
+ * (parseCreateBinaryOp does) instead of hcc dying with a SIGFPE.
+ * I64_MIN / -1 wraps the way the result is kept, it doesn't trap. */
+static s64 evalIntDivMod(Ast *ast, int *_ok) {
+    s64 left = evalIntConstExprOrErr(ast->left, _ok);
+    s64 right = evalIntConstExprOrErr(ast->right, _ok);
+    int is_div = ast->binop == AST_BIN_OP_DIV;
+    if (!*_ok || right == 0) {
+        *_ok = 0;
+        return 0;
+    }
+    if (evalIsUnsignedBinOp(ast)) {
+        return is_div ? (s64)((u64)left / (u64)right)
+                      : (s64)((u64)left % (u64)right);
+    }
+    if (right == -1) {
+        return is_div ? (s64)(0 - (u64)left) : 0;
+    }
+    return is_div ? left / right : left % right;
+}
+
 s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
     switch (ast->kind) {
         case AST_CAST: {
@@ -456,19 +479,8 @@ s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
                     return evalIntConstExprOrErr(ast->left, _ok) *
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_DIV:
-                    if (evalIsUnsignedBinOp(ast)) {
-                        return (u64)evalIntConstExprOrErr(ast->left, _ok) /
-                            (u64)evalIntConstExprOrErr(ast->right, _ok);
-                    }
-                    return evalIntConstExprOrErr(ast->left, _ok) /
-                        evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_MOD:
-                    if (evalIsUnsignedBinOp(ast)) {
-                        return (u64)evalIntConstExprOrErr(ast->left, _ok) %
-                            (u64)evalIntConstExprOrErr(ast->right, _ok);
-                    }
-                    return evalIntConstExprOrErr(ast->left, _ok) %
-                        evalIntConstExprOrErr(ast->right, _ok);
+                    return evalIntDivMod(ast, _ok);
                 case AST_BIN_OP_ADD:
                     return evalIntConstExprOrErr(ast->left, _ok) +
                         evalIntConstExprOrErr(ast->right, _ok);

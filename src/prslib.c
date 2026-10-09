@@ -1611,6 +1611,22 @@ static Ast *parseCreateBinaryOpAt(Cctrl *cc, AstBinOp operation, Ast *left,
     int is_err = 0;
     Ast *binop = astBinaryOp(operation,left,right,&is_err);
     if (!is_err) {
+        /* An integer `/` or `%` by a constant 0 always traps when it
+         * runs, and the constant folder can't give it a value. */
+        if ((operation == AST_BIN_OP_DIV || operation == AST_BIN_OP_MOD) &&
+            !(cc->flags & CCTRL_TRANSPILING) &&
+            astIsIntType(left->type) && astIsIntType(right->type))
+        {
+            int ok = 1;
+            s64 divisor = evalIntConstExprOrErr(right, &ok);
+            if (ok && divisor == 0) {
+                if (op_tok) {
+                    cctrlRewindUntilPunctMatch(cc, op_tok, NULL);
+                }
+                cctrlRaiseException(cc, "%s by zero",
+                        operation == AST_BIN_OP_DIV ? "Division" : "Modulo");
+            }
+        }
         return binop;
     } else if (is_err && !(cc->flags & CCTRL_TRANSPILING)) {
         const char *opstr = op_tok ? lexemePunctToStringWithFlags(op_tok,0)
