@@ -5,6 +5,8 @@
 #include <pwd.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <assert.h>
 
 #include "aostr.h"
@@ -706,26 +708,38 @@ static char lexPeek(Lexer *l) {
     return *l->ptr;
 }
 
-/* Read an entire file to a mallocated buffer */
-char *lexReadfile(char *path, s64 *_len) {
+/* Read an entire file to a mallocated buffer, or return NULL with
+ * `errno` set if it can't be opened or read (a directory, say: open()
+ * succeeds on one but read() fails with EISDIR). */
+static char *lexTryReadfile(char *path, s64 *_len) {
     int fd;
+    struct stat st;
     if ((fd = open(path, O_RDONLY, 0644)) == -1) {
-        loggerPanic("Failed to open file: %s\n", path);
+        return NULL;
     }
- 
-    int len = lseek(fd, 0, SEEK_END);
-    lseek(fd, 0, SEEK_SET);
+    if (fstat(fd, &st) == -1) {
+        int err = errno;
+        close(fd);
+        errno = err;
+        return NULL;
+    }
+
+    s64 len = (s64)st.st_size;
 
     /* Add a `+1` for `\0` */
     char *buf = (char *)malloc((sizeof(char) * len)+1);
-    int size = 0;
-    int rbytes = 0;
-    while ((rbytes = read(fd,buf,len)) != 0) {
+    s64 size = 0;
+    ssize_t rbytes = 0;
+    while (size < len && (rbytes = read(fd,buf+size,len-size)) > 0) {
         size += rbytes;
     }
 
-    if (size != len) {
-        loggerPanic("Failed to read whole file\n");
+    if (rbytes == -1 || size != len) {
+        int err = rbytes == -1 ? errno : EIO;
+        free(buf);
+        close(fd);
+        errno = err;
+        return NULL;
     }
 
     *_len = len;
@@ -743,12 +757,22 @@ char *lexReadfile(char *path, s64 *_len) {
     return buf;
 }
 
-void lexPushFile(Lexer *l, AoStr *filename) {
+/* Read an entire file to a mallocated buffer, exiting on failure */
+char *lexReadfile(char *path, s64 *_len) {
+    char *buf = lexTryReadfile(path, _len);
+    if (!buf) {
+        loggerPanic("Failed to read file '%s': %s\n", path, strerror(errno));
+    }
+    return buf;
+}
+
+/* Make `src`, the contents of `filename`, the file being lexed */
+static void lexPushFileSource(Lexer *l, AoStr *filename, char *src,
+                              s64 file_len)
+{
     /* We need to save what we are currently lexing and 
      * make the file we've just seen the file we want to lex */
     LexFile *f = (LexFile *)malloc(sizeof(LexFile));
-    s64 file_len = 0;
-    char *src = lexReadfile(filename->data, &file_len);
     AoStr *src_code = aoStrNew();
     src_code->data = src;
     src_code->len = file_len;
@@ -774,6 +798,12 @@ void lexPushFile(Lexer *l, AoStr *filename) {
     l->lineno = f->lineno;
     l->line_start_ptr = f->line_start_ptr;
     l->start = f->ptr;
+}
+
+void lexPushFile(Lexer *l, AoStr *filename) {
+    s64 file_len = 0;
+    char *src = lexReadfile(filename->data, &file_len);
+    lexPushFileSource(l, filename, src, file_len);
 }
 
 /* Push an in-memory buffer as if it were a file. The REPL lexes each
@@ -1819,7 +1849,15 @@ void lexInclude(Lexer *l) {
             aoStrRelease(include_path);
             return;
         }
-        lexPushFile(l,include_path);
+        s64 file_len = 0;
+        char *src = lexTryReadfile(include_path->data, &file_len);
+        if (!src) {
+            lexReport(l, "#include: cannot read '%s': %s",
+                      include_path->data, strerror(errno));
+            aoStrRelease(include_path);
+            return;
+        }
+        lexPushFileSource(l, include_path, src, file_len);
     } else {
         aoStrRelease(include_path);
     }
