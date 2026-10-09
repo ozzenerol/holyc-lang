@@ -10,6 +10,7 @@ NAV = [
     ("tools.html", "Tools"),
     ("examples.html", "Examples"),
     ("known-issues.html", "Known issues"),
+    ("releases.html", "Releases"),
 ]
 
 
