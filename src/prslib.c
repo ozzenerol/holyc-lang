@@ -488,6 +488,9 @@ static Vec *parseGetFunctionParams(Ast *def) {
  * closing `)`. line 0 means unknown. */
 typedef struct ParseCallLoc {
     int line, col, len;
+    /* Where each argument of argv is, a ParseCallLoc * per entry (NULL
+     * for one left out); NULL when not tracked. */
+    Vec *args;
 } ParseCallLoc;
 
 /* The token parsed last, by stepping back over it */
@@ -500,7 +503,7 @@ static Lexeme *parseLastToken(Cctrl *cc) {
  * the arguments) just consumed. Starts at the name when it is right
  * before that token on the same line. */
 static ParseCallLoc parseCallLocStart(Cctrl *cc, char *fname, int len) {
-    ParseCallLoc loc = {0, 0, 0};
+    ParseCallLoc loc = {0, 0, 0, NULL};
     Lexeme *tok = parseLastToken(cc);
     if (!tok) return loc;
     loc.line = tok->line;
@@ -598,8 +601,16 @@ static void parseFunctionArgumentCheck(Cctrl *cc, Ast *def, Vec *argv, char *fna
         if (type && astTypeCheck(type,arg,AST_BIN_OP_ASSIGN) == NULL) {
             char *expected = astTypeToColorString(type);
             char *got = astTypeToColorString(arg->type);
-            cctrlWarning(cc,"Incompatible function argument, expected '%s' got '%s' in function '%.*s'",
-                    expected,got,len,fname);
+            ParseCallLoc *at = loc && loc->args && vecInBounds(loc->args, (unsigned long)i)
+                               ? loc->args->entries[i] : NULL;
+            if (at) {
+                cctrlWarningAt(cc,at->line,at->col,at->len,
+                        "Incompatible function argument, expected '%s' got '%s' in function '%.*s'",
+                        expected,got,len,fname);
+            } else {
+                cctrlWarning(cc,"Incompatible function argument, expected '%s' got '%s' in function '%.*s'",
+                        expected,got,len,fname);
+            }
         }
     }
 
@@ -750,7 +761,32 @@ static void parseCoerceArgs(Ast *def, Vec *argv) {
     }
 }
 
-Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len) {
+/* Where the argument just parsed is: from `start`, its first token, to
+ * the last token consumed, or just `start` when it spans lines. */
+static ParseCallLoc *parseArgSpan(Cctrl *cc, Lexeme *start) {
+    ParseCallLoc *span = (ParseCallLoc *)calloc(1, sizeof(ParseCallLoc));
+    Lexeme *end = parseLastToken(cc);
+    span->line = start->line;
+    span->col = start->col;
+    span->len = start->len;
+    if (end && end->line == start->line && end->col >= start->col) {
+        span->len = end->col + end->len - start->col;
+    }
+    return span;
+}
+
+/* Free the argument spans of `loc` */
+static void parseCallLocFreeArgs(ParseCallLoc *loc) {
+    if (!loc->args) return;
+    for (u64 i = 0; i < loc->args->size; ++i) free(loc->args->entries[i]);
+    vecRelease(loc->args);
+    loc->args = NULL;
+}
+
+/* `spans`, when not NULL, gets where each entry of the returned vector
+ * is (see ParseCallLoc.args). */
+Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len,
+               Vec *spans) {
     List *var_args = NULL;
     Ast *ast, *param = NULL;
     Lexeme *tok;
@@ -784,12 +820,15 @@ Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len) {
             }
 
             vecPush(argv_vec, ast);
+            if (spans) vecPush(spans, NULL);
             cctrlTokenGet(cc);
             tok = cctrlTokenPeek(cc);
             continue;
         }
 
+        Lexeme start = *tok;
         ast = parseExpr(cc,16);
+        ParseCallLoc *span = spans && ast ? parseArgSpan(cc, &start) : NULL;
         if (ast == NULL) {
             if (param && param->kind == AST_DEFAULT_PARAM) {
                 ast = param->declinit;
@@ -799,6 +838,7 @@ Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len) {
         if (param != NULL && param->kind == AST_VAR_ARGS) {
             if (decl && decl->kind == AST_EXTERN_FUNC) {
                 vecPush(argv_vec,ast);
+                if (spans) vecPush(spans, span);
             } else {
                 /* Will merge this to the end of the arguments list */
                 if (var_args == NULL) {
@@ -808,6 +848,7 @@ Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len) {
             }
         } else {
             vecPush(argv_vec,ast);
+            if (spans) vecPush(spans, span);
         }
 
         tok = cctrlTokenGet(cc);
@@ -1064,11 +1105,13 @@ Ast *parseFunctionArguments(Cctrl *cc, char *fname, int len, s64 terminator) {
     }
 
     ParseCallLoc loc = parseCallLocStart(cc, fname, len);
-    Vec *argv = parseArgv(cc,maybe_fn,terminator,fname,len);
+    loc.args = vecNew(&vec_unsigned_long_type);
+    Vec *argv = parseArgv(cc,maybe_fn,terminator,fname,len,loc.args);
     parseCallLocEnd(cc, &loc);
 
     if (maybe_fn) {
         parseFunctionArgumentCheck(cc,maybe_fn,argv,fname,len,&loc);
+        parseCallLocFreeArgs(&loc);
         parseFlattenDefaultArgs(maybe_fn, argv);
         parseAddEmptyVarArgCount(maybe_fn, argv);
         parseCoerceArgs(maybe_fn, argv);
@@ -1090,6 +1133,7 @@ Ast *parseFunctionArguments(Cctrl *cc, char *fname, int len, s64 terminator) {
     }
 
     if (!maybe_fn) {
+        parseCallLocFreeArgs(&loc);
         if ((len == 6 && !strncmp(fname,"printf",6))) {
             rettype = ast_int_type;
             /* Implicit C printf(fmt, ...): widen F32 varargs to F64. */
@@ -1259,7 +1303,7 @@ static Ast *parseIdentifierOrFunction(Cctrl *cc,
                 Vec *argv = astVecNew();
                 /* Underline the name, the token before the one in hand */
                 Lexeme *name_tok = parseLastToken(cc);
-                ParseCallLoc loc = {0, 0, 0};
+                ParseCallLoc loc = {0, 0, 0, NULL};
                 if (name_tok) {
                     loc.line = name_tok->line;
                     loc.col = name_tok->col;
@@ -1545,9 +1589,11 @@ static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
     }
     int len = strlen(name);
     ParseCallLoc loc = parseCallLocStart(cc, name, len);
-    Vec *argv = parseArgv(cc,class_ref,')',name,len);
+    loc.args = vecNew(&vec_unsigned_long_type);
+    Vec *argv = parseArgv(cc,class_ref,')',name,len,loc.args);
     parseCallLocEnd(cc, &loc);
     parseFunctionArgumentCheck(cc,class_ref,argv,name,len,&loc);
+    parseCallLocFreeArgs(&loc);
     parseFlattenDefaultArgs(class_ref, argv);
     parseAddEmptyVarArgCount(class_ref, argv);
     parseCoerceArgs(class_ref, argv);
