@@ -211,6 +211,9 @@ static void jitFrameLoad(AsmEnc *enc, A64Reg reg, int size, int loff) {
     if (form == JFRAME_REGOFF) {
         aarch64_enc_ldst_regoff(enc, 0 /*gpr*/, 1 /*load*/, size,
                                 0, reg, A_FP, A_X9);
+        /* The register-offset `ldr w` zero-extends; sign-extend like
+         * the ldursw/ldrsw forms below. */
+        if (size == 4) aarch64_enc_sxtw(enc, reg, reg);
         return;
     }
     if (form == JFRAME_UNSCALED) {
