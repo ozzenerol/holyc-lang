@@ -824,6 +824,8 @@ public class HCFs
   U64 except_ch;
   U0 *coro_cur;   /* coroutines.HC: running coroutine, NULL outside any */
   U0 *coro_root;  /* coroutines.HC: save slot for the thread's own stack */
+  U0 *coro_cache; /* coroutines.HC: released stacks kept for reuse */
+  I64 coro_cached;/* coroutines.HC: how many (at most 16) */
 };
 /* The calling thread's exception state (named after the TempleOS task
  * pointer). A function, so `Fs->except_ch` calls it: each thread has
@@ -883,8 +885,11 @@ public U0 *CoroutineYield(U0 *value=NULL);
 public Bool CoroutineDone(Coroutine *c);
 /* The running coroutine, NULL on a thread's own stack. */
 public Coroutine *CoroutineSelf();
-/* Free c and its stack (NULL is ignored). A coroutine paused in
- * CoroutineYield is dropped where it is; c must not be running. */
+/* Free c (NULL is ignored). Its stack is kept for reuse by the next
+ * CoroutineNew of the same size on this thread (up to 16 stacks per
+ * thread, unmapped when the thread ends), otherwise unmapped. A
+ * coroutine paused in CoroutineYield is dropped where it is; c must not
+ * be running. */
 public U0 CoroutineRelease(Coroutine *c);
 
 #define M_E         2.71828182845904523536028747135266250   /* e              */
