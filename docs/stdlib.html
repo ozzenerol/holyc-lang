@@ -711,6 +711,7 @@ right.</p></div><div class="decl" id="NetCreateUnixServerSocket"><div class="dec
   sqlite3_stmt *stmt;
   I64 cols;
   SqlColumn *col;
+  Bool owns_stmt;
 };</code></pre></div><div class="decl" id="SqlCtx"><div class="decl-head"><a class="decl-name" href="#SqlCtx">SqlCtx</a> <span class="kind">class</span></div><pre><code class="language-holyc">class SqlCtx
 {
   sqlite3 *conn;
