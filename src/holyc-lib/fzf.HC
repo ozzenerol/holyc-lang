@@ -534,12 +534,12 @@ U0 FzFEqNaiveMatch(FzFResult *res, Bool case_sensitive, FzFString *text,
           best_pos = i;
           best_bonus = bonus;
         }
-      }
-      if (bonus == FZF_BONUS_BOUNDARY) break;
+        if (bonus == FZF_BONUS_BOUNDARY) break;
 
-      i -= pidx-1;
-      pidx = 0;
-      bonus = 0;
+        i -= pidx-1;
+        pidx = 0;
+        bonus = 0;
+      }
     } else {
       i -= pidx;
       pidx = 0;
