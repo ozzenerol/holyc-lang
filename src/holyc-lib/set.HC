@@ -475,6 +475,7 @@ IntSet *IntSetNew()
 
 I64 IntSetSize(IntSet *set)
 {
+  if (!set) return 0;
   return set->tree->size;
 }
 
@@ -495,7 +496,8 @@ IntSetIter *IntSetIterNew(IntSet *set)
   IntSetIter *it = MAlloc(sizeof(IntSetIter));
   it->sp = 0;
   it->entry = MAlloc(sizeof(IntSetEntry));
-  it->stack = MAlloc(sizeof(RBNode *) * set->tree->size);
+  it->stack = MAlloc(sizeof(RBNode *) * IntSetSize(set));
+  if (!set) return it; /* yields nothing */
   RBNode *node = set->tree->root;
   while (!RBIsNil(node)) {
     it->stack[it->sp++] = node;
@@ -506,7 +508,7 @@ IntSetIter *IntSetIterNew(IntSet *set)
 
 IntSetEntry *IntSetIterNext(IntSetIter *it)
 {
-  if (it->sp == 0) {
+  if (!it || it->sp == 0) {
     return NULL;
   }
 
@@ -524,6 +526,7 @@ IntSetEntry *IntSetIterNext(IntSetIter *it)
 
 U0 IntSetIterRelease(IntSetIter *iter)
 {
+  if (!iter) return;
   Free(iter->entry);
   Free(iter->stack);
   Free(iter);
@@ -531,6 +534,7 @@ U0 IntSetIterRelease(IntSetIter *iter)
 
 Bool IntSetHas(IntSet *set, I64 key)
 {
+  if (!set) return FALSE;
   return RBTreeHas(set->tree,key(U0*));
 }
 
@@ -691,6 +695,7 @@ U8 *IntSetToString(IntSet *set)
 
 U0 IntSetRelease(IntSet *set)
 {
+  if (!set) return;
   RBTreeRelease(set->tree);
   Free(set);
 }
