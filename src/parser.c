@@ -2049,6 +2049,13 @@ Ast *parseReturnStatement(Cctrl *cc) {
     /* The `return`, just consumed, and the `;`, for the warning below */
     cctrlTokenRewind(cc);
     Lexeme ret_tok = *cctrlTokenGet(cc);
+    /* Top-level code (`if (x) return 0;` outside a function) has no
+     * function to return from: tmp_fname and tmp_rettype are NULL. */
+    if (!cc->tmp_fname || !cc->tmp_rettype) {
+        cctrlRaiseExceptionAt(cc,ret_tok.line,ret_tok.col,ret_tok.len,
+                "`return` outside a function");
+        cctrlTerminate(cc);
+    }
     Ast *retval = parseExpr(cc,16);
     AstType *check;
     cctrlTokenExpect(cc,';');
