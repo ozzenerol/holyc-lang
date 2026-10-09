@@ -198,15 +198,23 @@ U0 SqlFinalizePrepared(SqlPreparedStmt *pstmt)
   Free(pstmt);
 }
 
+extern "c" U0 sqlite3_free(U0 *ptr);
+
 /* Unsafe */ 
 U8 *SqlExecRaw(SqlCtx *ctx, U8 *sql)
 {
-  U8 *errmsg;
+  U8 *errmsg = NULL, *copy;
   I32 rc = sqlite3_exec(ctx->conn, sql, 0, 0, &errmsg);
-  if (!rc) {
-    return errmsg;
+  if (rc == SQLITE_OK) {
+    return NULL;
   }
-  return NULL;
+  if (errmsg) {
+    copy = StrNew(errmsg);
+    sqlite3_free(errmsg);
+  } else {
+    copy = StrNew(sqlite3_errmsg(ctx->conn));
+  }
+  return copy;
 }
 
 I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row, SqlParam *params)
