@@ -1448,7 +1448,8 @@ upper-case letter; <code>FZF_CASE_IGNORE</code> and <code>FZF_CASE_RESPECT</code
 Passing <code>FALSE</code> as the last argument makes plain terms exact (and
 <code>'term</code> fuzzy). The offsets come term after term, so they are only sorted for
 a single term, and the matcher is fzf's greedy one: it finds a match, not always the
-best-scoring placement. The pattern is not modified, so a string literal is fine.</p>
+best-scoring placement. The pattern is not modified, so a string literal is fine.
+FzF keeps no shared state, so threads can call it at the same time.</p>
 <pre data-run><code>
 U0 Show(U8 *text, U8 *pattern)
 {
