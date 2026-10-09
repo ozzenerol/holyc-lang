@@ -82,10 +82,14 @@ AstType *parseFunctionPointerType(Cctrl *cc,
     }
     *fnptr_name = fname->start;
     *fnptr_name_len = fname->len;
+    /* An array of function pointers `T (*name[N])(params)`: the element
+     * type is filled in with the parameters once they are parsed. */
+    AstType *fn_type = astMakeFunctionType(rettype, NULL);
+    AstType *type = parseArrayDimensions(cc,fn_type);
     cctrlTokenExpect(cc,')');
     cctrlTokenExpect(cc,'(');
-    Vec *params = parseParams(cc,')',&has_var_args,0);
-    return astMakeFunctionType(rettype, params);
+    fn_type->params = parseParams(cc,')',&has_var_args,0);
+    return type;
 }
 
 Ast *parseFunctionPointer(Cctrl *cc, AstType *rettype) {
@@ -98,6 +102,12 @@ Ast *parseFunctionPointer(Cctrl *cc, AstType *rettype) {
             &fnptr_name,
             &fnptr_name_len,
             rettype);
+
+    /* An array of function pointers is an ordinary variable */
+    if (fnptr_type->kind == AST_TYPE_ARRAY) {
+        ast = astLVar(fnptr_type,fnptr_name,fnptr_name_len);
+        return ast;
+    }
 
     Vec *params = fnptr_type->params;
     //fnptr_type = astMakeFunctionType(fnptr_type, params);
@@ -179,7 +189,13 @@ Vec *parseParams(Cctrl *cc, s64 terminator, int *has_var_args, int store) {
                     type = astMakePointerType(type->ptr);
                 }
                 var = parseFunctionPointer(cc, type);
-                if (!mapAddOrErr(cc->localenv,var->fname->data,var)) {
+                int is_array = var->kind == AST_LVAR;
+                if (is_array) {
+                    /* An array parameter is a pointer to its first element */
+                    var->type = astMakePointerType(var->type->ptr);
+                }
+                AoStr *var_name = is_array ? var->lname : var->fname;
+                if (!mapAddOrErr(cc->localenv,var_name->data,var)) {
                     cctrlRaiseException(cc,"variable %s already declared",
                             astLValueToString(var,0));
                 }
@@ -188,7 +204,10 @@ Vec *parseParams(Cctrl *cc, s64 terminator, int *has_var_args, int store) {
                 }
 
                 tok = cctrlTokenGet(cc);
-                if (tokenPunctIs(tok, '=')) {
+                if (tokenPunctIs(tok, '=') && is_array) {
+                    vecPush(params, parseDefaultFunctionParam(cc,var));
+                    tok = cctrlTokenGet(cc);
+                } else if (tokenPunctIs(tok, '=')) {
                     Ast *default_fnptr = parseDefaultFunctionParam(cc,var);
                     var->default_fn = default_fnptr;
                     vecPush(params, default_fnptr);
@@ -445,11 +464,16 @@ Ast *findFunctionDecl(Cctrl *cc, char *fname, int len) {
 static Vec *parseGetFunctionParams(Ast *def) {
     if (!def) return NULL;
 
-    /* Function-typed references store params on their type; declarations and
-     * function pointers store them directly on the AST. */
-    if (def->kind == AST_CLASS_REF || def->kind == AST_LVAR || def->kind == AST_GVAR)
-        return def->type && def->type->kind == AST_TYPE_FUNC ? def->type->params : NULL;
-    return def->params;
+    /* Declarations and function pointers store their params directly on
+     * the AST; any other function-typed expression (a class field, a
+     * variable, an array element) has them on its type. */
+    switch (def->kind) {
+        case AST_FUNC: case AST_FUN_PROTO: case AST_EXTERN_FUNC:
+        case AST_ASM_FUNC_BIND: case AST_ASM_FUNCDEF: case AST_FUNPTR:
+            return def->params;
+        default:
+            return def->type && def->type->kind == AST_TYPE_FUNC ? def->type->params : NULL;
+    }
 }
 
 /* We use this to check function calls against their definitions reusably */
@@ -1413,17 +1437,29 @@ Ast *parseGetClassField(Cctrl *cc, Ast *cls) {
     return class_ref;
 }
 
-/* Call a function pointer field of a class, the '(' has been consumed */
+/* Call a function pointer that is a class field or an array element
+ * (`fns[i](x)`), the '(' has been consumed */
 static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
-    int len = strlen(class_ref->field);
-    Vec *argv = parseArgv(cc,class_ref,')',class_ref->field,len);
-    parseFunctionArgumentCheck(cc,class_ref,argv,class_ref->field,len);
+    char *name = "<function pointer>";
+    if (class_ref->kind == AST_CLASS_REF) {
+        name = class_ref->field;
+    } else if (class_ref->kind == AST_UNOP && class_ref->operand) {
+        /* `fns[i]` is `*(fns + i)`: name the array */
+        Ast *base = class_ref->operand;
+        if (base->kind == AST_BINOP) base = base->left;
+        if (base->kind == AST_LVAR) name = base->lname->data;
+        else if (base->kind == AST_GVAR) name = base->gname->data;
+        else if (base->kind == AST_CLASS_REF) name = base->field;
+    }
+    int len = strlen(name);
+    Vec *argv = parseArgv(cc,class_ref,')',name,len);
+    parseFunctionArgumentCheck(cc,class_ref,argv,name,len);
     parseFlattenDefaultArgs(class_ref, argv);
     parseAddEmptyVarArgCount(class_ref, argv);
     parseCoerceArgs(class_ref, argv);
     return astFunctionPtrCall(
             class_ref->type->rettype,
-            class_ref->field,
+            name,
             len,
             argv,
             class_ref);
@@ -1551,7 +1587,7 @@ Ast *parseExpr(Cctrl *cc, int prec) {
              * parsePostFixExpr, so a function pointer field followed by
              * something that is not a type is a call, not a cast */
             Lexeme *peek = cctrlTokenPeek(cc);
-            if (LHS->kind == AST_CLASS_REF &&
+            if ((LHS->kind == AST_CLASS_REF || LHS->kind == AST_UNOP) &&
                 LHS->type->kind == AST_TYPE_FUNC &&
                 (peek == NULL || !cctrlIsKeyword(cc,peek->start,peek->len))) {
                 LHS = parseClassFnPtrCall(cc,LHS);
@@ -1803,7 +1839,8 @@ static Ast *parsePostFixOps(Cctrl *cc, Ast *ast) {
                 cctrlTokenExpect(cc,')');
                 ast = astCast(ast,type);
                 continue;
-            } else if (ast->kind == AST_CLASS_REF) { 
+            } else if (ast->kind == AST_CLASS_REF ||
+                       (ast->kind == AST_UNOP && ast->type->kind == AST_TYPE_FUNC)) {
                 ast = parseClassFnPtrCall(cc,ast);
                 continue;
             }
