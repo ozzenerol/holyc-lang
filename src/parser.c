@@ -1290,6 +1290,22 @@ int parseValidPostControlFlowToken(Lexeme *tok) {
  * style `if (init-statement; condition)` and a declaration used directly
  * as the condition. The declared variable is registered in the current
  * (if-scoped) localenv. */
+/* An expression where one is required: parseExpr gives NULL when the next
+ * token can't start one (`while ()`), which compiled to nothing or
+ * crashed later. Reported at that token. */
+static Ast *parseRequiredExpr(Cctrl *cc, char *what) {
+    Ast *expr = parseExpr(cc,16);
+    if (!expr) {
+        Lexeme *bad = cctrlTokenGet(cc);
+        if (!bad) {
+            cctrlRaiseException(cc, "Unexpected end of input, expected %s", what);
+        }
+        cctrlRaiseException(cc, "Expected %s, got `%s`", what,
+                            lexemeAsWritten(bad));
+    }
+    return expr;
+}
+
 static Ast *parseIfClause(Cctrl *cc, char *term_out) {
     Ast *clause;
     Lexeme *tok = cctrlTokenPeek(cc);
@@ -1313,7 +1329,7 @@ static Ast *parseIfClause(Cctrl *cc, char *term_out) {
         }
         Lexeme *eq = cctrlTokenGet(cc);
         if (tokenPunctIs(eq, '=')) {
-            Ast *init = parseExpr(cc, 16);
+            Ast *init = parseRequiredExpr(cc, "an initial value");
             clause = astDecl(var, init);
             if (type->kind == AST_TYPE_AUTO) {
                 parseAssignAuto(cc, clause);
@@ -1350,8 +1366,16 @@ Ast *parseIfStatement(Cctrl *cc) {
     while (1) {
         char term = 0;
         Ast *clause = parseIfClause(cc, &term);
-        if (term == ')') { cond_clause = clause; break; }
-        listAppend(pre, clause);   /* an init statement */
+        if (term == ')') {
+            if (!clause) {
+                /* `if ()`: the `)` was the last token read */
+                cctrlRaiseException(cc,
+                        "Expected the `if` condition, got `)`");
+            }
+            cond_clause = clause;
+            break;
+        }
+        if (clause) listAppend(pre, clause);   /* an init statement */
     }
 
     /* A declaration used as the condition evaluates to the declared
@@ -1718,7 +1742,7 @@ Ast *parseWhileStatement(Cctrl *cc) {
     cc->tmp_loop_end = while_end;
 
     cc->localenv = cctrlCreateAstMap(cc->localenv);
-    whilecond = parseExpr(cc,16);
+    whilecond = parseRequiredExpr(cc, "the `while` condition");
     cctrlTokenExpect(cc,')');
 
     Lexeme *peek = cctrlTokenPeek(cc);
@@ -1776,7 +1800,7 @@ Ast *parseDoWhileStatement(Cctrl *cc) {
     }
 
     cctrlTokenExpect(cc, '(');
-    whilecond = parseExpr(cc,16);
+    whilecond = parseRequiredExpr(cc, "the `while` condition");
     cctrlTokenExpect(cc,')');
     cctrlTokenExpect(cc,';');
     cc->localenv = cc->localenv->parent;
@@ -1869,7 +1893,7 @@ Ast *parseTryStatement(Cctrl *cc) {
  * and longjmps to the nearest enclosing catch. */
 Ast *parseThrowStatement(Cctrl *cc) {
     cctrlTokenExpect(cc,'(');
-    Ast *value = parseExpr(cc,16);
+    Ast *value = parseRequiredExpr(cc, "the value to `throw`");
     cctrlTokenExpect(cc,')');
     cctrlTokenExpect(cc,';');
     return astThrow(value);
@@ -1903,7 +1927,8 @@ Ast *parseCaseLabel(Cctrl *cc, Lexeme *tok) {
         }
         label = astMakeLabel();
     } else {
-        case_expr = parseExpr(cc,16);
+        /* A bare `case:` (above) is the previous value plus one */
+        case_expr = parseRequiredExpr(cc, "a `case` value or `:`");
         begining = evalIntConstExprOrErr(case_expr, &ok);
         if (!ok) {
             if (cc->flags & CCTRL_PASTE_DEFINES && case_expr->kind == AST_LVAR) {
@@ -1921,7 +1946,7 @@ Ast *parseCaseLabel(Cctrl *cc, Lexeme *tok) {
     /* We're not doing label to label for transpilation */
     if (tokenPunctIs(tok,TK_ELLIPSIS)) {
         cctrlTokenGet(cc);
-        case_expr = parseExpr(cc,16);
+        case_expr = parseRequiredExpr(cc, "the end of the `case` range");
         ok = 1;
         end = evalIntConstExprOrErr(case_expr, &ok);
         cctrlTokenExpect(cc,':');
@@ -2016,7 +2041,7 @@ Ast *parseSwitchStatement(Cctrl *cc) {
     }
 
     cctrlTokenGet(cc);
-    cond = parseExpr(cc,16);
+    cond = parseRequiredExpr(cc, "the `switch` value");
     if (!astIsIntType(cond->type)) {
         cctrlRaiseException(cc,"Switch can only have int's at this time");
     }
@@ -2222,6 +2247,11 @@ Ast *parseStatement(Cctrl *cc) {
 
     cctrlTokenRewind(cc);
     ast = parseExpr(cc,16);
+    if (!ast && tokenPunctIs(tok,'(')) {
+        /* `();`: empty brackets are no expression (a lone `;` is the
+         * empty statement) */
+        cctrlRaiseException(cc, "Expected an expression between `(` and `)`");
+    }
     tok = cctrlTokenGet(cc);
     assertTokenIsTerminator(cc,tok,PUNCT_TERM_SEMI|PUNCT_TERM_COMMA);
     return ast;
