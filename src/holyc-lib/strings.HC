@@ -644,6 +644,7 @@ public U0 StrReverse(U8 *buf, I64 length)
 public I64 I64ToStr(U8 *buf, I64 num, Bool *_is_neg=NULL, I64 _len=5000)
 { // puts num in the buf, returns the length of the number
   I64 i = 0;
+  U64 mag = num; /* unsigned: -I64_MIN doesn't fit in an I64 */
 
   if (num == 0) {
     buf[i++] = '0';
@@ -659,18 +660,13 @@ public I64 I64ToStr(U8 *buf, I64 num, Bool *_is_neg=NULL, I64 _len=5000)
     if (_is_neg) {
       *_is_neg = TRUE;
     }
-    num = -num; // absolute
+    mag = -mag; // absolute
   }
 
   // Process individual digits
-  while (num != 0 && _len != 0) {
-    I64 rem = num % 10;
-    if (rem > 9) {
-      buf[i++] = (rem - 10) + 'a';
-    } else {
-      buf[i++] = rem + '0';
-    }
-    num = num / 10;
+  while (mag != 0 && _len != 0) {
+    buf[i++] = mag % 10 + '0';
+    mag = mag / 10;
     _len--;
   }
 
