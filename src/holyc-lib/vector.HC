@@ -25,6 +25,7 @@ FloatVec *FloatVecNew(I64 size = 32)
 {
   FloatVec *vec = MAlloc(sizeof(FloatVec));
   vec->size = 0;
+  if (size < 1) size = 1; /* 0 or negative: start with room for one */
   vec->entries = MAlloc(sizeof(F64) * size);
   return vec;
 }
@@ -39,6 +40,7 @@ U0 FloatVecPush(FloatVec *vec, F64 value)
   auto capacity = MSize(vec->entries)/sizeof(F64);
   if (vec->size + 1 >= capacity) {
     auto new_capacity = capacity * 2;
+    if (new_capacity < 8) new_capacity = 8;
     auto new_entries = ReAlloc(vec->entries, (new_capacity * sizeof(F64))(U64));
     vec->entries = new_entries;
   }
@@ -95,6 +97,7 @@ IntVec *IntVecNew(I64 size = 32)
 {
   IntVec *vec = MAlloc(sizeof(IntVec));
   vec->size = 0;
+  if (size < 1) size = 1; /* 0 or negative: start with room for one */
   vec->entries = MAlloc(sizeof(I64) * size);
   return vec;
 }
@@ -109,6 +112,7 @@ U0 IntVecPush(IntVec *vec, I64 value)
   auto capacity = IntVecCapacity(vec);
   if (vec->size + 1 >= capacity) {
     auto new_capacity = capacity * 2;
+    if (new_capacity < 8) new_capacity = 8;
     auto new_entries = ReAlloc(vec->entries, (new_capacity * sizeof(I64))(U64));
     vec->entries = new_entries;
   }
@@ -164,7 +168,8 @@ PtrVec *PtrVecNew(I64 size = 32)
 {
   PtrVec *vec = MAlloc(sizeof(PtrVec));
   vec->size = 0;
-  vec->entries = MAlloc(sizeof(U0*) * 32);
+  if (size < 1) size = 1; /* 0 or negative: start with room for one */
+  vec->entries = MAlloc(sizeof(U0*) * size);
   return vec;
 }
 
@@ -179,6 +184,7 @@ U0 PtrVecPush(PtrVec *vec, U0 *value)
   auto capacity = MSize(vec->entries)/sizeof(U0*);
   if (vec->size + 1 >= capacity) {
     auto new_capacity = capacity * 2;
+    if (new_capacity < 8) new_capacity = 8;
     auto new_entries = ReAlloc(vec->entries, (new_capacity * sizeof(U0*))(U64));
     vec->entries = new_entries;
   }
