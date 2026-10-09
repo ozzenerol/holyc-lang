@@ -203,11 +203,12 @@ Ast *prsAsm(Cctrl *cc, int parse_one) {
     int func_line = src_line;
 
     cctrlTokenExpect(cc, '{');
+    /* The lexer keeps whitespace inside the block (set when it reads the
+     * `{`, see lexToken), so the asm text keeps its column numbers for
+     * libtasm's errors. Setting the flag here, from the parser, was too
+     * late or too early depending on how far the lexer had read ahead. */
     Lexeme *tok = cctrlAsmTokenGet(cc);
-    /* This is so we can preserve column numbers for the assembly parser errors
-     * that parse has a skip whitespace function so there is no harm in using it*/
-    cc->lexer_->flags |= CCF_ACCEPT_WHITESPACE;
-    
+
     while (tok && !tokenPunctIs(tok, '}')) {
         /* `NAME::` (or `NAME:`) opens a new function. */
         if (tok->tk_type == TK_IDENT) {

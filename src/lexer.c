@@ -2822,6 +2822,17 @@ Lexeme *lexToken(Map *macro_defs, Lexer *l) {
             return copy;
         }
 
+        /* Whitespace is kept inside the block so the asm keeps its
+         * columns for libtasm's errors. Switched on here, as the lexer
+         * reads the `{`: the parser runs several tokens behind, so a
+         * flag set when the parser reaches the `{` could land after the
+         * lexer had already passed the closing `}`, and then the code
+         * after the block was lexed with whitespace tokens. */
+        if (l->flags & (CCF_ASM_BLOCK) && tokenPunctIs(&le, '{')) {
+            l->flags |= CCF_ACCEPT_WHITESPACE;
+            return lexemeCopy(&le);
+        }
+
         if (le.tk_type == TK_KEYWORD) {
             switch (le.i64) {
                 case KW_ASM:
