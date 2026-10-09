@@ -1065,6 +1065,14 @@ start_routine:
             return ast_uint_type;
         }
 
+        /* `w == &F` with `U0 *w`: as in C a `U0 *` can hold a function
+         * address, so it compares equal / not equal with one. */
+        if (ptr1->kind == AST_TYPE_POINTER && ptr2->kind == AST_TYPE_FUNC &&
+            ptr1->ptr && ptr1->ptr->kind == AST_TYPE_VOID &&
+            (op == AST_BIN_OP_EQ || op == AST_BIN_OP_NE)) {
+            return ast_uint_type;
+        }
+
         /* `p || b` / `p && b`: a logical op only tests each operand
          * against zero, so a char-kind operand (Bool, U8, I8) is as
          * valid next to a pointer as an int one. */

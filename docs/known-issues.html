@@ -43,9 +43,6 @@ there works as shown.</p>
     <tr><td>Redefining a standard-library function works in the JIT but not AOT</td>
         <td>Defining your own <code>Now()</code> runs under <code>-jit</code>, but in AOT the link fails ("multiple definition of `Now'") as soon as the program uses anything else from the library, with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
         <td>Use a different name for your own functions</td></tr>
-    <tr><td>Comparing a <code>U0 *</code> with a function pointer is an error</td>
-        <td><code>U0 *w = &amp;F; if (w == &amp;F)</code>: "The `==` operator cannot be applied to a pointer type with a unary op of function"</td>
-        <td>Cast one side: <code>w == (&amp;F)(U0 *)</code></td></tr>
     <tr><td>Some pointer conversions are accepted silently</td>
         <td><code>I64 *q; q -= q;</code> and <code>F64 f; I64 *q = &amp;f;</code> compile with no diagnostic</td>
         <td>Review pointer arithmetic and pointer types by hand</td></tr>

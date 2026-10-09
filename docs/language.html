@@ -573,7 +573,7 @@ U0 Main()
 </pre>
 <p>A default in a function pointer's parameter list fills a left-out argument when you call
 through it, for variables and class fields alike. A <code>U0 *</code> converts to and from a
-function pointer without a cast:</p>
+function pointer without a cast, and compares (<code>==</code>, <code>!=</code>) with one:</p>
 <pre data-run><code>I64 Dbl(I64 x) { return x * 2; }
 
 class Calc { I64 (*op)(I64 x = 21); };
@@ -586,11 +586,11 @@ U0 Main()
 
   U0 *raw = &amp;Dbl;
   I64 (*back)(I64 x) = raw;
-  "%d\n", back(4);
+  "%d %d\n", back(4), raw == &amp;Dbl;
 }
 </code></pre>
 <pre class="output">10 42
-8
+8 1
 </pre>
 
 <h2>Pointers and arrays</h2>
