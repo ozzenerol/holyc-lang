@@ -1745,8 +1745,11 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
     if (astIsUnOpKind(ast, AST_UN_OP_MINUS)) {
         IrValue *v = irExpr(ctx, ast->operand);
         IrValueType vt = v->type;
-        IrValue *dst = irTmp(vt, irIsFloat(vt) ? (int)irValueByteSize(v)
-                                               : ast->operand->type->size);
+        /* An int result is sized by the unop's (promoted) type: `-c` on
+         * a U8 is an I64, a byte-sized result kept only the low 8 bits. */
+        IrValue *dst = irIsFloat(vt)
+            ? irTmp(vt, (int)irValueByteSize(v))
+            : irTmp(irConvertType(ast->type), ast->type->size);
         IrOp negop = irIsFloat(vt) ? IR_FNEG : IR_INEG;
         irBlockAddInstr(ctx, irInstrNew(negop, dst, v, NULL));
         return dst;
