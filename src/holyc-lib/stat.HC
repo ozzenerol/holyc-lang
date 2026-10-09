@@ -66,7 +66,7 @@ public I32 RmDir(U8 *path, Bool flags=0)
         }
       } else if (!lstat(buf,&st)) {
           if ((st.st_mode & S_IFMT) == S_IFDIR) {
-            r2 = RmDir(path,flags);
+            r2 = RmDir(buf,flags);
           } else {
             if ((r2 = unlink(buf)) == 0 && flags & RM_VERBOSE) {
               "Rm: %s\n",buf;
