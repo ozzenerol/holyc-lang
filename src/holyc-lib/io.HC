@@ -308,46 +308,30 @@ U8 *DirHumanColor(DirHuman *dh)
   return NULL;
 }
 
+/* Compare the runs of digits at the start of s1 and s2 by value, however
+ * long they are: <0, 0 or >0 */
+I64 CmpLeadingNumber(U8 *s1, U8 *s2)
+{
+  I64 n1 = 0, n2 = 0;
+  while (*s1 == '0') s1++;
+  while (*s2 == '0') s2++;
+  while ('0'<=s1[n1]<='9') n1++;
+  while ('0'<=s2[n2]<='9') n2++;
+  if (n1 != n2) return n1 - n2;
+  return StrNCmp(s1,s2,n1);
+}
+
+/* TRUE if dh1 is listed before dh2: names that both start with a number
+ * by that number, then everything by the plain name */
 I64 CmpDirHuman(DirHuman *dh1, DirHuman *dh2)
 {
   U8 *str1 = dh1->pathname;
   U8 *str2 = dh2->pathname;
+  I64 cmp;
   if ('0'<=*str1<='9' && '0'<=*str2<='9') {
-    I64 n1 = 0, n2 = 0;
-    while ('0'<=*str1<='9') {
-      n1 = (n1 * 10) + (*str1-'0');
-      str1++;
-    }
-    while ('0'<=*str2<='9') {
-      n2 = (n2 * 10) + (*str2-'0');
-      str2++;
-    }
-    return n2 > n1;
+    if ((cmp = CmpLeadingNumber(str1,str2)) != 0) return cmp < 0;
   }
-  /* Non-numeric names: plain lexicographic order. */
   return StrCmp(str1,str2) < 0;
-}
-
-U0 QSortDirHuman(U0 **arr, I64 high, I64 low=0)
-{
-  if (low < high) {
-    U0 *pivot = arr[high];
-    I64 idx = low;
-
-    for (I64 i = low; i < high; ++i) {
-      if (CmpDirHuman(arr[i],pivot)) {
-        U0 *tmp = arr[i];
-        arr[i] = arr[idx];
-        arr[idx] = tmp;
-        idx++;
-      }
-    }
-
-    arr[high] = arr[idx];
-    arr[idx] = pivot;
-    QSortDirHuman(arr,high,idx+1);
-    QSortDirHuman(arr,idx-1,low);
-  }
 }
 
 public I64 Dir(U8 *pathname = "./")
@@ -368,16 +352,16 @@ public I64 Dir(U8 *pathname = "./")
     auto str = StrNew(ent->name);
     auto full_path = StrPrint(,"%s/%s",path,ent->name);
     Fstat fst;
-    if (Stat(&fst,full_path) == 0) {
-      DirHuman *dh = DirHumanNew(str, &fst, ent->type);
-      PtrVecPush(vec,dh);
-    } else {
-      Free(str);
+    /* Listed even when Stat fails (a dangling symlink, a file removed
+     * meanwhile), with no mode bits */
+    if (Stat(&fst,full_path) != 0) {
+      MemSet(&fst,0,sizeof(Fstat));
     }
+    PtrVecPush(vec,DirHumanNew(str, &fst, ent->type));
     Free(full_path);
   }
   Free(path);
-  QSortDirHuman(vec->entries(U0 **), vec->size-1);
+  QSortGeneric(vec->entries(U0 **), vec->size-1, 0, &CmpDirHuman);
   closedir(dir);
   Bool colors = isatty(1) != 0;
   for (DirHuman *dh : vec) {
