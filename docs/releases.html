@@ -36,6 +36,56 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.7.0 <small>(2026-10-09)</small></h2>
+<p>A JSON release. The JSON module was audited like strings, hash tables and lists: conformance
+cases from the JSON specification, random documents checked against Python's <code>json</code>,
+valgrind and worst-case inputs. Every bug found is fixed and the module is fully documented. The
+library also stops exporting its internal helpers. Every fix has a regression test that runs both
+compiled and in the JIT, on Linux x86_64, Linux arm64 and macOS.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>JsonParse</code> follows RFC 8259 strictly. These are now errors: invalid numbers
+  (<code>-</code>, <code>01</code>, <code>+1</code>, <code>.5</code>, <code>0x1F</code>, <code>1e</code>),
+  anything after the top-level value (<code>[1]x</code>, <code>1 2</code>), anything but whitespace
+  between a key and its <code>:</code>, raw control characters in strings, <code>\v</code> and
+  <code>\f</code> as whitespace, and nesting deeper than 512 (<code>JSON_MAX_DEPTH</code>). They used to
+  be accepted and turned into wrong values.</li>
+  <li>Integers outside the <code>I64</code> range become <code>F64</code> (<code>JSON_FLOAT</code>) instead of
+  silently capping; infinity and NaN are written as <code>null</code>; floats are written with 15 to 17
+  significant digits.</li>
+  <li><code>JsonToString</code> of a selected node writes only that node (it also wrote the node's key
+  and every following sibling). <code>JsonRelease</code> only acts on a document root: on NULL or a
+  selected node it does nothing, where it used to free the siblings and corrupt the tree.</li>
+  <li>Error messages give a line and column; <code>JsonGetStrerror</code> and <code>JsonPrintError</code>
+  are NULL-safe. New error codes <code>JSON_INVALID_LITERAL</code>,
+  <code>JSON_INVALID_CONTROL_CHARACTER</code> and <code>JSON_NESTING_TOO_DEEP</code>.</li>
+  <li>The <code>Json</code> class has two new fields at the end, <code>str_len</code> and <code>key_len</code>,
+  so strings containing <code>\u0000</code> keep all their bytes.</li>
+  <li>libtos exports exactly what <code>tos.HH</code> declares. A program can no longer replace a library
+  helper by accident, but a program that called an undeclared library function must declare its own.
+  <code>static</code> functions and file-scope <code>static</code> variables are local to their file.</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li><code>JsonObjectGet(obj, key)</code>, <code>JsonArrayGet(arr, i)</code> and <code>JsonLen(node)</code>,
+  which also reach keys a selector path can't spell.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Strings ending in a backslash (<code>{"path":"C:\\"}</code>) parse.</li>
+  <li><code>JsonParse</code> stays within <code>len</code> (it read past the buffer and accepted truncated
+  strings), and <code>JsonParse(NULL)</code> returns NULL.</li>
+  <li><code>JsonSelect</code>: the <code>*</code> wildcard after <code>.</code> works (<code>.*</code>,
+  <code>.price_*</code>); paths ending in <code>.</code> or <code>[</code> no longer read past their end;
+  junk like <code>[1abc]</code> or <code>:ixyz</code> is rejected; NULL arguments return NULL.</li>
+  <li>Writing floats is about 100 times faster (500,000 floats: 70 s to 0.7 s).</li>
+  <li>The JSON documentation is complete, with examples that free what they allocate.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.6.0 <small>(2026-10-09)</small></h2>
 <p>A standard-library release. Strings, hash tables, lists and vectors were audited with random
 tests against reference models, valgrind and worst-case inputs; every bug found is fixed, the
