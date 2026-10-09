@@ -47,6 +47,9 @@ hcc -Werror main.HC         # treat warnings as errors</code></pre>
 <p>Link C libraries with <code>-clibs</code>, or record them in the source with
 <a href="language.html#calling-c"><code>#link</code></a>:</p>
 <pre><code>hcc game.HC -clibs="-lSDL2 -lm" -o game</code></pre>
+<p>hcc hands the generated assembly to the system C compiler through a temporary
+file in <code>$TMPDIR</code> (<code>/tmp</code> if unset), one per compile and
+removed afterwards, so several compiles can run at once.</p>
 
 <h3>All flags</h3>
 <table>
