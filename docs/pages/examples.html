@@ -1,6 +1,6 @@
 <!-- title: Examples -->
 <h1>Example projects</h1>
-<p class="lede">Three complete programs in <code>docs/examples/</code>, each with the exact
+<p class="lede">Six complete programs in <code>docs/examples/</code>, each with the exact
 output it should produce. They double as tests: <code>docs/examples/run.sh</code> builds
 every project, runs it both compiled and in the JIT, and compares the output with its
 <code>expected.txt</code>.</p>
@@ -34,6 +34,39 @@ blinker. It shows 2D arrays, nested loops, <code>%</code> for wrap-around and
 hcc main.HC -o life && ./life</code></pre>
 <pre><code class="language-holyc"><!-- include: examples/life/main.HC --></code></pre>
 <pre class="output"><!-- include: examples/life/expected.txt --></pre>
+
+<h2>Echo server</h2>
+<p>A multithreaded TCP echo server and its test clients in one program. The server binds
+to port 0 so the kernel picks a free port, reads it back with <code>getsockname</code>, and
+gives every connection its own thread. Four client threads connect at the same time and send
+their message in 5-byte pieces: TCP is a byte stream, so both sides loop until every byte is
+sent or received. A mutex guards the server's counters.</p>
+<pre><code>cd docs/examples/echo
+hcc main.HC -o echo && ./echo</code></pre>
+<pre><code class="language-holyc"><!-- include: examples/echo/main.HC --></code></pre>
+<pre class="output"><!-- include: examples/echo/expected.txt --></pre>
+
+<h2>HTTP server</h2>
+<p>A small HTTP/1.0 server with a thread per connection and three routes: a greeting, an
+<code>/add</code> route that reads two numbers from the query string, and 404/405 replies for
+everything else. The client side sends five requests at once, then parses each status line
+and body with <code>strchr</code>, <code>strstr</code> and <code>Atoi</code>.</p>
+<pre><code>cd docs/examples/http
+hcc main.HC -o http && ./http</code></pre>
+<pre><code class="language-holyc"><!-- include: examples/http/main.HC --></code></pre>
+<pre class="output"><!-- include: examples/http/expected.txt --></pre>
+
+<h2>Key-value store</h2>
+<p>A server speaking a line protocol (<code>SET</code>, <code>GET</code>, <code>INCR</code>,
+<code>DEL</code>, <code>COUNT</code>), with every client on its own thread and all of them
+sharing one <code>StrMap</code> behind a mutex. Four clients run at once and each bumps the
+same counter 250 times; the final count of 1000 shows no update was lost. Remove the lock
+and the threads corrupt the map. It also shows splitting a TCP stream into lines and letting
+the map free its keys and values.</p>
+<pre><code>cd docs/examples/kvstore
+hcc main.HC -o kvstore && ./kvstore</code></pre>
+<pre><code class="language-holyc"><!-- include: examples/kvstore/main.HC --></code></pre>
+<pre class="output"><!-- include: examples/kvstore/expected.txt --></pre>
 
 <h2>More examples in the repository</h2>
 <p>The compiler's own test suite, <code>src/tests/</code>, has more than 60 small programs,

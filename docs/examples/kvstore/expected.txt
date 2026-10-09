@@ -1,0 +1,10 @@
+4 clients each sent INCR hits 250 times
+GET hits         -> 1000
+GET worker:1     -> done-by-thread-1
+GET worker:4     -> done-by-thread-4
+COUNT            -> 5
+DEL worker:2     -> 1
+DEL worker:2     -> 0
+GET worker:2     -> (nil)
+COUNT            -> 4
+FLY away         -> ERR unknown command

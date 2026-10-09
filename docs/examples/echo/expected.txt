@@ -1,0 +1,6 @@
+server listening on 127.0.0.1 (port chosen by the kernel)
+client 1: echoed "hello from client 1, over TCP"
+client 2: echoed "hello from client 2, over TCP"
+client 3: echoed "hello from client 3, over TCP"
+client 4: echoed "hello from client 4, over TCP"
+server handled 4 connections, echoed 116 bytes

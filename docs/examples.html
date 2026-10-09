@@ -32,7 +32,7 @@
   <aside class="toc" aria-label="On this page"></aside>
   <main>
 <h1>Example projects</h1>
-<p class="lede">Three complete programs in <code>docs/examples/</code>, each with the exact
+<p class="lede">Six complete programs in <code>docs/examples/</code>, each with the exact
 output it should produce. They double as tests: <code>docs/examples/run.sh</code> builds
 every project, runs it both compiled and in the JIT, and compares the output with its
 <code>expected.txt</code>.</p>
@@ -484,6 +484,695 @@ generation 4, 8 alive
 .......###..
 ............
 ............
+</pre>
+
+<h2>Echo server</h2>
+<p>A multithreaded TCP echo server and its test clients in one program. The server binds
+to port 0 so the kernel picks a free port, reads it back with <code>getsockname</code>, and
+gives every connection its own thread. Four client threads connect at the same time and send
+their message in 5-byte pieces: TCP is a byte stream, so both sides loop until every byte is
+sent or received. A mutex guards the server's counters.</p>
+<pre><code>cd docs/examples/echo
+hcc main.HC -o echo &amp;&amp; ./echo</code></pre>
+<pre><code class="language-holyc">/* A multithreaded TCP echo server and the clients that test it, in one
+ * program. The server listens on 127.0.0.1 on a port the kernel picks,
+ * accepts each client on its own thread and sends back every byte it
+ * receives. Four client threads connect at the same time, send their
+ * message in small pieces, and check that it comes back unchanged. */
+
+#define CLIENTS 4
+
+class Server
+{
+  I32 fd;
+  I64 port;
+  pthread_mutex_t lock;   /* guards bytes and served */
+  I64 bytes;
+  I64 served;
+};
+
+class Conn
+{
+  Server *srv;
+  I32 fd;
+};
+
+class Client
+{
+  I64 id;
+  I64 port;
+  U8 sent[64];
+  U8 got[64];
+  Bool ok;
+};
+
+/* The port the kernel gave a socket bound to port 0. */
+I64 BoundPort(I32 fd)
+{
+  sockaddr_in addr;
+  I64 len = sizeof(sockaddr_in);
+  if (getsockname(fd, &amp;addr(sockaddr *), &amp;len) != 0) return -1;
+  U16 p = addr.sin_port;              /* network byte order */
+  return (p &gt;&gt; 8) | ((p &amp; 0xFF) &lt;&lt; 8);
+}
+
+/* send() may write less than asked: keep going until all of it is out. */
+Bool SendAll(I32 fd, U8 *buf, I64 len)
+{
+  while (len &gt; 0) {
+    I64 n = send(fd, buf, len, 0);
+    if (n &lt;= 0) return FALSE;
+    buf += n;
+    len -= n;
+  }
+  return TRUE;
+}
+
+/* Read exactly len bytes, or fail if the peer closes first. */
+Bool RecvAll(I32 fd, U8 *buf, I64 len)
+{
+  while (len &gt; 0) {
+    I64 n = recv(fd, buf, len, 0);
+    if (n &lt;= 0) return FALSE;
+    buf += n;
+    len -= n;
+  }
+  return TRUE;
+}
+
+U0 *ServeConn(Conn *c)
+{
+  U8 buf[256];
+  I64 n, total = 0;
+  while ((n = recv(c-&gt;fd, buf, sizeof(buf), 0)) &gt; 0) {
+    if (!SendAll(c-&gt;fd, buf, n)) break;
+    total += n;
+  }
+  close(c-&gt;fd);
+
+  pthread_mutex_lock(&amp;c-&gt;srv-&gt;lock);
+  c-&gt;srv-&gt;bytes += total;
+  c-&gt;srv-&gt;served++;
+  pthread_mutex_unlock(&amp;c-&gt;srv-&gt;lock);
+  Free(c);
+  return NULL;
+}
+
+/* Accept CLIENTS connections, one handler thread each, then wait for them. */
+U0 *AcceptLoop(Server *srv)
+{
+  pthread_t *handlers[CLIENTS];
+  for (I64 i = 0; i &lt; CLIENTS; i++) {
+    Conn *c = MAlloc(sizeof(Conn));
+    c-&gt;srv = srv;
+    c-&gt;fd = accept(srv-&gt;fd, NULL, NULL);
+    pthread_create(&amp;handlers[i],,&amp;ServeConn,c);
+  }
+  for (I64 i = 0; i &lt; CLIENTS; i++) {
+    pthread_join(handlers[i]);
+  }
+  return NULL;
+}
+
+U0 *RunClient(Client *cl)
+{
+  I32 fd = NetConnect("127.0.0.1", cl-&gt;port);
+  if (fd &lt;= 0) return NULL;
+
+  snprintf(cl-&gt;sent, sizeof(cl-&gt;sent), "hello from client %d, over TCP", cl-&gt;id);
+  I64 len = StrLen(cl-&gt;sent);
+
+  /* Send in 5-byte pieces: TCP is a byte stream, the echo must still match. */
+  for (I64 off = 0; off &lt; len; off += 5) {
+    I64 piece = len - off;
+    if (piece &gt; 5) piece = 5;
+    SendAll(fd, cl-&gt;sent + off, piece);
+  }
+  cl-&gt;ok = RecvAll(fd, cl-&gt;got, len);
+  cl-&gt;got[len] = '\0';
+  close(fd);
+  return NULL;
+}
+
+U0 Main()
+{
+  Server srv;
+  MemSet(&amp;srv, 0, sizeof(Server));
+  pthread_mutex_init(&amp;srv.lock);
+
+  srv.fd = NetCreateServer(0, "127.0.0.1", CLIENTS);
+  if (srv.fd &lt;= 0) {
+    "could not start the server\n";
+    return;
+  }
+  srv.port = BoundPort(srv.fd);
+  "server listening on 127.0.0.1 (port chosen by the kernel)\n";
+
+  pthread_t *acceptor;
+  pthread_create(&amp;acceptor,,&amp;AcceptLoop,&amp;srv);
+
+  Client clients[CLIENTS];
+  pthread_t *threads[CLIENTS];
+  for (I64 i = 0; i &lt; CLIENTS; i++) {
+    MemSet(&amp;clients[i], 0, sizeof(Client));
+    clients[i].id = i + 1;
+    clients[i].port = srv.port;
+    pthread_create(&amp;threads[i],,&amp;RunClient,&amp;clients[i]);
+  }
+  for (I64 i = 0; i &lt; CLIENTS; i++) {
+    pthread_join(threads[i]);
+  }
+  pthread_join(acceptor);
+  close(srv.fd);
+
+  for (I64 i = 0; i &lt; CLIENTS; i++) {
+    Client *cl = &amp;clients[i];
+    U8 *verdict = "MISMATCH";
+    if (cl-&gt;ok &amp;&amp; !StrCmp(cl-&gt;sent, cl-&gt;got)) verdict = "echoed";
+    "client %d: %s \"%s\"\n", cl-&gt;id, verdict, cl-&gt;got;
+  }
+  "server handled %d connections, echoed %d bytes\n", srv.served, srv.bytes;
+}
+</code></pre>
+<pre class="output">server listening on 127.0.0.1 (port chosen by the kernel)
+client 1: echoed "hello from client 1, over TCP"
+client 2: echoed "hello from client 2, over TCP"
+client 3: echoed "hello from client 3, over TCP"
+client 4: echoed "hello from client 4, over TCP"
+server handled 4 connections, echoed 116 bytes
+</pre>
+
+<h2>HTTP server</h2>
+<p>A small HTTP/1.0 server with a thread per connection and three routes: a greeting, an
+<code>/add</code> route that reads two numbers from the query string, and 404/405 replies for
+everything else. The client side sends five requests at once, then parses each status line
+and body with <code>strchr</code>, <code>strstr</code> and <code>Atoi</code>.</p>
+<pre><code>cd docs/examples/http
+hcc main.HC -o http &amp;&amp; ./http</code></pre>
+<pre><code class="language-holyc">/* A tiny HTTP/1.0 server with a thread per connection, and a client that
+ * sends it a few requests at the same time. The server has three routes:
+ *   GET /             a greeting
+ *   GET /add?a=&amp;b=    adds two numbers from the query string
+ *   anything else     404, or 405 for a method other than GET
+ * Each response says how long its body is and closes the connection. */
+
+#define REQUESTS 5
+
+class Server
+{
+  I32 fd;
+  I64 port;
+};
+
+class Request
+{
+  U8 method[8];
+  U8 path[128];
+  I64 status;
+  U8 body[128];
+};
+
+/* The port the kernel gave a socket bound to port 0. */
+I64 BoundPort(I32 fd)
+{
+  sockaddr_in addr;
+  I64 len = sizeof(sockaddr_in);
+  if (getsockname(fd, &amp;addr(sockaddr *), &amp;len) != 0) return -1;
+  U16 p = addr.sin_port;              /* network byte order */
+  return (p &gt;&gt; 8) | ((p &amp; 0xFF) &lt;&lt; 8);
+}
+
+Bool SendAll(I32 fd, U8 *buf, I64 len)
+{
+  while (len &gt; 0) {
+    I64 n = send(fd, buf, len, 0);
+    if (n &lt;= 0) return FALSE;
+    buf += n;
+    len -= n;
+  }
+  return TRUE;
+}
+
+/* Read until the peer closes (or the buffer is full). */
+I64 RecvUntilClose(I32 fd, U8 *buf, I64 cap)
+{
+  I64 got = 0, n;
+  while (got &lt; cap - 1 &amp;&amp; (n = recv(fd, buf + got, cap - 1 - got, 0)) &gt; 0) {
+    got += n;
+  }
+  buf[got] = '\0';
+  return got;
+}
+
+/* Value of `name` in a query string like "a=2&amp;b=40", or 0. */
+I64 QueryInt(U8 *query, U8 *name)
+{
+  I64 nlen = StrLen(name);
+  U8 *p = query;
+  while (p &amp;&amp; *p) {
+    if (!StrNCmp(p, name, nlen) &amp;&amp; p[nlen] == '=') return Atoi(p + nlen + 1);
+    p = strchr(p, '&amp;');
+    if (p) p++;
+  }
+  return 0;
+}
+
+U8 *StatusText(I64 status)
+{
+  switch (status) {
+    case 200: return "OK";
+    case 404: return "Not Found";
+    case 405: return "Method Not Allowed";
+  }
+  return "Error";
+}
+
+U0 Respond(I32 fd, I64 status, U8 *body)
+{
+  U8 *msg = StrPrint(NULL,
+      "HTTP/1.0 %d %s\r\nContent-Type: text/plain\r\n"
+      "Content-Length: %d\r\nConnection: close\r\n\r\n%s",
+      status, StatusText(status), StrLen(body), body);
+  SendAll(fd, msg, StrLen(msg));
+  Free(msg);
+}
+
+U0 *ServeConn(I64 fd)
+{
+  U8 req[1024];
+  I64 got = 0, n;
+
+  /* Read the request head: everything up to the blank line. */
+  while (got &lt; sizeof(req) - 1) {
+    n = recv(fd, req + got, sizeof(req) - 1 - got, 0);
+    if (n &lt;= 0) break;
+    got += n;
+    req[got] = '\0';
+    if (strstr(req, "\r\n\r\n")) break;
+  }
+  req[got] = '\0';
+
+  /* "GET /add?a=2&amp;b=40 HTTP/1.0": split out the method and the target. */
+  U8 *sp1 = strchr(req, ' ');
+  U8 *sp2 = NULL;
+  if (sp1) sp2 = strchr(sp1 + 1, ' ');
+  if (!sp1 || !sp2) {
+    Respond(fd, 400, "bad request\n");
+  } else {
+    *sp1 = '\0';
+    *sp2 = '\0';
+    U8 *method = req, *target = sp1 + 1;
+    U8 *query = strchr(target, '?');
+    if (query) *query++ = '\0';
+
+    if (StrCmp(method, "GET")) {
+      Respond(fd, 405, "only GET is supported\n");
+    } else if (!StrCmp(target, "/")) {
+      Respond(fd, 200, "Hello from HolyC\n");
+    } else if (!StrCmp(target, "/add") &amp;&amp; query) {
+      I64 a = QueryInt(query, "a"), b = QueryInt(query, "b");
+      U8 sum[64];
+      snprintf(sum, sizeof(sum), "%d + %d = %d\n", a, b, a + b);
+      Respond(fd, 200, sum);
+    } else {
+      Respond(fd, 404, "no such page\n");
+    }
+  }
+  close(fd);
+  return NULL;
+}
+
+U0 *AcceptLoop(Server *srv)
+{
+  pthread_t *handlers[REQUESTS];
+  for (I64 i = 0; i &lt; REQUESTS; i++) {
+    I64 fd = accept(srv-&gt;fd, NULL, NULL);
+    pthread_create(&amp;handlers[i],,&amp;ServeConn,fd(U0 *));
+  }
+  for (I64 i = 0; i &lt; REQUESTS; i++) {
+    pthread_join(handlers[i]);
+  }
+  return NULL;
+}
+
+class Job
+{
+  I64 port;
+  Request *req;
+};
+
+/* Client side: send one request and parse the status code and body. */
+U0 *Fetch(Job *job)
+{
+  Request *r = job-&gt;req;
+  I32 fd = NetConnect("127.0.0.1", job-&gt;port);
+  if (fd &lt;= 0) return NULL;
+
+  U8 *msg = StrPrint(NULL, "%s %s HTTP/1.0\r\nHost: localhost\r\n\r\n",
+                     r-&gt;method, r-&gt;path);
+  SendAll(fd, msg, StrLen(msg));
+  Free(msg);
+
+  U8 resp[1024];
+  RecvUntilClose(fd, resp, sizeof(resp));
+  close(fd);
+
+  U8 *sp = strchr(resp, ' ');                /* "HTTP/1.0 200 OK" */
+  if (sp) r-&gt;status = Atoi(sp + 1);
+  U8 *body = strstr(resp, "\r\n\r\n");
+  if (body) {
+    StrCpy(r-&gt;body, body + 4);
+    I64 len = StrLen(r-&gt;body);
+    if (len &amp;&amp; r-&gt;body[len - 1] == '\n') r-&gt;body[len - 1] = '\0';
+  }
+  return NULL;
+}
+
+U0 Main()
+{
+  Server srv;
+  srv.fd = NetCreateServer(0, "127.0.0.1", REQUESTS);
+  if (srv.fd &lt;= 0) {
+    "could not start the server\n";
+    return;
+  }
+  srv.port = BoundPort(srv.fd);
+
+  pthread_t *acceptor;
+  pthread_create(&amp;acceptor,,&amp;AcceptLoop,&amp;srv);
+
+  Request reqs[REQUESTS];
+  MemSet(reqs, 0, sizeof(reqs));
+  StrCpy(reqs[0].method, "GET");  StrCpy(reqs[0].path, "/");
+  StrCpy(reqs[1].method, "GET");  StrCpy(reqs[1].path, "/add?a=2&amp;b=40");
+  StrCpy(reqs[2].method, "GET");  StrCpy(reqs[2].path, "/add?b=-7&amp;a=100");
+  StrCpy(reqs[3].method, "GET");  StrCpy(reqs[3].path, "/missing");
+  StrCpy(reqs[4].method, "POST"); StrCpy(reqs[4].path, "/");
+
+  /* All five requests are in flight at once, each on its own thread. */
+  Job jobs[REQUESTS];
+  pthread_t *threads[REQUESTS];
+  for (I64 i = 0; i &lt; REQUESTS; i++) {
+    jobs[i].port = srv.port;
+    jobs[i].req = &amp;reqs[i];
+    pthread_create(&amp;threads[i],,&amp;Fetch,&amp;jobs[i]);
+  }
+  for (I64 i = 0; i &lt; REQUESTS; i++) {
+    pthread_join(threads[i]);
+  }
+  pthread_join(acceptor);
+  close(srv.fd);
+
+  for (I64 i = 0; i &lt; REQUESTS; i++) {
+    Request *r = &amp;reqs[i];
+    "%-4s %-16s -&gt; %d %-18s %s\n", r-&gt;method, r-&gt;path, r-&gt;status,
+      StatusText(r-&gt;status), r-&gt;body;
+  }
+}
+</code></pre>
+<pre class="output">GET  /                -&gt; 200 OK                 Hello from HolyC
+GET  /add?a=2&amp;b=40    -&gt; 200 OK                 2 + 40 = 42
+GET  /add?b=-7&amp;a=100  -&gt; 200 OK                 100 + -7 = 93
+GET  /missing         -&gt; 404 Not Found          no such page
+POST /                -&gt; 405 Method Not Allowed only GET is supported
+</pre>
+
+<h2>Key-value store</h2>
+<p>A server speaking a line protocol (<code>SET</code>, <code>GET</code>, <code>INCR</code>,
+<code>DEL</code>, <code>COUNT</code>), with every client on its own thread and all of them
+sharing one <code>StrMap</code> behind a mutex. Four clients run at once and each bumps the
+same counter 250 times; the final count of 1000 shows no update was lost. Remove the lock
+and the threads corrupt the map. It also shows splitting a TCP stream into lines and letting
+the map free its keys and values.</p>
+<pre><code>cd docs/examples/kvstore
+hcc main.HC -o kvstore &amp;&amp; ./kvstore</code></pre>
+<pre><code class="language-holyc">/* A key-value store server speaking a line protocol over TCP:
+ *   SET &lt;key&gt; &lt;value&gt;   -&gt;  OK
+ *   GET &lt;key&gt;           -&gt;  the value, or (nil)
+ *   INCR &lt;key&gt;          -&gt;  the new number (a missing key counts as 0)
+ *   DEL &lt;key&gt;           -&gt;  1 if it existed, else 0
+ *   COUNT               -&gt;  how many keys there are
+ * Every client gets its own thread, and all of them share one StrMap
+ * guarded by a mutex. Four clients run at once: each stores its name and
+ * bumps a shared counter 250 times. Without the lock the threads would
+ * corrupt the map (removing it makes this program crash), and increments
+ * would be lost. A last client then reads everything back. */
+
+#define WORKERS 4
+#define BUMPS   250
+
+class Store
+{
+  StrMap *map;
+  pthread_mutex_t lock;
+};
+
+class Server
+{
+  I32 fd;
+  I64 port;
+  Store *store;
+};
+
+class Conn
+{
+  Store *store;
+  I32 fd;
+  U8 buf[512];   /* bytes read but not yet split into lines */
+  I64 len;
+};
+
+/* The port the kernel gave a socket bound to port 0. */
+I64 BoundPort(I32 fd)
+{
+  sockaddr_in addr;
+  I64 len = sizeof(sockaddr_in);
+  if (getsockname(fd, &amp;addr(sockaddr *), &amp;len) != 0) return -1;
+  U16 p = addr.sin_port;              /* network byte order */
+  return (p &gt;&gt; 8) | ((p &amp; 0xFF) &lt;&lt; 8);
+}
+
+Bool SendAll(I32 fd, U8 *buf, I64 len)
+{
+  while (len &gt; 0) {
+    I64 n = send(fd, buf, len, 0);
+    if (n &lt;= 0) return FALSE;
+    buf += n;
+    len -= n;
+  }
+  return TRUE;
+}
+
+/* Copy the next '\n'-terminated line into out (without the newline),
+ * reading more from the socket as needed. FALSE when the peer is gone. */
+Bool ReadLine(I32 fd, U8 *buf, I64 *_len, U8 *out, I64 cap)
+{
+  while (TRUE) {
+    for (I64 i = 0; i &lt; *_len; i++) {
+      if (buf[i] == '\n') {
+        I64 n = i;
+        if (n &gt;= cap) n = cap - 1;
+        MemCpy(out, buf, n);
+        out[n] = '\0';
+        MemCpy(buf, buf + i + 1, *_len - i - 1);
+        *_len -= i + 1;
+        return TRUE;
+      }
+    }
+    if (*_len &gt;= 512) return FALSE;    /* line too long */
+    I64 got = recv(fd, buf + *_len, 512 - *_len, 0);
+    if (got &lt;= 0) return FALSE;
+    *_len += got;
+  }
+}
+
+U0 FreeStr(U0 *p)
+{
+  Free(p);
+}
+
+/* Run one command against the store; the reply goes in out. */
+U0 Execute(Store *st, U8 *line, U8 *out, I64 cap)
+{
+  U8 *cmd = line, *key = NULL, *val = NULL;
+  key = strchr(cmd, ' ');
+  if (key) {
+    *key++ = '\0';
+    val = strchr(key, ' ');
+    if (val) *val++ = '\0';
+  }
+
+  pthread_mutex_lock(&amp;st-&gt;lock);
+  if (!StrCmp(cmd, "SET") &amp;&amp; key &amp;&amp; val) {
+    StrMapDelete(st-&gt;map, key);                  /* frees an old key/value */
+    StrMapSet(st-&gt;map, StrNew(key), StrNew(val));
+    snprintf(out, cap, "OK");
+  } else if (!StrCmp(cmd, "GET") &amp;&amp; key) {
+    U8 *v = StrMapGet(st-&gt;map, key);
+    if (v) snprintf(out, cap, "%s", v);
+    else   snprintf(out, cap, "(nil)");
+  } else if (!StrCmp(cmd, "INCR") &amp;&amp; key) {
+    I64 n = 0;
+    U8 *v = StrMapGet(st-&gt;map, key);
+    if (v) n = Atoi(v);
+    n++;
+    StrMapDelete(st-&gt;map, key);
+    StrMapSet(st-&gt;map, StrNew(key), StrPrint(NULL, "%d", n));
+    snprintf(out, cap, "%d", n);
+  } else if (!StrCmp(cmd, "DEL") &amp;&amp; key) {
+    snprintf(out, cap, "%d", StrMapDelete(st-&gt;map, key));
+  } else if (!StrCmp(cmd, "COUNT")) {
+    snprintf(out, cap, "%d", st-&gt;map-&gt;size);
+  } else {
+    snprintf(out, cap, "ERR unknown command");
+  }
+  pthread_mutex_unlock(&amp;st-&gt;lock);
+}
+
+U0 *ServeConn(Conn *c)
+{
+  U8 line[256], reply[300];
+  while (ReadLine(c-&gt;fd, c-&gt;buf, &amp;c-&gt;len, line, sizeof(line))) {
+    Execute(c-&gt;store, line, reply, sizeof(reply) - 1);
+    I64 n = StrLen(reply);
+    reply[n] = '\n';
+    if (!SendAll(c-&gt;fd, reply, n + 1)) break;
+  }
+  close(c-&gt;fd);
+  Free(c);
+  return NULL;
+}
+
+/* Serve exactly `clients` connections, each on its own thread. */
+U0 *AcceptLoop(Server *srv)
+{
+  pthread_t *handlers[WORKERS + 1];
+  for (I64 i = 0; i &lt; WORKERS + 1; i++) {
+    Conn *c = CAlloc(sizeof(Conn));
+    c-&gt;store = srv-&gt;store;
+    c-&gt;fd = accept(srv-&gt;fd, NULL, NULL);
+    pthread_create(&amp;handlers[i],,&amp;ServeConn,c);
+  }
+  for (I64 i = 0; i &lt; WORKERS + 1; i++) {
+    pthread_join(handlers[i]);
+  }
+  return NULL;
+}
+
+/* ---- client side ---- */
+
+class Session
+{
+  I32 fd;
+  U8 buf[512];
+  I64 len;
+};
+
+Bool SessionOpen(Session *s, I64 port)
+{
+  MemSet(s, 0, sizeof(Session));
+  s-&gt;fd = NetConnect("127.0.0.1", port);
+  return s-&gt;fd &gt; 0;
+}
+
+/* Send one command and wait for its one-line reply. */
+U0 Call(Session *s, U8 *cmd, U8 *reply, I64 cap)
+{
+  SendAll(s-&gt;fd, cmd, StrLen(cmd));
+  SendAll(s-&gt;fd, "\n", 1);
+  if (!ReadLine(s-&gt;fd, s-&gt;buf, &amp;s-&gt;len, reply, cap)) StrCpy(reply, "(closed)");
+}
+
+class Worker
+{
+  I64 id;
+  I64 port;
+};
+
+U0 *RunWorker(Worker *w)
+{
+  Session s;
+  U8 cmd[64], reply[64];
+  if (!SessionOpen(&amp;s, w-&gt;port)) return NULL;
+  snprintf(cmd, sizeof(cmd), "SET worker:%d done-by-thread-%d", w-&gt;id, w-&gt;id);
+  Call(&amp;s, cmd, reply, sizeof(reply));
+  for (I64 i = 0; i &lt; BUMPS; i++) {
+    Call(&amp;s, "INCR hits", reply, sizeof(reply));
+  }
+  close(s.fd);
+  return NULL;
+}
+
+U0 Show(Session *s, U8 *cmd)
+{
+  U8 reply[128];
+  Call(s, cmd, reply, sizeof(reply));
+  "%-16s -&gt; %s\n", cmd, reply;
+}
+
+U0 Main()
+{
+  Store store;
+  store.map = StrMapNew();
+  StrMapSetFreeKey(store.map, &amp;FreeStr);
+  StrMapSetFreeValue(store.map, &amp;FreeStr);
+  pthread_mutex_init(&amp;store.lock);
+
+  Server srv;
+  srv.store = &amp;store;
+  srv.fd = NetCreateServer(0, "127.0.0.1", WORKERS + 1);
+  if (srv.fd &lt;= 0) {
+    "could not start the server\n";
+    return;
+  }
+  srv.port = BoundPort(srv.fd);
+
+  pthread_t *acceptor;
+  pthread_create(&amp;acceptor,,&amp;AcceptLoop,&amp;srv);
+
+  Worker workers[WORKERS];
+  pthread_t *threads[WORKERS];
+  for (I64 i = 0; i &lt; WORKERS; i++) {
+    workers[i].id = i + 1;
+    workers[i].port = srv.port;
+    pthread_create(&amp;threads[i],,&amp;RunWorker,&amp;workers[i]);
+  }
+  for (I64 i = 0; i &lt; WORKERS; i++) {
+    pthread_join(threads[i]);
+  }
+  "%d clients each sent INCR hits %d times\n", WORKERS, BUMPS;
+
+  Session s;
+  if (!SessionOpen(&amp;s, srv.port)) {
+    "could not connect\n";
+    return;
+  }
+  Show(&amp;s, "GET hits");
+  Show(&amp;s, "GET worker:1");
+  Show(&amp;s, "GET worker:4");
+  Show(&amp;s, "COUNT");
+  Show(&amp;s, "DEL worker:2");
+  Show(&amp;s, "DEL worker:2");
+  Show(&amp;s, "GET worker:2");
+  Show(&amp;s, "COUNT");
+  Show(&amp;s, "FLY away");
+  close(s.fd);
+
+  pthread_join(acceptor);
+  close(srv.fd);
+  StrMapRelease(store.map);
+}
+</code></pre>
+<pre class="output">4 clients each sent INCR hits 250 times
+GET hits         -&gt; 1000
+GET worker:1     -&gt; done-by-thread-1
+GET worker:4     -&gt; done-by-thread-4
+COUNT            -&gt; 5
+DEL worker:2     -&gt; 1
+DEL worker:2     -&gt; 0
+GET worker:2     -&gt; (nil)
+COUNT            -&gt; 4
+FLY away         -&gt; ERR unknown command
 </pre>
 
 <h2>More examples in the repository</h2>

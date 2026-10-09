@@ -1,0 +1,5 @@
+GET  /                -> 200 OK                 Hello from HolyC
+GET  /add?a=2&b=40    -> 200 OK                 2 + 40 = 42
+GET  /add?b=-7&a=100  -> 200 OK                 100 + -7 = 93
+GET  /missing         -> 404 Not Found          no such page
+POST /                -> 405 Method Not Allowed only GET is supported
