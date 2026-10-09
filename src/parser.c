@@ -90,7 +90,8 @@ Ast *parseFloatingCharConst(Cctrl *cc, Lexeme *tok) {
         ch = ch >> 8;
     }
 
-    Ast *ast = cctrlGetOrSetString(cc,str,len,real_len);
+    /* real_len counts the NUL too */
+    Ast *ast = cctrlGetOrSetString(cc,str,len,real_len + 1);
     vecPush(argv, ast);
     cctrlTokenExpect(cc,';');
     return astFunctionCall(ast_void_type,"printf",6,argv);
