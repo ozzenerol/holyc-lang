@@ -531,8 +531,40 @@ static Bool NetUnixAddress(sockaddr_un *addr, U8 *name)
   return TRUE;
 }
 
+#ifdef IS_LINUX
+extern "c" I32 *__errno_location();
+#define __NET_ECONNREFUSED 111
+static I32 NetErrno() { return *__errno_location(); }
+#else
+/* errno is *__error(); the raw name, as hcc doesn't prefix names starting with _ */
+_extern ___error I32 *NetErrnoPtr();
+#define __NET_ECONNREFUSED 61
+static I32 NetErrno() { return *NetErrnoPtr(); }
+#endif
+
+/* TRUE if `name` is a socket file left behind by a server that is gone:
+ * connecting to it is refused. FALSE for anything else at that path,
+ * including a socket a server still listens on (which sees a connection
+ * that closes at once). */
+static Bool NetUnixSocketIsStale(sockaddr_un *addr, U8 *name)
+{
+  cStat st;
+  I32 fd, rv;
+
+  if (lstat(name, &st) != 0 || (st.st_mode & S_IFMT) != S_IFSOCK)
+    return FALSE;
+  if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+    return FALSE;
+  rv = connect(fd, addr(sockaddr *), sizeof(sockaddr_un));
+  Bool stale = rv == -1 && NetErrno() == __NET_ECONNREFUSED;
+  close(fd);
+  return stale;
+}
+
 public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog)
-{// Listens on the socket file `name`; returns the socket or -1 on failure
+{// Listens on the socket file `name`; returns the socket or -1 on failure.
+ // A stale socket file at `name` is replaced; any other file, or a socket
+ // a server is listening on, makes it fail.
   I32 sockfd = -1;
   sockaddr_un srv;
 
@@ -542,7 +574,8 @@ public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog)
   if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
     goto error;
 
-  unlink(name);
+  if (NetUnixSocketIsStale(&srv, name))
+    unlink(name);
   if ((bind(sockfd, (&srv)(sockaddr *), sizeof(sockaddr_un))) == -1)
     goto error;
 
