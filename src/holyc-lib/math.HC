@@ -78,11 +78,13 @@ _ABS::
     RET
 }
 
-public _extern _ABS U64 Abs(I64 num);
+/* The absolute value of an integer, as an I64. Abs(I64_MIN) is I64_MIN
+ * because 2^63 does not fit, like C's labs. For an F64 use fabs. */
+public _extern _ABS I64 Abs(I64 num);
 #endif
 
 #ifdef IS_ARM_64
-public U64 Abs(I64 num)
+public I64 Abs(I64 num)
 {
   if (num < 0) return -num;
   return num;
