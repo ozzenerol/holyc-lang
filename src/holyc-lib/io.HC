@@ -356,9 +356,10 @@ I64 CmpDirHuman(DirHuman *dh1, DirHuman *dh2)
 }
 
 public I64 Dir(U8 *pathname = "./")
-{
+{ /* -1 for NULL or a path that can't be opened as a directory */
+  if (!pathname) return -1;
   auto dir = opendir(pathname);
-  if (!dir) return 0;
+  if (!dir) return -1;
   auto vec = PtrVecNew();
   /* Strip a trailing '/' on a copy - the argument is often a string
    * literal (the default!), and literals live in read-only memory. */
