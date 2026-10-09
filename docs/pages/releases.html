@@ -29,7 +29,7 @@ more compiler bugs are gone, each with a regression test.</p>
   <li>Two bad statements in a row no longer crash hcc; error recovery skips a stray
   <code>}</code> at the top level.</li>
   <li>Brace elision works for class-typed and array fields of initialiser lists
-  (<code>Q q = {1, 2, 3};</code> where the middle field is a class).</li>
+  (<code>Q q = {1, 2, 3};</code> where the last field is a class).</li>
   <li>String escapes are emitted so the assembler can't misread them, so AOT and JIT strings
   are byte-for-byte the same.</li>
   <li>Character constants accept every escape strings do: <code>'\b'</code> is 8, not 92.</li>
