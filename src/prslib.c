@@ -632,9 +632,9 @@ static void parseCoerceArgs(Ast *def, Vec *argv) {
             continue;
 
         int want_float = astIsFloatType(type);
-        int want_int   = astIsIntType(type);
+        int want_int   = astIsIntOrIntrinsic(type);
         int got_float  = astIsFloatType(arg->type);
-        int got_int    = astIsIntType(arg->type);
+        int got_int    = astIsIntOrIntrinsic(arg->type);
         if ((want_float && got_int) || (want_int && got_float)) {
             argv->entries[i] = astCast(arg, type);
         } else if (want_float && got_float &&
