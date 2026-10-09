@@ -791,7 +791,14 @@ int hccJitRunMain(HccJit *jit, int argc, char **argv) {
     union JitMainFunction entry;
     entry.obj = hccJitLookup(jit, "main");
     if (!entry.obj) entry.obj = hccJitLookup(jit, "_main");
-    return entry.obj ? entry.main_fn(argc, argv) : -1;
+    /* No Main and no statements at file scope for a synthetic main:
+     * say so, rather than exiting 255 with nothing printed. */
+    if (!entry.obj) {
+        fprintf(stderr, "hcc: %s: nothing to run: no Main function and "
+                "no code at file scope\n", argc > 0 ? argv[0] : "-jit");
+        return 1;
+    }
+    return entry.main_fn(argc, argv);
 }
 
 void hccJitFree(HccJit *jit) {
