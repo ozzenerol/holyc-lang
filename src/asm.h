@@ -36,6 +36,11 @@ void asmInitImage(Ast *init, AstType *type, u8 *bytes, Ast **items);
 /* Bytes asmInitImage gives a literal or string item. */
 int asmInitItemWidth(Ast *item);
 
+/* The power of two a global of `type` is aligned to in the data
+ * sections (`.p2align` operand): its natural alignment, so a class or
+ * I64 after a `U8 a[3]` does not land on an odd address. */
+int asmDataAlignLog2(AstType *type);
+
 /* Append `init`, laid out by asmInitImage, to `buf` as data directives. */
 void asmEmitInitData(AoStr *buf, Ast *init, AstType *type);
 
