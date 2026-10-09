@@ -8,6 +8,9 @@
  *   - throw/try with a real handler around uncaught conditions
  *   - default function parameters (ArcCtrlNew)
  *   - switch[], goto labels, hash-chain pointer overlay
+ * Only change: explicit casts where TempleOS converts pointers silently
+ * (&c->hash[i] used as a CArcEntry whose next field is the slot, and the
+ * archive as a U8 buffer), so it compiles without warnings.
  * Regression on any one of these will scramble the round-tripped bytes.
  *
  * **NOTE ON WARNINGS:**
@@ -124,7 +127,7 @@ U0 ArcEntryGet(CArcCtrl *c)
       while (c->hash[i]);
       tmp=&c->compress[i];
       c->next_entry=tmp;
-      tmp1=&c->hash[tmp->basecode];
+      tmp1=(&c->hash[tmp->basecode])(CArcEntry *);
       while (tmp1) {
 	if (tmp1->next==tmp) {
 	  tmp1->next=tmp->next;
@@ -200,7 +203,7 @@ ac_start:
     tmp=c->cur_entry;
     tmp->basecode=basecode;
     tmp->ch=ch;
-    tmp1=&c->hash[basecode];
+    tmp1=(&c->hash[basecode])(CArcEntry *);
     tmp->next=tmp1->next;
     tmp1->next=tmp;
 
@@ -282,7 +285,7 @@ U0 ArcExpandBuf(CArcCtrl *c)
       tmp=c->cur_entry;
       tmp->basecode=lastcode;
       tmp->ch=c->last_ch;
-      tmp1=&c->hash[lastcode];
+      tmp1=(&c->hash[lastcode])(CArcEntry *);
       tmp->next=tmp1->next;
       tmp1->next=tmp;
 
@@ -315,7 +318,7 @@ U8 *ExpandBuf(CArcCompress *arc)
       c=ArcCtrlNew(TRUE,arc->compression_type);
       c->src_size=arc->compressed_size<<3;
       c->src_pos=sizeof(CArcCompress)<<3;
-      c->src_buf=arc;
+      c->src_buf=arc(U8 *);
       c->dst_size=arc->expanded_size;
       c->dst_buf=res;
       c->dst_pos=0;
