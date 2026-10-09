@@ -465,18 +465,29 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
             }
         } else if (tok_name->tk_type == TK_KEYWORD) { 
             switch (tok_name->i64) {
-                case KW_UNION: {
-                    AstType *_union = parseUnionDef(cc);
-                    _union->kind = AST_TYPE_UNION;
-                    listAppend(fields_list, clsFieldNew(_union,_union->clsname));
-                    cctrlTokenExpect(cc,';');
-                    continue;
-                }
+                case KW_UNION:
                 case KW_CLASS: {
-                    AstType *cls = parseClassDef(cc,NULL);
-                    listAppend(fields_list, clsFieldNew(cls,cls->clsname));
-                    cctrlTokenExpect(cc,';');
-                    continue;
+                    /* A nested class or union, tagged or not. Without a
+                     * field name its fields are used as this class's own;
+                     * with one (`union U { ... } u;`) it is the type of
+                     * the fields that follow. */
+                    int is_union = tok_name->i64 == KW_UNION;
+                    cctrlTokenGet(cc);
+                    AstType *nested = is_union ? parseUnionDef(cc)
+                                               : parseClassDef(cc,NULL);
+                    if (tokenPunctIs(cctrlTokenPeek(cc),';')) {
+                        if (!nested->fields) {
+                            cctrlRaiseException(cc,"%s %s has no fields, expected a body or a field name in class %s",
+                                    is_union ? "union" : "class",
+                                    nested->clsname ? nested->clsname->data : "<anonymous>",
+                                    cls_str);
+                        }
+                        cctrlTokenGet(cc);
+                        listAppend(fields_list, clsFieldNew(nested,NULL));
+                        continue;
+                    }
+                    base_type = nested;
+                    break;
                 }
                 default:
                     cctrlRaiseException(cc,"Unexpected keyword: `%.*s` while parsing class %s",
@@ -678,7 +689,9 @@ Map *parseClassOffsets(Cctrl *cc,
                 mapAdd(fields_dict,astAnnonymousLabel(),field);
             }
             offset += CalcPadding(offset, fa);
-            parseFlattenAnnonymous(field,fields_dict,offset,0);
+            /* A tagged one is also a type of its own: copy its fields
+             * rather than moving them. */
+            parseFlattenAnnonymous(field,fields_dict,offset,field->clsname != NULL);
             offset += field->size;
         } else {
             if (field->kind == AST_TYPE_POINTER &&
@@ -722,21 +735,24 @@ Map *parseUnionOffsets(Cctrl *cc, int *real_size, int *out_align, List *fields) 
         if (max_size < field->size) {
             max_size = field->size;
         }
-        if (field->clsname == NULL && parseIsClassOrUnion(field->kind)) {
+        if (field_name == NULL && parseIsClassOrUnion(field->kind)) {
             if (cc->flags & CCTRL_SAVE_ANONYMOUS) {
                 mapAdd(fields_dict,astAnnonymousLabel(),field);
             }
+            /* A tagged one is also a type of its own: flatten copies of
+             * its fields so marking them below doesn't change it. */
+            Map *flat = astTypeMapNew();
+            parseFlattenAnnonymous(field,flat,0,field->clsname != NULL);
             /* Only the first member takes an initialiser item; for an
              * anonymous class or union that is all of its fields. */
-            if (!is_first && field->fields) {
-                MapIter mi;
-                mapIterInit(field->fields, &mi);
-                while (mapIterNext(&mi)) {
-                    ((AstType *)mi.node->value)->init_skip = 1;
-                }
+            MapIter mi;
+            mapIterInit(flat, &mi);
+            while (mapIterNext(&mi)) {
+                AstType *flat_field = (AstType *)mi.node->value;
+                if (!is_first) flat_field->init_skip = 1;
+                mapAdd(fields_dict,mi.node->key,flat_field);
             }
             is_first = 0;
-            parseFlattenAnnonymous(field,fields_dict,0,0);
             continue;
         }
 
@@ -802,6 +818,9 @@ AstType *parseClassOrUnion(Cctrl *cc, Map *env,
         } else {
             cctrlTokenRewind(cc);
         }
+    } else {
+        /* No tag: the body (or a field name) comes next. */
+        cctrlTokenRewind(cc);
     }
 
     if (tag) {

@@ -795,6 +795,28 @@ U0 Main()
 <pre class="output">7 1 42 3
 2 5 9
 </pre>
+<p>A class or union defined inside a class can also have a tag. Without a field name its
+fields are still the class's own, and the tag can be used as a type elsewhere; with a field
+name it is the type of that field:</p>
+<pre data-run><code>class Shape
+{
+  U8 kind;
+  union Size { I32 side; F32 radius; };
+  class Pos { I32 x, y; } at;
+};
+
+U0 Main()
+{
+  Shape s;
+  s.side = 3;
+  s.at.x = 10;
+  Size z;
+  z.radius = 1.5;
+  "%d %d %d %d\n", s.side, s.at.x, sizeof(Size), sizeof(Shape);
+}
+</code></pre>
+<pre class="output">3 10 4 16
+</pre>
 
 <h2 id="preprocessor">The preprocessor</h2>
 <h3>#define</h3>
