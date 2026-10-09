@@ -1406,8 +1406,10 @@ Ast *parseDoWhileStatement(Cctrl *cc) {
     
     tok = cctrlTokenGetRequired(cc);
 
-    if (tok->tk_type != TK_KEYWORD && tok->i64 != KW_WHILE) {
-        cctrlRaiseException(cc,"Expected keyword 'while'");
+    if (tok->tk_type != TK_KEYWORD || tok->i64 != KW_WHILE) {
+        cctrlTokenRewind(cc);
+        cctrlRaiseException(cc,"expected `while` after do block, got `%.*s`",
+                tok->len, tok->start);
     }
 
     cctrlTokenExpect(cc, '(');
