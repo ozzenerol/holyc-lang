@@ -363,7 +363,12 @@ so Pow(4.0, 0.5) is 2.0. An I64 exponent beyond 2^53 is rounded when
 it becomes an F64.</p></div><table class="consts"><thead><tr><th>Constant</th><th>Value</th></tr></thead><tbody><tr id="M_E"><td><code>M_E</code></td><td><code>2.71828182845904523536028747135266250</code></td></tr><tr id="M_LOG2E"><td><code>M_LOG2E</code></td><td><code>1.44269504088896340735992468100189214</code></td></tr><tr id="M_LOG10E"><td><code>M_LOG10E</code></td><td><code>0.434294481903251827651128918916605082</code></td></tr><tr id="M_LN2"><td><code>M_LN2</code></td><td><code>0.693147180559945309417232121458176568</code></td></tr><tr id="M_LN10"><td><code>M_LN10</code></td><td><code>2.30258509299404568401799145468436421</code></td></tr><tr id="M_PI"><td><code>M_PI</code></td><td><code>3.14159265358979323846264338327950288</code></td></tr><tr id="M_PI_2"><td><code>M_PI_2</code></td><td><code>1.57079632679489661923132169163975144</code></td></tr><tr id="M_PI_4"><td><code>M_PI_4</code></td><td><code>0.785398163397448309615660845819875721</code></td></tr><tr id="M_1_PI"><td><code>M_1_PI</code></td><td><code>0.318309886183790671537767526745028724</code></td></tr><tr id="M_2_PI"><td><code>M_2_PI</code></td><td><code>0.636619772367581343075535053490057448</code></td></tr><tr id="M_2_SQRTPI"><td><code>M_2_SQRTPI</code></td><td><code>1.12837916709551257389615890312154517</code></td></tr><tr id="M_SQRT2"><td><code>M_SQRT2</code></td><td><code>1.41421356237309504880168872420969808</code></td></tr><tr id="M_SQRT1_2"><td><code>M_SQRT1_2</code></td><td><code>0.707106781186547524400844362104849039</code></td></tr></tbody></table></section><section id="date"><h2>Dates and time</h2><p class="lede">TempleOS-style CDate values and conversions. Defined in <code>src/holyc-lib/date.HC</code>.</p><div class="decl" id="timeval"><div class="decl-head"><a class="decl-name" href="#timeval">timeval</a> <span class="kind">class</span></div><pre><code class="language-holyc">class timeval
 {
   I64 tv_sec;
+#ifdef IS_LINUX
+  I64 tv_usec;
+#else
   I32 tv_usec;
+  I32 __pad;
+#endif
 };</code></pre></div><div class="decl" id="tm"><div class="decl-head"><a class="decl-name" href="#tm">tm</a> <span class="kind">class</span></div><pre><code class="language-holyc">class tm
 {
   I32 tm_sec;

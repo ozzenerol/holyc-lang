@@ -10,8 +10,13 @@ U64 ModU64(U64 *k, U64 m);
 
 public class timeval
 { // c compatability
-  I64 tv_sec;   /* seconds since Jan. 1, 1970 */
-  I32 tv_usec;  /* and microseconds */
+  I64 tv_sec;     /* seconds since Jan. 1, 1970 */
+#ifdef IS_LINUX
+  I64 tv_usec;    /* and microseconds (a long) */
+#else
+  I32 tv_usec;    /* and microseconds (suseconds_t, an int) */
+  I32 __pad;      /* C pads the struct to 16 bytes */
+#endif
 };
 
 public class tm
