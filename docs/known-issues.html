@@ -88,9 +88,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td><code>IntSet</code> doesn't store anything</td>
-        <td><code>IntSetAdd(s, 5);</code> then <code>IntSetHas(s, 5)</code> is 0 and <code>IntSetSize(s)</code> is 0; unions and differences are empty</td>
-        <td>Use an <code>IntMap</code> with dummy values</td></tr>
     <tr><td><code>NetAccept</code> returns <code>Bool</code>, and <code>NetCreateServer</code> returns 0 on some failures</td>
         <td>A socket number over 255 from <code>NetAccept</code> is truncated; 0 from <code>NetCreateServer</code> looks like a valid socket</td>
         <td>Call <code>accept</code> directly, and treat <code>&lt;= 0</code> from <code>NetCreateServer</code> as failure</td></tr>

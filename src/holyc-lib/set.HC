@@ -491,6 +491,7 @@ class IntSetIter
 IntSetIter *IntSetIterNew(IntSet *set)
 {
   IntSetIter *it = MAlloc(sizeof(IntSetIter));
+  it->sp = 0;
   it->entry = MAlloc(sizeof(IntSetEntry));
   it->stack = MAlloc(sizeof(RBNode *) * set->tree->size);
   RBNode *node = set->tree->root;
@@ -669,29 +670,19 @@ IntSet *IntSetSymDiff(IntSet *s1, IntSet *s2)
 }
 
 U8 *IntSetToString(IntSet *set)
-{
-  U8 *buf = MAlloc(sizeof(U8)*128);
-  U8 *dst = buf;
-  U8 tmp[64];
-
+{// "{1, 2, 3}", in order; free the result
+  U8 *buf = StrNew("{");
   IntSetIter *i1 = IntSetIterNew(set);
   IntSetEntry *entry = NULL;
-  SPutChar(&dst,'{',&buf);
+  Bool first = TRUE;
 
   while ((entry = IntSetIterNext(i1))) {
-    snprintf(tmp,sizeof(tmp),"%lld, ",entry->key(I64));
-    OutStr(tmp,&buf,&dst,0,0);
+    if (!first) buf = CatPrint(buf, ", ");
+    buf = CatPrint(buf, "%d", entry->key);
+    first = FALSE;
   }
-
-  SPutChar(&dst,'{',&buf);
-  RBNode *cur = set->tree->root;
-
-  if (*dst != '{') {
-    dst -= 2;
-  }
-
-  SPutChar(&dst,'}',&buf);
-  return buf;
+  IntSetIterRelease(i1);
+  return CatPrint(buf, "}");
 }
 
 

@@ -1673,7 +1673,8 @@ public class IntSetEntry
 };
 public class IntSetIter
 {
-  RBIter *it;
+  I64 sp;
+  RBNode **stack;
   IntSetEntry *entry;
 };
 
@@ -1683,6 +1684,7 @@ public U0 IntSetAdd(IntSet *set, I64 key);
 public U0 IntSetDelete(IntSet *set, I64 key);
 public IntSet *IntSetUnion(IntSet *s1, IntSet *s2);
 public IntSet *IntSetDiff(IntSet *s1, IntSet *s2);
+public IntSet *IntSetIntersection(IntSet *s1, IntSet *s2);
 public IntSet *IntSetSymDiff(IntSet *s1, IntSet *s2);
 public Bool IntSetEq(IntSet *s1, IntSet *s2);
 public IntVec *IntSetToVec(IntSet *set);
