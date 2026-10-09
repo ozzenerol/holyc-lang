@@ -1705,15 +1705,20 @@ public class RBTree
 public RBTree *RBTreeNew(U0 (*free_key)(U0 *),
                          U0 (*free_value)(U0 *), 
                          U0 (*key_cmp)(U0 *, U0 *));
+/* Insert or update. Updating an existing key keeps the stored key; the
+ * destructors (if set) free the passed duplicate key and the old value. */
 public U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value);
 public U0 *RBTreeGet(RBTree *tree, U0 *key);
 public Bool RBTreeHas(RBTree *tree, U0 *key);
+/* Remove `key`, freeing its key and value with the destructors, if set. */
 public U0 RBTreeDelete(RBTree *tree, U0 *key);
 public U0 RBTreeForEach(RBTree *tree,
                         U0 *user_data,
                         U0 (*callback)(U0 *user_data,
                                        U0 *key, 
                                        U0 *value));
+/* Free every entry (calling the key/value destructors, if set) and the
+ * tree itself. NULL is ignored. */
 public U0 RBTreeRelease(RBTree *tree);
 
 public class RBIter

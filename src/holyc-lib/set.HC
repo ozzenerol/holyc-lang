@@ -176,7 +176,12 @@ U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value)
     } else if (cmp > 0) {
       x = x->right;
     } else {
-      /* XXX: Should duplicates be allowed? Should we free the old value? */
+      /* Updating an existing key keeps the stored key, like StrMapAdd: with
+       * a key destructor the duplicate key is freed, and with a value
+       * destructor the replaced value is freed (unless it is the same
+       * pointer). */
+      if (tree->free_key && x->key != key) tree->free_key(key);
+      if (tree->free_value && x->value != value) tree->free_value(x->value);
       x->value = value;
       return;
     }
@@ -426,13 +431,18 @@ RBNode *RBIterNext(RBIter *it)
 }
 
 U0 RBTreeRelease(RBTree *tree)
-{
+{// Free every node, its key and value (with the tree's destructors, if
+ // set) and the tree itself
+  if (!tree) return;
   RBIter *it = RBIterNew(tree);
   RBNode *node = NULL;
+  /* RBIterNext has already pushed the node's right subtree, so the node
+   * can be freed straight away */
   while ((node = RBIterNext(it)) != NULL) {
-    Free(node);
+    RBNodeRelease(tree, node);
   }
   RBIterRelease(it);
+  Free(tree);
 }
 
 class IntSet
