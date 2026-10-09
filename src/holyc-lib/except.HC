@@ -44,7 +44,11 @@ class HCFs
   U64 except_ch;          /* value of the most recent throw */
   U0 *coro_cur;           /* running Coroutine, NULL on the thread's own stack */
   U0 *coro_root;          /* save slot for the thread's own stack (coroutines.HC) */
+  U0 *coro_cache;         /* released coroutine stacks kept for reuse */
+  I64 coro_cached;        /* how many */
 };
+
+U0 CoroStacksFree(HCFs *fs);  /* coroutines.HC */
 
 /* pthread_once_t is an int on Linux and a signed struct on macOS
  * (PTHREAD_ONCE_INIT is {0x30B1BCBA, {0}}); pthread_key_t is 4 bytes on
@@ -59,6 +63,7 @@ static U64 _fs_key = 0;
 static U0 FsFree(U0 *p)
 {
   HCFs *fs = p;
+  CoroStacksFree(fs);
   free(fs->coro_root);
   free(fs);
 }

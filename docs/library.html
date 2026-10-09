@@ -1359,7 +1359,9 @@ way: <code>CoroutineNext(c, send)</code> makes the paused <code>CoroutineYield</
 and a <code>try</code> may span a yield. A throw that leaves the coroutine's function goes on from the
 <code>CoroutineNext</code> that resumed it. Each stack is 256 KiB unless <code>CoroutineNew</code>'s
 third argument says otherwise, with a guard page below it: running past it crashes the program
-instead of overwriting memory. <code>CoroutineYield</code> outside a coroutine, or resuming one that is
+instead of overwriting memory. <code>CoroutineRelease</code> keeps up to 16 stacks per thread
+for the next <code>CoroutineNew</code> of the same size, so short-lived coroutines (one per request)
+don't map and unmap a stack each time; they are unmapped when the thread ends. <code>CoroutineYield</code> outside a coroutine, or resuming one that is
 running, prints a message and exits with 1.</p>
 <pre data-run><code>U0 *Fib(U0 *max)
 {

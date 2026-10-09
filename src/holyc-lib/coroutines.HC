@@ -15,6 +15,7 @@
 #include "./defs.HH"
 
 #define CORO_STACK_DEFAULT (256 * 1024)
+#define CORO_CACHE_MAX     16  /* released stacks kept per thread */
 
 #define CORO_READY     0  /* made, never resumed */
 #define CORO_SUSPENDED 1  /* paused in CoroutineYield */
@@ -135,6 +136,56 @@ _CORO_ENTRY::
 }
 #endif
 
+/* A released stack in its thread's cache (Fs()->coro_cache). It lives
+ * in the top bytes of the stack itself, so caching allocates nothing. */
+class CoroCached;
+class CoroCached
+{
+  CoroCached *next;
+  I64 len;              /* bytes mapped, guard included */
+};
+
+/* A cached stack of len bytes (guard included), or NULL. */
+static U0 *CoroStackGet(HCFs *fs, I64 len)
+{
+  CoroCached **link = &fs->coro_cache;
+  CoroCached *n;
+  for (n = *link; n; n = *link) {
+    if (n->len == len) {
+      *link = n->next;
+      fs->coro_cached--;
+      return n(U8 *) + sizeof(CoroCached) - len;
+    }
+    link = &n->next;
+  }
+  return NULL;
+}
+
+/* Keep a released stack for reuse; FALSE when the cache is full. */
+static Bool CoroStackPut(HCFs *fs, U0 *base, I64 len)
+{
+  if (fs->coro_cached >= CORO_CACHE_MAX) return FALSE;
+  CoroCached *n = (base + len - sizeof(CoroCached))(CoroCached *);
+  n->len = len;
+  n->next = fs->coro_cache;
+  fs->coro_cache = n;
+  fs->coro_cached++;
+  return TRUE;
+}
+
+/* Unmap a thread's cached stacks: FsFree calls it when the thread ends. */
+U0 CoroStacksFree(HCFs *fs)
+{
+  CoroCached *n = fs->coro_cache, *next;
+  while (n) {
+    next = n->next;
+    munmap(n(U8 *) + sizeof(CoroCached) - n->len, n->len);
+    n = next;
+  }
+  fs->coro_cache = NULL;
+  fs->coro_cached = 0;
+}
+
 _extern _CORO_SWAP U0 *CoroSwap(U0 **save_sp, U0 *new_sp, U0 *value);
 _extern _CORO_ENTRY U0 CoroEntry();
 
@@ -206,33 +257,38 @@ public Coroutine *CoroutineNew(U0 *(*fn)(U0 *arg), U0 *arg=NULL,
   Coroutine *c = calloc(1, sizeof(Coroutine));
   if (!c) return NULL;
   c->stack_len = page + stack_size;
-  c->stack_base = mmap(NULL, c->stack_len, CORO_PROT_READ|CORO_PROT_WRITE,
-      CORO_MAP_PRIVATE|CORO_MAP_ANONYMOUS, -1, 0);
-  if (c->stack_base(I64) == -1) { /* MAP_FAILED */
-    free(c);
-    return NULL;
-  }
-  if (mprotect(c->stack_base, page, CORO_PROT_NONE) != 0) {
-    munmap(c->stack_base, c->stack_len);
-    free(c);
-    return NULL;
+  c->stack_base = CoroStackGet(Fs(), c->stack_len);
+  if (!c->stack_base) {
+    c->stack_base = mmap(NULL, c->stack_len, CORO_PROT_READ|CORO_PROT_WRITE,
+        CORO_MAP_PRIVATE|CORO_MAP_ANONYMOUS, -1, 0);
+    if (c->stack_base(I64) == -1) { /* MAP_FAILED */
+      free(c);
+      return NULL;
+    }
+    if (mprotect(c->stack_base, page, CORO_PROT_NONE) != 0) {
+      munmap(c->stack_base, c->stack_len);
+      free(c);
+      return NULL;
+    }
   }
   c->fn = fn;
   c->arg = arg;
   c->status = CORO_READY;
 
   /* A frame as CoroSwap leaves it, so the first switch "returns" into
-   * CoroEntry with the coroutine in a callee-saved register. The stack
-   * is zeroed, so only the non-zero slots are written. */
+   * CoroEntry with the coroutine in a callee-saved register. A reused
+   * stack holds old data, so the frame is zeroed first. */
   U64 *top = (c->stack_base + c->stack_len)(U64 *);
 #ifdef IS_X86_64
   U64 *sp = top - 8;
+  MemSet(sp, 0, 8 * sizeof(U64));
   sp[0] = 0x037F00001F80;      /* MXCSR 0x1F80, x87 control word 0x37F */
   sp[5] = c(U64);              /* RBX */
   sp[7] = &CoroEntry(U64);     /* return address */
 #endif
 #ifdef IS_ARM_64
   U64 *sp = top - 20;
+  MemSet(sp, 0, 20 * sizeof(U64));
   sp[0] = c(U64);              /* X19 */
   sp[11] = &CoroEntry(U64);    /* X30 (lr); X29 (fp) stays 0 */
 #endif
@@ -291,14 +347,17 @@ public Coroutine *CoroutineSelf()
   return Fs()->coro_cur;
 }
 
-/* Free c and its stack. A coroutine paused in CoroutineYield is dropped
- * where it is: whatever it allocated is not freed. c must not be
- * running. NULL is ignored. */
+/* Free c. Its stack goes to the calling thread's cache for the next
+ * CoroutineNew of the same size (at most CORO_CACHE_MAX stacks),
+ * otherwise it is unmapped. A coroutine paused in CoroutineYield is
+ * dropped where it is: whatever it allocated is not freed. c must not
+ * be running. NULL is ignored. */
 public U0 CoroutineRelease(Coroutine *c)
 {
   if (!c) return;
   if (c->status == CORO_ACTIVE)
     CoroDie("CoroutineRelease: the coroutine is running\n");
-  munmap(c->stack_base, c->stack_len);
+  if (!CoroStackPut(Fs(), c->stack_base, c->stack_len))
+    munmap(c->stack_base, c->stack_len);
   free(c);
 }
