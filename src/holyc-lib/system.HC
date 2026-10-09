@@ -80,8 +80,9 @@ public U8 *Shlurp(U8 *fmt, ...)
   if (argc == 0) user_cmd = fmt;
   else           user_cmd = StrPrintJoin(NULL,fmt,argc,argv);
   /* The braces redirect every command in a list (`a; b`), not just the
-   * last one */
-  cmd = StrPrint(NULL,"{ %s\n} > %s",user_cmd,tmp_path);
+   * last one. The blank line ends a command that ends in a backslash and
+   * `:` keeps the braces from being empty for an empty command. */
+  cmd = StrPrint(NULL,"{\n%s\n\n:\n} > %s",user_cmd,tmp_path);
   if (user_cmd != fmt) Free(user_cmd);
   System(cmd);
   Free(cmd);
