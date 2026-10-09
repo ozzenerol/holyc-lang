@@ -49,7 +49,7 @@ U8 *RunHcc(U8 *source)
   if (!FileWrite(IF_TEST_FILE, source, StrLen(source), O_CREAT | O_RDWR | O_TRUNC)) {
     return NULL;
   }
-  System("timeout 60 ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit " IF_TEST_FILE " > " IF_TEST_OUT " 2>&1");
+  System("$(command -v timeout >/dev/null 2>&1 && echo timeout 60) ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit " IF_TEST_FILE " > " IF_TEST_OUT " 2>&1");
   U8 *out = FileRead(IF_TEST_OUT);
   Rm(IF_TEST_FILE);
   Rm(IF_TEST_OUT);

@@ -119,7 +119,7 @@ Bool CompileFailsWith(U8 *source, U8 *msg, U8 *loc)
   if (!FileWrite(UNION_INIT_FILE, source, StrLen(source), O_CREAT | O_RDWR | O_TRUNC)) {
     return FALSE;
   }
-  res = System("timeout 60 ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} " UNION_INIT_FILE " > " UNION_INIT_OUT " 2>&1");
+  res = System("$(command -v timeout >/dev/null 2>&1 && echo timeout 60) ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} " UNION_INIT_FILE " > " UNION_INIT_OUT " 2>&1");
   out = FileRead(UNION_INIT_OUT);
   if (!out) {
     CleanupUnionInitTest;
