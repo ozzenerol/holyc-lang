@@ -201,8 +201,9 @@ often <code>""</code>. <code>Exit(code)</code> ends the program.</p>
 
 <h2 id="lists">Lists</h2>
 <p><code>List</code> is a circular doubly linked list of <code>U0 *</code> values. The list
-head is a sentinel, so iterate from <code>l->next</code> until you get back to
-<code>l</code>.</p>
+is its head node, which links to itself when the list is empty, so iterate from
+<code>l->next</code> until you get back to <code>l</code>. The list never frees the values
+it holds unless you hand it a free function.</p>
 <pre data-run><code>
 U0 Main()
 {
@@ -214,28 +215,108 @@ U0 Main()
   for (List *it = l->next; it != l; it = it->next) {
     "%s\n", it->value;
   }
+  "first %s, last %s\n", ListFirst(l), ListLast(l);
   "popped %s, %d left\n", ListPop(l), ListCount(l);
+  ListRelease(l, NULL);
 }
 </code></pre>
 <pre class="output">
 one
 two
 three
+first one, last three
 popped three, 2 left
 </pre>
-<p><code>ListDeque</code> removes and returns the first value and <code>ListPop</code> the
-last, so <code>ListAppend</code> with <code>ListDeque</code> is a first-in first-out queue
-and <code>ListAppend</code> with <code>ListPop</code> a stack. Both return
-<code>NULL</code> for an empty list. <code>ListRelease(l, free_value)</code> frees the
-list, calling <code>free_value</code> (if not <code>NULL</code>) on each value.</p>
+<ul>
+  <li><strong>Making one.</strong> <code>ListNew()</code> allocates a head; free it with
+  <code>ListRelease</code>. <code>ListInit(&amp;head)</code> turns a head you own (on the stack,
+  or inside a class) into an empty list; empty that one with <code>ListClear</code>, because
+  <code>ListRelease</code> also frees the head.</li>
+  <li><strong>Adding.</strong> <code>ListAppend</code> and <code>ListPrepend</code> add at the
+  end and the front; <code>ListInsertValueBefore(node, value)</code> inserts before any node
+  (before the head is the end), and <code>ListInsertBefore(node, new_node)</code> links in a
+  node you made yourself.</li>
+  <li><strong>Removing.</strong> <code>ListDeque</code> removes and returns the first value and
+  <code>ListPop</code> the last, so <code>ListAppend</code> with <code>ListDeque</code> is a
+  first-in first-out queue and <code>ListAppend</code> with <code>ListPop</code> a stack.
+  <code>ListRemove(node)</code> unlinks one node while you walk the list (take
+  <code>it->next</code> first) and returns its value; never pass it the head.</li>
+  <li><strong>Looking.</strong> <code>ListFirst</code> and <code>ListLast</code> return a value
+  without removing it, <code>ListEmpty</code> tells whether there are any, and
+  <code>ListCount</code> counts them by walking the list, so it is O(n).</li>
+  <li><strong>Emptying.</strong> <code>ListClear(l, free_value)</code> frees every node and
+  keeps the head; <code>ListRelease(l, free_value)</code> frees the nodes and the head. Both
+  call <code>free_value</code> on each value when it isn't <code>NULL</code>.</li>
+  <li><strong>Joining.</strong> <code>ListMergeAppend(l1, l2)</code> and
+  <code>ListMergePrepend(l1, l2)</code> move all of <code>l2</code>'s values to the end or
+  the front of <code>l1</code> and free <code>l2</code>'s head, so <code>l2</code> (which
+  must come from <code>ListNew</code>) can't be used afterwards.</li>
+</ul>
+<p><code>ListDeque</code>, <code>ListPop</code>, <code>ListFirst</code> and
+<code>ListLast</code> return <code>NULL</code> for an empty list, which looks the same as a
+stored <code>NULL</code>: check <code>ListEmpty</code> first if you store them. The
+functions that remove, look or free accept a <code>NULL</code> list and do nothing
+(returning <code>NULL</code>, <code>0</code> from <code>ListCount</code>, <code>TRUE</code>
+from <code>ListEmpty</code>); the ones that add need a real list.</p>
+<pre data-run><code>
+U0 Main()
+{
+  List todo;              // a head on the stack
+  ListInit(&todo);
+  ListAppend(&todo, StrNew("write"));
+  ListAppend(&todo, StrNew("test"));
+  ListAppend(&todo, StrNew("ship"));
+
+  List *it = todo.next;
+  while (it != &todo) {   // drop "test" while walking
+    List *next = it->next;
+    if (!StrCmp(it->value, "test")) Free(ListRemove(it));
+    it = next;
+  }
+
+  List *later = ListNew();
+  ListAppend(later, StrNew("rest"));
+  ListMergeAppend(&todo, later);   // `later` is freed
+
+  for (it = todo.next; it != &todo; it = it->next) "%s ", it->value;
+  "(%d)\n", ListCount(&todo);
+  ListClear(&todo, &Free);         // keeps the stack head
+  "empty: %d\n", ListEmpty(&todo);
+}
+</code></pre>
+<pre class="output">
+write ship rest (3)
+empty: 1
+</pre>
 
 <h2 id="vectors">Vectors</h2>
 <p>Growable arrays: <code>IntVec</code> of <code>I64</code>, <code>FloatVec</code> of
 <code>F64</code> and <code>PtrVec</code> of pointers. Each has <code>size</code> and
-<code>entries</code> fields, so a range-based <code>for</code> works on them.</p>
-<p><code>PtrVecSort</code> takes a comparison that returns <code>TRUE</code> when its first
-argument should come first. That's a "less than" test, not a C-style negative, zero or
-positive result.</p>
+<code>entries</code> fields, so a range-based <code>for</code> works on them. The functions
+are the same for the three, with the type as prefix:</p>
+<ul>
+  <li><code>IntVecNew(size = 32)</code> makes an empty vector with room for
+  <code>size</code> values (its initial capacity); a size below 1 is taken as 1.
+  <code>IntVecCapacity</code> says how many values fit before the storage has to grow, and
+  <code>IntVecPush</code> appends, doubling the storage when it is full.</li>
+  <li><code>IntVecGet(v, i)</code> and <code>IntVecSet(v, i, value)</code> read and replace an
+  entry. The index is always checked: outside <code>0</code> to <code>size - 1</code> they
+  print <code>IntVecGet: index 5 out of range (size 3)</code> on stderr and exit with
+  status 1. Reading <code>v->entries[i]</code> directly is not checked.</li>
+  <li><code>IntVecPop(v, &amp;ok)</code> removes and returns the last entry and
+  <code>IntVecLast(v, &amp;ok)</code> returns it without removing it. On an empty vector they
+  return <code>-1</code> (<code>-1.0</code> for <code>FloatVec</code>, <code>NULL</code> for
+  <code>PtrVec</code>) and set <code>ok</code> to <code>FALSE</code>; the
+  <code>ok</code> argument is optional.</li>
+  <li><code>IntVecClear</code> sets the size to 0 and keeps the storage for reuse;
+  <code>IntVecRelease</code> frees it. <code>PtrVecRelease(v, free_value)</code> first calls
+  <code>free_value</code> (for example <code>&amp;Free</code>) on every value.</li>
+  <li><code>IntVecSort</code> and <code>FloatVecSort</code> sort ascending.
+  <code>PtrVecSort</code> takes a comparison that returns <code>TRUE</code> when its first
+  argument should come first. That's a "less than" test, not a C-style negative, zero or
+  positive result, which leaves the vector unsorted. The sorts are O(n log n), also for
+  sorted or all-equal input, and not stable: equal values may change order.</li>
+</ul>
 <pre data-run><code>
 I64 ShorterFirst(U0 *a, U0 *b)
 {
@@ -252,29 +333,51 @@ U0 Main()
   for (I64 n : nums) {
     "%d\n", n;
   }
-  Bool ok;
-  "popped %d, size %d, first %d\n", IntVecPop(nums, &ok), nums->size, IntVecGet(nums, 0);
+  IntVecSet(nums, 0, 15);
+  "popped %d, size %d, first %d\n", IntVecPop(nums), nums->size, IntVecGet(nums, 0);
   IntVecRelease(nums);
 
   PtrVec *words = PtrVecNew();
-  PtrVecPush(words, "banana");
-  PtrVecPush(words, "fig");
-  PtrVecPush(words, "apple");
+  PtrVecPush(words, StrNew("banana"));
+  PtrVecPush(words, StrNew("fig"));
+  PtrVecPush(words, StrNew("kiwi"));
   PtrVecSort(words, &ShorterFirst);
   for (U8 *w : words) {
     "%s\n", w;
   }
-  PtrVecRelease(words);
+  PtrVecRelease(words, &Free);   // frees the strings too
 }
 </code></pre>
 <pre class="output">
 10
 20
 30
-popped 30, size 2, first 10
+popped 30, size 2, first 15
 fig
-apple
+kiwi
 banana
+</pre>
+<pre data-run><code>
+U0 Main()
+{
+  FloatVec *temps = FloatVecNew(4);
+  FloatVecPush(temps, 21.5);
+  FloatVecPush(temps, -3.25);
+  FloatVecPush(temps, 8.0);
+  FloatVecSort(temps);
+  "lowest %.2f, highest %.2f, capacity %d\n",
+    FloatVecGet(temps, 0), FloatVecLast(temps), FloatVecCapacity(temps);
+
+  FloatVecClear(temps);
+  Bool ok;
+  F64 last = FloatVecLast(temps, &ok);
+  "after clear: size %d, last %.1f, ok %d\n", temps->size, last, ok;
+  FloatVecRelease(temps);
+}
+</code></pre>
+<pre class="output">
+lowest -3.25, highest 21.50, capacity 4
+after clear: size 0, last -1.0, ok 0
 </pre>
 
 <h2 id="hash-tables">Hash tables</h2>

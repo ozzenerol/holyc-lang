@@ -78,6 +78,7 @@ U0 ListInsertValueBefore(List *ll, U0 *value)
 }
 
 U0 *ListPop(List *l) {
+  if (!l) return NULL;
   List *ll = l(List *);
   if (ll->next == ll) {
     return NULL;
@@ -92,6 +93,7 @@ U0 *ListPop(List *l) {
 
 U0 ListRelease(List *ll, U0 (*FreeValue)(U0 *arg))
 {
+  if (!ll) return;
   List *node = ll->next;
   List *next;
   while (node != ll) {
@@ -105,9 +107,50 @@ U0 ListRelease(List *ll, U0 (*FreeValue)(U0 *arg))
   Free(ll);
 }
 
+U0 ListClear(List *l, U0 (*free_value)(U0 *value)=NULL)
+{// Free every node (calling free_value on each value, if given) and keep
+ // the head, empty: works on a ListInit head too. NULL is ignored.
+  if (!l) return;
+  List *node = l->next;
+  List *next;
+  while (node != l) {
+    next = node->next;
+    if (free_value) {
+      free_value(node->value);
+    }
+    Free(node);
+    node = next;
+  }
+  l->next = l->prev = l;
+}
+
+U0 *ListRemove(List *node)
+{// Unlink `node` from its list, free it and return its value. Never pass
+ // the list's head; an empty head (linked to itself) is left alone and
+ // NULL is returned, as for a NULL node.
+  if (!node || node->next == node) return NULL;
+  U0 *value = node->value;
+  node->prev->next = node->next;
+  node->next->prev = node->prev;
+  Free(node);
+  return value;
+}
+
+U0 *ListFirst(List *l)
+{// The first value, without removing it; NULL if the list is empty or NULL
+  if (!l || l->next == l) return NULL;
+  return l->next->value;
+}
+
+U0 *ListLast(List *l)
+{// The last value, without removing it; NULL if the list is empty or NULL
+  if (!l || l->prev == l) return NULL;
+  return l->prev->value;
+}
+
 I64 ListCount(List *ll)
 {
-  if (ll == ll->next) return 0;
+  if (!ll || ll == ll->next) return 0;
   auto node = ll->next;
   I64 count = 0;
   while (node != ll) {
@@ -117,16 +160,22 @@ I64 ListCount(List *ll)
   return count;
 }
 
-/* Merge l2 to the start of l1 and Free l2
+/* Move the nodes of l2 to the start of l1 and Free l2's head
  * Example
  * l1 = [1,2,3]
  * l2 = [4,5,6]
- * ListMerge(l1,l2);
+ * ListMergePrepend(l1,l2);
  * l1 = [4,5,6,1,2,3] (and linked the otherway too)
- * l2 = nullptr
+ * l2 has been freed and must not be used again. An empty l2 is just
+ * freed; with l1 or l2 NULL nothing happens.
  */
 U0 ListMergePrepend(List *l1, List *l2)
 {
+  if (!l1 || !l2) return;
+  if (l2->next == l2) {
+    Free(l2);
+    return;
+  }
   List *h1 = l1->next;
 
   List *h2 = l2->next;
@@ -139,24 +188,28 @@ U0 ListMergePrepend(List *l1, List *l2)
   Free(l2);
 }
 
-/* Merge l2 to the end of l1 and Free l2.
+/* Move the nodes of l2 to the end of l1 and Free l2's head.
  * Example
  * l1 = [1,2,3]
  * l2 = [4,5,6]
- * ListMerge(l1,l2);
+ * ListMergeAppend(l1,l2);
  * l1 = [1,2,3,4,5,6] (and linked the otherway too)
- * l2 = nullptr
+ * l2 has been freed and must not be used again. An empty l2 is just
+ * freed; with l1 or l2 NULL nothing happens.
  * */
 U0 ListMergeAppend(List *l1, List *l2)
 {
-  List *h1 = l1->next;
+  if (!l1 || !l2) return;
+  if (l2->next == l2) {
+    Free(l2);
+    return;
+  }
   List *t1 = l1->prev;
 
   List *h2 = l2->next;
   List *t2 = l2->prev;
 
   h2->prev = t1;
-  h2->prev->next = h1;
   t1->next = h2;
   t2->next = l1;
   l1->prev = t2;
