@@ -1519,14 +1519,15 @@ static I64 _StrDateName(U8 **_s, U8 **names, I64 count)
  * %H hour (0-23, or 1-12 with %p), %M minutes, %s or %S seconds, %a day
  * name, %b month name (full or 3 letters), %p AM/PM, %z zone offset, %%.
  * A space in the format matches any run of spaces. Fields the format
- * doesn't set stay -1, except the time fields, which default to 0.
+ * doesn't set stay -1, except the time fields, which default to 0, and
+ * zone_diff, which is CDATE_NO_ZONE without a %z.
  * Returns FALSE for empty input, input that ends before the format, text
  * that doesn't match the format, an unknown conversion or a field out of
  * range; text after the end of the format is ignored. */
 Bool Str2CDateStruct(U8 *strdate, U8 *format, CDateStruct *t)
 {
   I64 year = -1, mon = -1, day = -1, hour = 0, min = 0, sec = 0;
-  I64 dow = -1, zone = -1, v, pm = -1, sign;
+  I64 dow = -1, zone = CDATE_NO_ZONE, v, pm = -1, sign;
   Bool has_hour = FALSE;
 
   /* initialise the date struct's field to -1, error state */
@@ -1536,6 +1537,7 @@ Bool Str2CDateStruct(U8 *strdate, U8 *format, CDateStruct *t)
   t->sec = 0;
   t->min = 0;
   t->hour = 0;
+  t->zone_diff = CDATE_NO_ZONE;
 
   if (!strdate || !format || !*strdate) {
     return FALSE;

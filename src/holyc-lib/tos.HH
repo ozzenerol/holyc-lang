@@ -161,6 +161,9 @@ public class CDateStruct {
   I32 year;
   I64 zone_diff;
 };
+/* zone_diff when there is no zone (Str2CDateStruct without %z); no
+ * +-hhmm offset can be this. */
+#define CDATE_NO_ZONE I64_MIN
 
 public U64 NowMilliseconds();
 public U0 NowDateTimeStruct(CDateStruct *_ds);
@@ -960,8 +963,9 @@ public U8 *CatPrint(U8 *_dst, U8 *fmt, ...);
 public U8 *CatLenPrint(U8 *_dst, I64 *_len, U8 *fmt, ...);
 /* Parse strdate with a strptime-like format: %Y %m %d %H %M %s (or %S)
  * %a/%b (day/month name, full or three letters) %p %z %%. Unset date
- * fields are -1, time fields 0. FALSE for empty, short or mismatching
- * input, an unknown conversion or a field out of range. */
+ * fields are -1, time fields 0 and zone_diff CDATE_NO_ZONE. FALSE for
+ * empty, short or mismatching input, an unknown conversion or a field
+ * out of range. */
 public Bool Str2CDateStruct(U8 *strdate, U8 *format, CDateStruct *t);
 /* Glob match of all of test_str: '*' any run of characters, '?' any one.
  * FALSE if either is NULL. */
