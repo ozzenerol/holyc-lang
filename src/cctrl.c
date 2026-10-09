@@ -538,10 +538,26 @@ static CctrlMacroUse *cctrlMacroUseOf(Cctrl *cc, Lexeme *tok) {
 }
 
 /* Width of `tok` in the source: the macro name for an expansion, whose
- * own `len` is the length of the value. */
+ * own `len` is the length of the value. A string or character constant's
+ * `len` is what is between its quotes; it starts at the opening one. */
 static s64 cctrlTokenSourceLen(Cctrl *cc, Lexeme *tok) {
     CctrlMacroUse *mu = cctrlMacroUseOf(cc, tok);
-    return mu ? mu->use->len : tok->len;
+    if (mu) return mu->use->len;
+    if (tok->tk_type == TK_STR) {
+        return tok->len + 2;
+    }
+    if (tok->tk_type == TK_CHAR_CONST && tok->start) {
+        /* Its `len` counts the decoded characters (`'\n'` is 1): measure
+         * it in the source, from after the opening quote to the closing
+         * one. */
+        s64 i = 0;
+        while (tok->start[i] && tok->start[i] != '\'' &&
+               tok->start[i] != '\n') {
+            i += (tok->start[i] == '\\' && tok->start[i + 1]) ? 2 : 1;
+        }
+        return i + (tok->start[i] == '\'' ? 2 : 1);
+    }
+    return tok->len;
 }
 
 Lexeme *cctrlTokenPeekBy(Cctrl *cc, int cnt) {
