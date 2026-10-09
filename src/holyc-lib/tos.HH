@@ -2106,19 +2106,44 @@ public class IntSetIter
   IntSetEntry *entry;
 };
 
+/* A sorted set of I64s (a red-black tree): add, delete and lookup are
+ * O(log n), iteration is in ascending order. The functions that only read
+ * a set treat NULL as the empty set; IntSetAdd and IntSetDelete need a
+ * real one. */
 public IntSet *IntSetNew(U0);
+/* TRUE when `key` is in the set; FALSE for a NULL set */
 public Bool IntSetHas(IntSet *set, I64 key);
+/* Add `key`; adding one that is already there changes nothing */
 public U0 IntSetAdd(IntSet *set, I64 key);
+/* Remove `key`; nothing happens if it is not there */
 public U0 IntSetDelete(IntSet *set, I64 key);
+/* The set operations return a new set (release it with IntSetRelease)
+ * and leave their arguments alone. Union: in either set. */
 public IntSet *IntSetUnion(IntSet *s1, IntSet *s2);
+/* In `s1` but not in `s2` */
 public IntSet *IntSetDiff(IntSet *s1, IntSet *s2);
+/* In both sets */
 public IntSet *IntSetIntersection(IntSet *s1, IntSet *s2);
+/* In exactly one of the two sets */
 public IntSet *IntSetSymDiff(IntSet *s1, IntSet *s2);
+/* TRUE when both sets hold the same keys */
 public Bool IntSetEq(IntSet *s1, IntSet *s2);
+/* The keys in ascending order in a new IntVec (IntVecRelease it) */
 public IntVec *IntSetToVec(IntSet *set);
+/* "{1, 2, 3}", in ascending order; free the result */
 public U8 *IntSetToString(IntSet *set);
+/* Free the set. NULL is ignored. */
 public U0 IntSetRelease(IntSet *set);
+/* The next key in ascending order, or NULL at the end. The entry belongs
+ * to the iterator and is overwritten by the next call. NULL for a NULL
+ * iterator. */
 public IntSetEntry *IntSetIterNext(IntSetIter *iter);
+/* Free the iterator (not the set). NULL is ignored. */
 public U0 IntSetIterRelease(IntSetIter *iter);
+/* An iterator over the set's keys, smallest first:
+ *   while ((e = IntSetIterNext(it))) ... e->key ...
+ * Don't add or delete keys while iterating. A NULL set gives an iterator
+ * that yields nothing. */
 public IntSetIter *IntSetIterNew(IntSet *set);
+/* The number of keys; 0 for a NULL set */
 public I64 IntSetSize(IntSet *set);
