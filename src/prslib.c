@@ -1368,6 +1368,58 @@ static Ast *parseIdentifierOrFunction(Cctrl *cc,
     return ast;
 }
 
+/* When transpiling, #defines are kept (CCTRL_PASTE_DEFINES), so a string
+ * macro reaches the parser as an identifier */
+static int parseIsStringMacro(Cctrl *cc, Lexeme *tok) {
+    if (!(cc->flags & CCTRL_PASTE_DEFINES) || !tok ||
+        tok->tk_type != TK_IDENT) {
+        return 0;
+    }
+    Lexeme *def = mapGetLen(cc->macro_defs, tok->start, tok->len);
+    return def && def->tk_type == TK_STR;
+}
+
+/* Adjacent string literals are one string, `"a" "b"`. When transpiling,
+ * string macros can be part of it too (`"a" M "b"`, `M "x"`, `M N`): the
+ * node then holds that C text as written (AST_FLAG_RAW_C_STRING), as the
+ * #define is emitted and C pastes adjacent literals as HolyC does.
+ * Without this the parser stopped at the macro and the statement was
+ * dropped from the C. `first` is the token just read, a string or a
+ * string macro followed by one. */
+static Ast *parseStringLiterals(Cctrl *cc, Lexeme *first) {
+    AoStr *str = aoStrNew();
+    AoStr *raw = aoStrNew();
+    s64 real_len = 1;
+    int macros = 0;
+    Lexeme *tok = first;
+    while (tok && (tok->tk_type == TK_STR || parseIsStringMacro(cc, tok))) {
+        if (raw->len) aoStrPutChar(raw, ' ');
+        if (tok->tk_type == TK_STR) {
+            aoStrCatFmt(str, "%.*s", tok->len, tok->start);
+            aoStrCatFmt(raw, "\"%.*s\"", tok->len, tok->start);
+            real_len += tok->i64 - 1;
+        } else {
+            Lexeme *def = mapGetLen(cc->macro_defs, tok->start, tok->len);
+            aoStrCatLen(raw, tok->start, tok->len);
+            real_len += def->i64 - 1;
+            macros++;
+        }
+        tok = cctrlTokenGet(cc);
+    }
+    if (tok) cctrlTokenRewind(cc);
+
+    Ast *ast;
+    if (macros) {
+        ast = astString(raw->data, raw->len, real_len);
+        ast->flags |= AST_FLAG_RAW_C_STRING;
+    } else {
+        ast = cctrlGetOrSetString(cc, str->data, str->len, real_len);
+    }
+    aoStrRelease(str);
+    aoStrRelease(raw);
+    return ast;
+}
+
 static Ast *parsePrimary(Cctrl *cc) {
     Ast *ast;
     Lexeme *prev,*tok;
@@ -1387,6 +1439,14 @@ static Ast *parsePrimary(Cctrl *cc) {
 
     switch (tok->tk_type) {
     case TK_IDENT: {
+        /* `M "x"`, `M N`: a string macro pasted to strings (transpiling) */
+        if (parseIsStringMacro(cc, tok)) {
+            Lexeme *next = cctrlTokenPeek(cc);
+            if (next && (next->tk_type == TK_STR ||
+                         parseIsStringMacro(cc, next))) {
+                return parseStringLiterals(cc, tok);
+            }
+        }
         ast = parseIdentifierOrFunction(cc, tok->start, tok->len,
                 can_call_function);
         if (tokenPunctIs(prev, '&')) {
@@ -1414,20 +1474,8 @@ static Ast *parsePrimary(Cctrl *cc) {
             ast->type = ast_uint_type;
         }
         return ast;
-    case TK_STR: {
-        s64 real_len = 0;
-        AoStr *str = aoStrNew();
-        cctrlTokenRewind(cc);
-        /* Concatinate adjacent strings together */
-        while ((tok = cctrlTokenGet(cc)) != NULL && tok->tk_type == TK_STR) {
-            aoStrCatFmt(str,"%.*s",tok->len,tok->start);
-            real_len += tok->i64-1;
-        }
-        real_len++;
-        cctrlTokenRewind(cc);
-        ast = cctrlGetOrSetString(cc, str->data, str->len, real_len);
-        return ast;
-    }
+    case TK_STR:
+        return parseStringLiterals(cc, tok);
     case TK_PUNCT:
         cctrlTokenRewind(cc);
         return NULL;

@@ -37,14 +37,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>The C transpiler drops a statement that pastes a macro into a string</td>
-        <td>With <code>#define M "mid"</code>, <code>U8 *s = "a" M "b";</code> is missing from the C, so later uses of <code>s</code> don't compile; the transpiler leaves macros unexpanded</td>
-        <td>The transpiler is experimental; write the string out in full</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h3>Diagnostics</h3>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
