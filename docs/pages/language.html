@@ -569,6 +569,33 @@ U0 Main()
 1 0 0 | 4 5 0
 7 0 0
 </pre>
+<p>The items of a global array or class initialiser need not be constants: an item
+such as another global's value or the address of a function or a global is stored
+when the program starts, in order with the other file-scope statements, the way
+<code>I64 g = other;</code> is.</p>
+<pre data-run><code>
+I64 Dbl(I64 v) { return v * 2; }
+I64 Sq(I64 v) { return v * v; }
+
+class Op { U8 *name; I64 (*fn)(I64 v); };
+
+I64 base = 10;
+I64 limits[3] = {base, base * 2, 99};
+Op ops[2] = {{"double", &Dbl}, {"square", &Sq}};
+
+U0 Main()
+{
+  I64 i;
+  "%d %d %d\n", limits[0], limits[1], limits[2];
+  for (i = 0; i < 2; i++)
+    "%s %d\n", ops[i].name, ops[i].fn(7);
+}
+</code></pre>
+<pre class="output">
+10 20 99
+double 14
+square 49
+</pre>
 
 <h3>Heap memory</h3>
 <p><code>MAlloc</code> allocates, <code>CAlloc</code> allocates zeroed memory,

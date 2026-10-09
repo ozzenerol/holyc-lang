@@ -845,6 +845,59 @@ AstType *parseUnionDef(Cctrl *cc) {
     return _union;
 }
 
+/* A global's `{...}` initialiser is written out as static data, which only
+ * holds literals and string addresses (asmInitImage). Any other item -
+ * `&gx`, `&Foo`, `gx`, `&arr[1]` - is not known until the program runs,
+ * so store it at startup like a scalar global's `I64 g = gx;`: append
+ * `*(T *)((U8 *)&var + off) = item` to the file-scope initialisers and
+ * leave its slot zero in the data. Offsets as in asmInitImageAt. */
+static void parseGlobalInitRuntimeItems(Cctrl *cc, Ast *var, Ast *init,
+                                        AstType *type, int off)
+{
+    int is_class = !astIsIntrinsicClass(type) &&
+                   (type->kind == AST_TYPE_CLASS ||
+                    type->kind == AST_TYPE_UNION);
+    int idx = 0;
+    listForEach(init->arrayinit) {
+        Ast *item = (Ast *)it->value;
+        AstType *item_ty = NULL;
+        int item_off = off;
+        if (is_class) {
+            item_ty = astClassFieldAt(type, idx);
+            if (item_ty) item_off = off + item_ty->offset;
+        } else if (type->kind == AST_TYPE_ARRAY) {
+            item_ty = type->ptr;
+            item_off = off + idx * item_ty->size;
+        }
+        idx++;
+        if (!item || !item_ty || item->kind == AST_LITERAL ||
+            item->kind == AST_STRING)
+        {
+            continue;
+        }
+        if (item->kind == AST_ARRAY_INIT) {
+            parseGlobalInitRuntimeItems(cc, var, item, item_ty, item_off);
+            continue;
+        }
+        int is_err = 0;
+        Ast *base = astCast(
+                astUnaryOperator(astMakePointerType(var->type),
+                                 AST_UN_OP_ADDR_OF, var),
+                astMakePointerType(ast_u8_type));
+        Ast *addr = astBinaryOp(AST_BIN_OP_ADD, base, astI64Type(item_off),
+                                &is_err);
+        Ast *slot = astUnaryOperator(item_ty, AST_UN_OP_DEREF,
+                astCast(addr, astMakePointerType(item_ty)));
+        Ast *assign = astBinaryOp(AST_BIN_OP_ASSIGN, slot, item, &is_err);
+        if (is_err) {
+            cctrlRaiseException(cc, "Cannot initialise %s with %s",
+                                astTypeToString(item_ty),
+                                astTypeToString(item->type));
+        }
+        listAppend(cc->initalisers, assign);
+    }
+}
+
 /* `eq_line`:`eq_col` is where the `=` is, for the type check warning. */
 Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags,
                              int eq_line, int eq_col)
@@ -878,12 +931,18 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags,
         }
         Lexeme *tok = cctrlTokenGet(cc);
         assertTokenIsTerminator(cc,tok,terminator_flags);
+        if (var->kind == AST_GVAR && !is_str) {
+            parseGlobalInitRuntimeItems(cc,var,init,var->type,0);
+        }
         return astDecl(var,init);
     } else if (var->type->kind == AST_TYPE_CLASS && 
                !var->type->is_intrinsic && tokenPunctIs(peek,'{')) {
         init = parseDeclArrayInitInt(cc,var->type);
         Lexeme *tok = cctrlTokenGet(cc);
         assertTokenIsTerminator(cc,tok,terminator_flags);
+        if (var->kind == AST_GVAR) {
+            parseGlobalInitRuntimeItems(cc,var,init,var->type,0);
+        }
         return astDecl(var,init);
     }
 
