@@ -14,7 +14,7 @@
 #define STMTERR_TEST_SRC "/tmp/hcc-188-stmterr.HC"
 #define STMTERR_TEST_OUT "/tmp/hcc-188-stmterr.out"
 /* A single literal: adjacent strings don't concatenate inside #define */
-#define STMTERR_HCC "timeout 60 ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
+#define STMTERR_HCC "$(command -v timeout >/dev/null 2>&1 && echo timeout 60) ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 
 U0 CleanupStmtErrTest(U0)
 {
