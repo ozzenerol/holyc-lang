@@ -2084,7 +2084,6 @@ public class RBIter
   I64 sp;
   RBNode **stack;
   RBNode *cur;
-  RBNode *node;
 };
 
 public RBIter *RBIterNew(RBTree *tree);
