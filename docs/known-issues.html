@@ -37,14 +37,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>The C transpiler reports no errors, and can crash on invalid code</td>
-        <td><code>-transpile</code> never prints its diagnostics: a bad statement is silently left out of the C, and <code>U0 Main() { I64 v = ; }</code> segfaults with no message. (Flushing them is blocked by the transpiler leaving macros unexpanded.)</td>
-        <td>Compile the program with <code>-jit</code> or AOT first to see its errors</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h3>Diagnostics</h3>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
