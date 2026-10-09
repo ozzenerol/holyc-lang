@@ -2239,11 +2239,9 @@ void asmGlobalVar(Set *seen_globals, AoStr *buf, Ast* ast) {
             } else {
                 aoStrCatPrintf(buf,".data\n");
             }
-            if (declinit->kind == AST_ARRAY_INIT) {
-                Ast *head = (Ast *)declinit->arrayinit->next->value;
-                if (head->kind == AST_STRING) {
-                    aoStrCatPrintf(buf,".align 4\n");
-                }
+            int align_log2 = asmDataAlignLog2(declvar->type);
+            if (align_log2 > 0) {
+                aoStrCatPrintf(buf,".p2align %d\n",align_log2);
             }
         }
 
@@ -2251,9 +2249,9 @@ void asmGlobalVar(Set *seen_globals, AoStr *buf, Ast* ast) {
         aoStrCatFmt(buf,"%S:\n\t",label);
 
         if (declinit->kind == AST_ARRAY_INIT) {
-            listForEach(declinit->arrayinit) {
-                asmDataInternal(buf,(Ast *)it->value);
-            }
+            /* Fields and elements at their offsets, padded to the full
+             * object (shared with the default backend) */
+            asmEmitInitData(buf,declinit,declvar->type);
             return;
         } else {
             asmDataInternal(buf,declinit);
