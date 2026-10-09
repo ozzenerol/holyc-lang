@@ -1,37 +1,30 @@
 #include "run_shared.HC"
 
-U0 RunTest(U8 *filename)
+U0 RunTest(U8 *filename, I64 idx)
 {
-  U8 buffer[512];
-  I64 len;
-
   /* Use the local build (../../hcc relative to src/tests/) so we
    * always test what's actually been compiled, not whatever older
    * hcc happens to be on PATH (e.g. an installed /usr/local/bin/hcc
    * from a prior version - this trap cost us a session of confused
-   * cross-test triage). */
-  U8 *install_dir = getenv("HCC_INSTALL_DIR");
-  if (g_target[0] == '\0' && install_dir) {
-    len = snprintf(buffer, sizeof(buffer), "../../hcc --install-dir=%s %s",
-                   install_dir, filename);
-  } else if (g_target[0] == '\0') {
-    len = snprintf(buffer, sizeof(buffer), "../../hcc %s", filename);
-  } else {
-    len = snprintf(buffer, sizeof(buffer),
-                   "../../hcc --target=%s --install-dir=../../build/%s %s",
-                   g_target, g_target, filename);
-  }
-  buffer[len] = '\0';
-  auto res = System(buffer);
+   * cross-test triage). It compiles from src/tests, so its messages
+   * name the file as before; the binary runs in the test's own
+   * directory (see RunTests). */
+  U8 *bin = MStrPrint("%s/b/%d", g_root, idx);
+  U8 *cmd = MStrPrint("cd '%s' && '%s' %s '%s' -o '%s'",
+                      g_start_dir, g_hcc, g_hcc_flags, filename, bin);
+  auto res = System(cmd);
 
   if (res != 0) {
     "\033[0;31mFailed to compile\033[0;0m: %s\n",filename;
   } else {
-    if ((res = System("./a.out")) != 0) {
+    fflush(NULL);
+    if ((res = System(bin)) != 0) {
       "\033[0;31mFAILED\033[0;0m to run: %s\n",filename;
     }
-    Rm("./a.out");
+    Rm(bin);
   }
+  Free(cmd);
+  Free(bin);
 }
 
 I32 Main(I32 argc, U8 **argv)
@@ -52,16 +45,15 @@ I32 Main(I32 argc, U8 **argv)
     arg_idx = 2;
   }
 
+  PtrVec *vec;
   if (argc > arg_idx) {
-    RunTest(argv[arg_idx]);
-    Exit(0);
+    vec = PtrVecNew;
+    PtrVecPush(vec, StrNew(argv[arg_idx]));
+  } else {
+    vec = CollectTests;
   }
 
-  PtrVec *vec = CollectTests;
-
-  for (U8 *entry : vec) {
-    RunTest(entry);
-  }
+  RunTests(vec);
 
   PtrVecRelease(vec, &Free);
   return 0;

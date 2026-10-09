@@ -21,6 +21,28 @@ class Work
   HCFs *fs;
 };
 
+extern "c" I32 usleep(U32 usec);
+
+/* Workers wait here until all of them are running, so none has exited
+ * (freeing its Fs, which the next thread could get at the same address)
+ * when their Fs are compared. */
+pthread_mutex_t started_lock;
+I64 started;
+
+U0 WaitForAllWorkers()
+{
+  I64 n;
+  pthread_mutex_lock(&started_lock);
+  started++;
+  pthread_mutex_unlock(&started_lock);
+  do {
+    usleep(100);
+    pthread_mutex_lock(&started_lock);
+    n = started;
+    pthread_mutex_unlock(&started_lock);
+  } while (n < WORKERS);
+}
+
 U0 Raise(I64 v)
 {
   throw(v);
@@ -30,6 +52,7 @@ U0 *Worker(Work *w)
 {
   I64 i, v;
   w->fs = Fs;
+  WaitForAllWorkers;
   for (i = 0; i < ROUNDS; i++) {
     v = w->id * 1000000 + i;
     try {
@@ -101,6 +124,8 @@ I32 Main()
   I64 after = 0;
 
   MemSet(work, 0, sizeof(work));
+  pthread_mutex_init(&started_lock);
+  started = 0;
   try {
     for (i = 0; i < WORKERS; i++) {
       work[i].id = i + 1;

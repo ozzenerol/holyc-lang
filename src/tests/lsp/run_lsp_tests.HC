@@ -60,6 +60,10 @@ extern "c" I32 poll(U0 *fds, U64 nfds, I32 timeout);
 extern "c" U8 *realpath(U8 *path, U8 *resolved);
 extern "c" I32 access(U8 *path, I32 mode);
 extern "c" I64 snprintf(U8 *buf, U64 len, U8 *fmt, ...);
+extern "c" I32 creat(U8 *path, U16 mode);
+extern "c" I32 fflush(U0 *stream);
+extern "c" U0 _exit(I32 status);
+extern "c" I64 strtol(U8 *str, U8 **end, I32 base);
 
 class LspPollFd
 { /* struct pollfd */
@@ -1177,6 +1181,74 @@ U0 TestReferences()
 
 /* ---------------- driver ---------------- */
 
+#define LSP_GROUPS 9
+
+U0 RunGroup(I64 group)
+{
+  switch (group) {
+    case 0: TestHandshake(); break;
+    case 1: TestSync(); break;
+    case 2: TestDefinition(); break;
+    case 3: TestHoverCompletion(); break;
+    case 4: TestDebounce(); break;
+    case 5: TestSurvival(); break;
+    case 6: TestRename(); break;
+    case 7: TestReferences(); break;
+    case 8: TestRegressions(); break;
+  }
+}
+
+/* The groups each talk to their own server and mostly wait on it, so
+ * they run at once, each in a child writing its report to a file; the
+ * reports are printed in group order and the counts added up. */
+U0 RunGroups()
+{
+  I32 pids[LSP_GROUPS];
+  I64 group, pass, fail;
+  I32 status;
+  U8 path[512];
+
+  for (group = 0; group < LSP_GROUPS; group++) {
+    fflush(NULL);
+    pids[group] = fork();
+    if (pids[group] == 0) {
+      snprintf(path, 512, "%s/report.%lld", g_dir, group);
+      I32 fd = creat(path, 0x1A4);
+      if (fd != -1) {
+        dup2(fd, 1);
+        close(fd);
+      }
+      RunGroup(group);
+      fflush(NULL);
+      snprintf(path, 512, "%s/counts.%lld", g_dir, group);
+      U8 *counts = MStrPrint("%d %d", g_pass, g_fail);
+      FileWrite(path, counts, StrLen(counts));
+      _exit(0);
+    } else if (pids[group] == -1) {
+      RunGroup(group);
+    }
+  }
+
+  for (group = 0; group < LSP_GROUPS; group++) {
+    if (pids[group] == -1) continue;
+    waitpid(pids[group], &status, 0);
+    snprintf(path, 512, "%s/report.%lld", g_dir, group);
+    U8 *report = FileRead(path);
+    if (report) "%s", report;
+    snprintf(path, 512, "%s/counts.%lld", g_dir, group);
+    U8 *counts = FileRead(path);
+    U8 *end;
+    if (counts) {
+      pass = strtol(counts, &end, 10);
+      fail = strtol(end, &end, 10);
+      g_pass += pass;
+      g_fail += fail;
+    } else {
+      Check("test group finished (it crashed or was killed)", FALSE);
+    }
+  }
+}
+
 I32 Main()
 {
   InitFixtures();
@@ -1221,15 +1293,7 @@ I32 Main()
   FileWrite(path, STD_HC, StrLen(STD_HC));
 
   "hcc -lsp tests (%s)\n", g_hcc;
-  TestHandshake();
-  TestSync();
-  TestDefinition();
-  TestHoverCompletion();
-  TestDebounce();
-  TestSurvival();
-  TestRename();
-  TestReferences();
-  TestRegressions();
+  RunGroups();
 
   snprintf(cmd, 256, "rm -rf %s", tmp);
   System(cmd);

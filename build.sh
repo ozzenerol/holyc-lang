@@ -15,7 +15,7 @@
 #
 # Run as your normal user, not with sudo.
 #
-# Env overrides: CC, JOBS, INSTALL_PREFIX
+# Env overrides: CC, JOBS (make and test parallelism), INSTALL_PREFIX
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,9 +24,6 @@ PREFIX="$BUILD_DIR/prefix"
 CC="${CC:-gcc}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}"
 INSTALL_PREFIX="${INSTALL_PREFIX:-/usr/local}"
-# hcc always writes its intermediate assembly here (see ASM_TMP_FILE in
-# src/main.c), so it has to be ours to overwrite.
-ASM_TMP_FILE=/tmp/holyc-asm.s
 
 BUILD_TYPE=Release
 SQLITE=0
@@ -71,10 +68,6 @@ if [ "$uid" != 0 ]; then
         die "some build files are owned by another user (left over from a sudo build?):
 $foreign
 Fix with:  sudo chown -R $(id -un) \"$BUILD_DIR\" \"$ROOT/hcc\" \"$ROOT/src\""
-    fi
-    if [ -n "$(find "$ASM_TMP_FILE" ! -user "$uid" 2>/dev/null)" ]; then
-        die "$ASM_TMP_FILE belongs to another user and hcc can't overwrite it.
-Fix with:  sudo rm -f $ASM_TMP_FILE"
     fi
 fi
 
@@ -132,6 +125,8 @@ lib_args=(-fPIC -lib tos --install-dir="$PREFIX")
 if [ "$RUN_TESTS" = 1 ]; then
     # The test runners otherwise compile each test against /usr/local.
     export HCC_INSTALL_DIR="$PREFIX"
+    # How many tests the runners run at once
+    export JOBS
 
     step "Running unit tests"
     (cd "$ROOT/src/tests" && "$HCC" --install-dir="$PREFIX" ./run.HC -o test-runner && ./test-runner)
