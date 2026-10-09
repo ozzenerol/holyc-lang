@@ -1,7 +1,6 @@
 #define RM_RECURSE  0x1
 #define RM_VERBOSE  0x2
 #define RM_FORCE    0x4
-#define INTERNAL_RM_DIRECORY 0x6
 
 static I32 MkDirIfNotExist(U8 *path, I32 mode=MKDIR_DEFAULT)
 {
@@ -101,34 +100,26 @@ public I32 Rm(U8 *path, Bool flags=0)
   I32 result;
   cStat st;
 
+  if (!path) return -1;
+
   if (stat(path,&st) == -1) {
+    /* RM_FORCE: like rm -f, a file that does not exist is not an error */
+    if (flags & RM_FORCE) return 0;
     return -1;
   }
 
+  /* An empty directory, or with RM_RECURSE everything in it */
   if ((st.st_mode & S_IFMT) == S_IFDIR) {
-    flags |= INTERNAL_RM_DIRECORY; 
-  }
-
-  if (flags == 0) {
-    result = unlink(path);
-    if (flags & RM_VERBOSE) {
-      "Rm '%s'",path;
-      if (result != 0) " failed\n";
-      else             "\n";
-    }
-    return result;
-  } 
-
-  /* Just try to remove a directory */
-  if (!(flags & RM_RECURSE) && flags & INTERNAL_RM_DIRECORY) {
     return RmDir(path,flags);
   }
 
-  /* Destroy everything and everything inbetween */
-  if (flags & (RM_RECURSE|RM_FORCE)) {
-    return RmDir(path,flags);
-  } 
-  return 0;
+  result = unlink(path);
+  if (flags & RM_VERBOSE) {
+    "Rm '%s'",path;
+    if (result != 0) " failed\n";
+    else             "\n";
+  }
+  return result;
 }
 
 public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
