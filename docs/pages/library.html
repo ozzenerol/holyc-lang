@@ -309,10 +309,117 @@ first line
 second line
 missing files give NULL
 </pre>
+<p><code>FileWrite</code> replaces the file's contents: by default it opens with
+<code>O_CREAT | O_WRONLY | O_TRUNC</code> (a new file gets mode 0644 minus the umask).
+Pass the flags yourself to do something else, <code>O_CREAT | O_WRONLY | O_APPEND</code>
+to add to the end. A <code>NULL</code> name or buffer or a negative size gives
+<code>FALSE</code> and creates nothing. <code>FileRead</code> only reads regular files:
+for a directory, FIFO or device it returns <code>NULL</code>, and on any failure it sets
+<code>*_size</code> to 0.</p>
+
+<p>Directories: <code>MkDir(path)</code> makes one directory and
+<code>MkDir(path,, TRUE)</code> the missing parents too; both return 0 if the path is a
+directory afterwards (made now or already there) and -1 if not, the convention
+<code>Rm</code> and <code>RmDir</code> use too. <code>Rm(path)</code> removes a file, a
+symlink (never what it points to) or an empty directory; with <code>RM_RECURSE</code>
+a directory and everything in it, with <code>RM_FORCE</code> a path that doesn't exist
+is not an error, and only <code>RM_VERBOSE</code> makes it print. <code>RmDir</code> is the
+directory half of it. <code>Dir(path)</code> prints the entries one per line (in colour on
+a terminal) and returns how many there are, or -1 if it can't open the directory: names
+that start with a number are ordered by that number, the rest by name.
+<code>Stat(&amp;fst, path)</code> fills an <code>Fstat</code> (size, mode, times),
+<code>Cd</code> changes directory (<code>~</code> is <code>$HOME</code>) and
+<code>Pwd()</code> returns the working directory as a new string to <code>Free</code>.</p>
+<pre data-run><code>
+extern "c" U8 *mkdtemp(U8 *template);
+
+U0 Main()
+{
+  U8 root[32], path[64];
+  MemCpy(root, "/tmp/hcc_docs_XXXXXX", 21);
+  if (!mkdtemp(root)) return;    // a fresh directory to work in
+
+  StrPrint(path, "%s/a/b", root);
+  "MkDir: %d\n", MkDir(path,, TRUE);
+
+  StrPrint(path, "%s/a/notes.txt", root);
+  FileWrite(path, "a long first version\n", 21);
+  FileWrite(path, "short\n", 6);                  // replaces it
+  FileWrite(path, "more\n", 5, O_CREAT | O_WRONLY | O_APPEND);
+  I64 size;
+  U8 *text = FileRead(path, &size);
+  "%d bytes:\n%s", size, text;
+  Free(text);
+
+  StrPrint(path, "%s/a/10_ten", root);
+  FileWrite(path, "", 0);
+  StrPrint(path, "%s/a/9_nine", root);
+  FileWrite(path, "", 0);
+  StrPrint(path, "%s/a", root);
+  "FileRead of a directory: %d\n", FileRead(path) == NULL;
+  "%d entries\n", Dir(path);
+
+  Fstat fst;
+  StrPrint(path, "%s/a/notes.txt", root);
+  if (Stat(&fst, path) == 0) "notes.txt: %d bytes\n", fst.st_size;
+
+  "Rm: %d\n", Rm(root, RM_RECURSE);
+  "Rm again with RM_FORCE: %d\n", Rm(root, RM_FORCE);
+}
+</code></pre>
+<pre class="output">
+MkDir: 0
+11 bytes:
+short
+more
+FileRead of a directory: 1
+9_nine
+10_ten
+b
+notes.txt
+4 entries
+notes.txt: 11 bytes
+Rm: 0
+Rm again with RM_FORCE: 0
+</pre>
 <p>For lower-level work the POSIX calls (<code>open</code>, <code>read</code>,
-<code>write</code>, <code>close</code>, <code>lseek</code>) are declared too, along with
-<code>Stat</code>, <code>Rm</code>, <code>RmDir</code>, <code>Cd</code>,
-<code>Pwd</code> and <code>Dir</code>.</p>
+<code>write</code>, <code>close</code>, <code>lseek</code>, <code>stat</code>,
+<code>mkdir</code>, <code>unlink</code>, <code>opendir</code>, <code>readdir</code>) are
+declared too.</p>
+
+<h2 id="csv">CSV</h2>
+<p><code>CsvParse</code> walks a CSV buffer without copying it: each call gives the next
+field (<code>CSV_FIELD</code>), then the whole row (<code>CSV_ROW</code>), and
+<code>CSV_EOF</code> at the end. A <code>CsvSlice</code> is where that piece is in the
+buffer (<code>off</code>, <code>len</code>) and its number (<code>idx</code>, the field in
+its row or the row). The slices are the raw text: a quoted field keeps its quotes and
+its doubled <code>""</code>, commas and newlines inside quotes don't split, and a row's
+length includes its <code>\n</code> or <code>\r\n</code>. Unquoting is up to you.</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 *csv = "name,quote\r\nann,\"say \"\"hi\"\", ok\"\nbob,\n";
+  CsvParser p;
+  CsvSlice s;
+  I64 kind;
+  CsvParserInit(&p, csv, StrLen(csv));
+  while ((kind = CsvParse(&p, &s)) != CSV_EOF) {
+    if (kind == CSV_FIELD) "field %d: [%.*s]\n", s.idx, s.len, csv + s.off;
+    else                   "row %d: %d bytes\n", s.idx, s.len;
+  }
+}
+</code></pre>
+<pre class="output">
+field 0: [name]
+field 1: [quote]
+row 0: 12 bytes
+field 0: [ann]
+field 1: ["say ""hi"", ok"]
+row 1: 21 bytes
+field 0: [bob]
+field 1: []
+row 2: 5 bytes
+</pre>
 
 <h2 id="system">Running commands</h2>
 <pre data-run><code>
@@ -926,6 +1033,38 @@ underneath, so <code>CDate d = 5;</code> and <code>I64 x = d;</code> need no cas
 and <code>F64 f = d;</code> converts it to a float like any integer (a float assigned to a
 <code>CDate</code> is truncated, as it would be for an <code>I64</code>).</p>
 
+<p><code>Now()</code> and <code>NowDateTimeStruct</code> give local time (the
+<code>TZ</code> time zone), not UTC; <code>NowDateTimeStruct</code> also sets
+<code>zone_diff</code>, the offset from UTC as &plusmn;hhmm (100 for +01:00), and
+<code>NowMilliseconds</code> counts from the Unix epoch. Below the seconds a
+<code>CDateStruct</code> has <code>sec100</code> (hundredths, 0-99) and
+<code>sec10000</code> (the ten-thousandths below those, 0-99). <code>Struct2Date</code>
+carries fields that are out of range: day 32 of January is February 1, month 13 is
+January of the next year and month 0 December of the year before.</p>
+<pre data-run><code>
+U0 Main()
+{
+  CDateStruct ds;
+  MemSet(&ds, 0, sizeof(CDateStruct));
+  ds.year = 2024;
+  ds.mon = 13;
+  ds.day_of_mon = 32;
+  U8 *date = MPrintDate(Struct2Date(&ds));
+  "%s\n", date;    // month 13 of 2024, day 32
+  Free(date);
+}
+</code></pre>
+<pre class="output">
+02/01/2025
+</pre>
+<p>The calendar is TempleOS's, which is the Gregorian one except that years divisible
+by 4000 are not leap years (and year 0 isn't either): CDates agree with the Gregorian
+calendar from year 1 up to 4000-02-28 and are a day ahead from 4000-03-01, where the
+Gregorian calendar has February 29. <code>IsoFromTimespec(&amp;ts, buf)</code>, which
+formats a <code>Stat</code> time as UTC ISO 8601
+(<code>2026-07-05T14:30:00.123456789Z</code>, 31 bytes with the NUL), uses the
+Gregorian calendar.</p>
+
 <p><code>StrToCDate(text, format)</code> parses a date with a <code>strptime</code>-like
 format and <code>Str2CDateStruct(text, format, &amp;ds)</code> fills a
 <code>CDateStruct</code>. The conversions are <code>%Y</code>, <code>%m</code>,
@@ -1005,7 +1144,6 @@ close(srv);
   <code>sockaddr_un</code>, <code>addrinfo</code>, ...) have the platform's C layout, and
   <code>SOL_SOCKET</code>, <code>SO_*</code>, <code>AF_INET6</code>, <code>IPPROTO_*</code>,
   <code>TCP_*</code> and <code>AI_*</code> the platform's values.</li>
-  <li><a href="stdlib.html#csv">CSV</a>: <code>CsvParserInit</code> and <code>CsvParse</code>, a streaming tokenizer.</li>
   <li><a href="stdlib.html#fzf">Fuzzy matching</a>: fzf-style scoring.</li>
   <li><a href="stdlib.html#set">Sets</a>: red-black-tree-backed integer and string sets.</li>
   <li><a href="stdlib.html#sqllite">SQLite</a>: when hcc is built with <code>--sqlite</code>.</li>

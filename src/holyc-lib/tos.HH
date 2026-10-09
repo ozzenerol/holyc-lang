@@ -110,10 +110,19 @@ public class CsvParser {
   I64 state;
 };
 
+/* A slice of the CSV buffer: idx is the field's number in its row (or
+ * the row's number), off and len where it is in the buffer. */
 public class CsvSlice {
   U64 idx, off, len;
 };
+/* Start parsing the len bytes at csv. Nothing is copied or allocated:
+ * the slices CsvParse returns point into csv, which must outlive them. */
 public U0 CsvParserInit(CsvParser *p, U8 *csv, U64 len);
+/* The next piece of the CSV: CSV_FIELD for each field of a row, then
+ * CSV_ROW for the whole row, CSV_EOF at the end. A slice is the raw
+ * text: a quoted field keeps its quotes and doubled "" (`"a ""b"""`),
+ * commas and newlines inside quotes don't split, and a row's len
+ * includes its line terminator (\n or \r\n). */
 public I64 CsvParse(CsvParser *p, CsvSlice *s);
 
 #define CDATE_YEAR_DAYS        365.24225
@@ -151,28 +160,62 @@ public class tm
 public extern "c" tm *localtime(I64 *clock);
 public extern "c" I32 gettimeofday(timeval *tp, U0 *tzp);
 
+/* A date and time in one I64, as in TempleOS. date is the day number,
+ * counting from day 0 = Jan 1 of year 0, and time the fraction of that
+ * day in units of 1/2^32 day (about 20 us). The calendar is TempleOS's:
+ * Gregorian leap years (every 4, not every 100, every 400) except that
+ * years divisible by 4000 are not leap years and year 0 is not one
+ * either. It matches the Gregorian calendar from year 1 to 4000-02-28;
+ * from 4000-03-01 on it is a day ahead of it (4000-02-29 doesn't exist). */
 public I64 class CDate {
   U32 time;
   I32 date;
 };
 
+/* A broken-down CDate. sec100 is hundredths of a second (0-99) and
+ * sec10000 the ten-thousandths below them (0-99), so the fraction of a
+ * second is sec100/100 + sec10000/10000. mon is 1-12, day_of_mon 1-31,
+ * day_of_week 0 (Sunday) - 6. zone_diff is the offset from UTC as
+ * +-hhmm (e.g. 100 for +01:00, -130 for -01:30), set by
+ * NowDateTimeStruct and by Str2CDateStruct's %z; Struct2Date and
+ * Date2Struct ignore it. */
 public class CDateStruct {
   U64 sec10000, sec100, sec, min, hour, day_of_week, day_of_mon, mon;
   I32 year;
   I64 zone_diff;
 };
 
+/* Milliseconds since the Unix epoch (1970-01-01 00:00 UTC). */
 public U64 NowMilliseconds();
+/* Fill _ds with the current local time (the TZ time zone), zone_diff
+ * included. */
 public U0 NowDateTimeStruct(CDateStruct *_ds);
+/* The CDate day number of Jan 1 of year. */
 public I64 YearStartDate(I64 year);
+/* The day of the week of day number i: 0 Sunday ... 6 Saturday. */
 public I64 DayOfWeek(I64 i);
+/* Split cdt into _ds (every field but zone_diff, which is left alone). */
 public U0 Date2Struct(CDateStruct *_ds, CDate cdt);
+/* The CDate of _ds (zone_diff and day_of_week are ignored, _ds is not
+ * changed). Out-of-range fields carry over: day_of_mon 32 of January is
+ * Feb 1, mon 13 is January of the next year and mon 0 December of the
+ * year before. Time fields past their range carry into the next unit
+ * too, as long as the total stays within one day. */
 public CDate Struct2Date(CDateStruct *_ds);
+/* The day number of the first day of the month that day number i is in. */
 public I32 FirstDayOfMon(I64 i);
+/* The day number of the last day of the month that day number i is in. */
 public I64 LastDayOfMon(I64 i);
+/* The day number of Jan 1 of the year that day number i is in. */
 public I32 FirstDayOfYear(I64 i);
+/* The day number of Dec 31 of the year that day number i is in. */
 public I64 LastDayOfYear(I64 i);
+/* The current local date and time (the TZ time zone), not UTC. */
 public CDate Now();
+/* Write ts (seconds and nanoseconds since the Unix epoch, e.g. a Stat
+ * time) into buf as UTC ISO 8601, "2026-07-05T14:30:00.123456789Z":
+ * 30 characters and a NUL, so buf needs 31 bytes. Uses the proleptic
+ * Gregorian calendar, not CDate's. */
 public U0 IsoFromTimespec(cTimespec *ts, U8 *buf);
 
 /* The `order` of a deleted hash table node (a tombstone) */
@@ -657,12 +700,20 @@ public U0 Exit(I64 exit_code = EXIT_FAIL);
  * a command it can't find. */
 public I64 System(U8 *command);
 
+/* write(2) len bytes of buf to fd: the number written, or -1. */
 public I64 Write(I64 fd, U8 *buf, I64 len);
 
-/* Call the shell with `printf`-like formatting. Returns what System
- * returns: the exit code (0-255), or -1 if the command was killed by a
- * signal, could not be run, or fmt is NULL. */
+/* Call the shell with `printf`-like formatting. fmt is always formatted,
+ * also without arguments, so write %% for a literal %. Returns what
+ * System returns: the exit code (0-255), or -1 if the command was killed
+ * by a signal, could not be run, or fmt is NULL. */
 public I32 Sh(U8 *fmt, ...);
+/* Run a shell command, built with `printf`-like formatting (always
+ * formatted: %% for a literal %), and return what it printed to stdout
+ * in a heap allocated string (Free it). One trailing newline is removed.
+ * The exit status is not returned: a failing command gives whatever it
+ * printed, often "". stderr is not captured. Returns NULL if fmt is NULL
+ * or the output can't be read. */
 public U8 *Shlurp(U8 *fmt, ...);
 
 /* TempleOS-style try/catch/throw. CatchFrame is 256 bytes (matches
@@ -1002,8 +1053,8 @@ public CDate StrToCDate(U8 *_str, U8 *fmt);
 /* record locking flags */
 #ifdef IS_LINUX
   #define F_RDLCK 0 /* Establish a read lock */
-  #define F_WRLCK 1 /* Remove a lock */
-  #define F_UNLCK 2 /* Establish a write lock */
+  #define F_WRLCK 1 /* Establish a write lock */
+  #define F_UNLCK 2 /* Remove a lock */
 #else
   #define F_RDLCK 1
   #define F_UNLCK 2
@@ -1015,7 +1066,7 @@ public CDate StrToCDate(U8 *_str, U8 *fmt);
 #define O_RDWR    0x0002 /* Open for reading and writing */
 #define O_ACCMODE 0x0003 /* Mask to extract access modes */
 
-/* Record locking flags */
+/* open() flags whose values differ between Linux and macOS */
 #ifdef IS_LINUX
   #define O_CREAT    0x040 /* Create file if it doesn't exist */
   #define O_TRUNC    0x200 /* Truncate existing file to zero length */
@@ -1053,8 +1104,19 @@ public extern "c" I64 write(I32 __fd, U0 *__buf, U64 __nbyte);
 public extern "c" I64 lseek(I32 __fd, I64 __offset, I32 __whence);
 public extern "c" I32 chdir(U8 *path);
 
+/* Read the whole regular file at path into a new NUL-terminated buffer
+ * (Free it) and set *_size to its length. Returns NULL, with *_size 0,
+ * if path is NULL, can't be opened, is not a regular file (a directory,
+ * FIFO or device) or can't be read completely. */
 public U8 *FileRead(U8 *path, I64 *_size = NULL);
-public Bool FileWrite(U8 *filename, U8 *buf, I64 size, I64 flags = O_CREAT | O_RDWR);
+/* Write size bytes of buf to filename. The default flags create the file
+ * (mode 0644 minus the umask) or truncate it first, so it holds exactly
+ * buf; pass O_CREAT|O_WRONLY|O_APPEND to add to the end instead. Returns
+ * FALSE, without creating anything, for a NULL filename or buf or a
+ * negative size, and FALSE if the file can't be opened or written. */
+public Bool FileWrite(U8 *filename, U8 *buf, I64 size, I64 flags = O_CREAT | O_WRONLY | O_TRUNC);
+/* Change the working directory; "~" and "~/..." start at $HOME. 0 on
+ * success, -1 on failure. */
 public I32 Cd(U8 *path);
 
 #define DT_UNKNOWN 0  /* Type not determined */
@@ -1073,23 +1135,24 @@ class cDIR;
 #define DIR_MAXPATHLEN (1024)
 class Dirent
 {
-  U64 ino;
-  U64 off;
+  U64 ino;           /* file number of entry */
+  U64 seekoff;       /* seek offset (optional, used by servers) */
   U16 reclen;        /* length of this record */
   U16 namlen;        /* length of string in d_name */
-  U8 type;         /* file type, see below */
-  I8 name[DIR_MAXPATHLEN]; /* entry name (up to MAXPATHLEN bytes) */
+  U8 type;           /* file type, one of the DT_* above */
+  I8 name[DIR_MAXPATHLEN]; /* entry name, NUL-terminated */
 };
 #endif
 
 #ifdef IS_LINUX
 #define DIR_MAXPATHLEN (256)
 class Dirent {
-  U64 ino;         /* file number of entry */
-  U64 seekoff;       /* seek offset (optional, used by servers) */
+  U64 ino;           /* inode number (d_ino) */
+  U64 seekoff;       /* position of the next entry, for seekdir (d_off) */
   U16 reclen;        /* length of this record */
-  U8 type;         /* file type, see below */
-  I8 name[DIR_MAXPATHLEN]; /* entry name (up to MAXPATHLEN bytes) */
+  U8 type;           /* file type, one of the DT_* above; DT_UNKNOWN on
+                      * filesystems that don't report it */
+  I8 name[DIR_MAXPATHLEN]; /* entry name, NUL-terminated */
 };
 public cDIR *opendir(U8 *dirname);
 public Dirent *readdir(cDIR *dir);
@@ -1273,8 +1336,21 @@ class Fstat
   cTimespec st_btim;
 };
 
+/* Fill fst with the status of pathname, following symlinks (statx on
+ * Linux, stat on macOS; st_btim is the creation time where the
+ * filesystem records it). 0 on success, -1 on failure. */
 public I32 Stat(Fstat *fst, U8 *pathname);
+/* List the entries of the directory pathname (not "." and ".."), one per
+ * line, coloured like ls when stdout is a terminal. Names that both
+ * start with a number are ordered by that number, however long, and
+ * everything else, ties included, by name (byte order). Entries Stat
+ * can't follow, like dangling symlinks, are listed too. Returns the
+ * number of entries, or -1 for NULL or a path that can't be opened as a
+ * directory. */
 public I64 Dir(U8 *pathname = "./");
+/* The working directory: written into buf (buf_size bytes, NULL if it
+ * doesn't fit) and buf returned, or with no buf a new string to Free.
+ * NULL on error. */
 public U8 *Pwd(U8 *buf=NULL, U64 buf_size=0);
 
 public extern "c" I32 mkdir(U8 *dirname, I32 mode = 438);
@@ -1310,15 +1386,31 @@ public extern "c" I32 rmdir(U8 *dirname);
 #define S_ISUID 0x800  /* Set user ID on execution */
 #define S_ISGID 0x400  /* Set group ID on execution */
 #define S_ISVTX 0x200  /* Save swapped text after use (sticky) */
-#define MKDIR_DEFAULT (S_ISUID|S_IRWXU|S_IRWXG|S_IROTH|S_IXOTH) /* Default mkdir permission */
+/* Default MkDir mode, 04775 (rwxrwxr-x; the set-user-ID bit means nothing
+ * on a directory), minus the umask: drwxr-xr-x with the usual 022. */
+#define MKDIR_DEFAULT (S_ISUID|S_IRWXU|S_IRWXG|S_IROTH|S_IXOTH)
 
 #define RM_RECURSE  0x1  /* Remove directories and their contents recursively */
 #define RM_VERBOSE  0x2  /* Verbosely list files processed */
-#define RM_FORCE    0x4  /* Force removal, ignore nonexistent files and arguments */
+#define RM_FORCE    0x4  /* A path that doesn't exist is not an error for Rm */
 
+/* Remove the directory path: without RM_RECURSE only if it is empty
+ * (rmdir), with RM_RECURSE everything in it first. Symlinks inside are
+ * removed, never followed, and path itself must not be a symlink. Prints
+ * what it removes or fails to remove only with RM_VERBOSE. 0 on
+ * success, -1 on failure (also for NULL). */
 public I32 RmDir(U8 *path, Bool flags=0);
+/* DANGER: remove path, whatever flags are given. A file, symlink (never
+ * what it points to), socket or FIFO is unlinked; a directory goes to
+ * RmDir(path, flags), so it must be empty unless RM_RECURSE is given.
+ * RM_VERBOSE prints what is removed, RM_FORCE makes a path that doesn't
+ * exist a success. 0 on success, -1 on failure (also for NULL). */
 public I32 Rm(U8 *path, Bool flags=0);
-public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE);
+/* Make the directory path with mode (minus the umask), and with recurse
+ * every missing parent too. Returns 0 if path is a directory afterwards,
+ * made now or already there, and -1 if not (NULL or "", a file in the
+ * way, a missing parent without recurse, no permission). */
+public I32 MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE);
 
 #define FZF_CASE_SMART   0
 #define FZF_CASE_IGNORE  1
