@@ -2708,20 +2708,71 @@ static int astStmtHasBreak(Ast *s) {
     }
 }
 
+/* Does `s` hold a label, which a goto can jump to? */
+static int astStmtHasLabel(Ast *s) {
+    if (!s) return 0;
+    switch (s->kind) {
+        case AST_LABEL:
+            return 1;
+        case AST_COMPOUND_STMT:
+            if (s->stms) {
+                listForEach(s->stms) {
+                    if (astStmtHasLabel((Ast *)it->value)) return 1;
+                }
+            }
+            return 0;
+        case AST_IF:
+            return astStmtHasLabel(s->then) || astStmtHasLabel(s->els);
+        case AST_FOR:
+            return astStmtHasLabel(s->forbody);
+        case AST_WHILE:
+        case AST_DO_WHILE:
+            return astStmtHasLabel(s->whilebody);
+        case AST_SWITCH:
+            if (s->cases) {
+                for (u64 i = 0; i < s->cases->size; ++i) {
+                    if (astStmtHasLabel(vecGet(Ast *, s->cases, i))) return 1;
+                }
+            }
+            return astStmtHasLabel(s->case_default);
+        case AST_CASE:
+        case AST_DEFAULT:
+            if (s->case_asts) {
+                listForEach(s->case_asts) {
+                    if (astStmtHasLabel((Ast *)it->value)) return 1;
+                }
+            }
+            return 0;
+        case AST_TRY:
+            return astStmtHasLabel(s->try_body) ||
+                   astStmtHasLabel(s->catch_body);
+        default:
+            return 0;
+    }
+}
+
 static int astStmtFallsThrough(Ast *s) {
     if (!s) return 1;
     switch (s->kind) {
         case AST_RETURN:
         case AST_THROW:
-        case AST_JUMP:    /* goto - control leaves, doesn't reach the end */
+        case AST_GOTO:    /* control leaves, doesn't reach the end */
+        case AST_JUMP:
             return 0;
-        case AST_COMPOUND_STMT:
+        case AST_COMPOUND_STMT: {
+            /* After a return or goto the next statements are only
+             * reached through a label in them, and from there control
+             * carries on as usual. */
+            int reachable = 1;
             if (s->stms) {
                 listForEach(s->stms) {
-                    if (!astStmtFallsThrough((Ast *)it->value)) return 0;
+                    Ast *stmt = (Ast *)it->value;
+                    if (!reachable && astStmtHasLabel(stmt)) reachable = 1;
+                    if (reachable) reachable = astStmtFallsThrough(stmt);
                 }
             }
-            return 1;
+            return reachable;
+        }
         case AST_IF:
             /* No else: the condition-false path reaches the end. */
             if (!s->els) return 1;
@@ -2952,13 +3003,14 @@ static void parseCheckGotoIntoTry(Cctrl *cc, Ast *body) {
 }
 
 Ast *parseFunctionDef(Cctrl *cc, AstType *rettype,
-        char *fname, int len, Vec *params, int has_var_args, int is_inline)
+        char *fname, int len, Vec *params, int has_var_args, int is_inline,
+        s64 name_line, s64 name_col)
 {
     Lexeme *next = cctrlTokenPeek(cc);
-    /* Anchor for the end-of-function missing-return warning: by the time
-     * we know whether the body falls through, the cursor has moved past
-     * the whole function to the next declaration. Snapshot the body's
-     * opening token now so the warning points at this function. */
+    /* Anchor for the asm no-RET warning: by the time it is raised the
+     * cursor has moved past the asm body. Snapshot the body's opening
+     * token now so the warning points at this function. (The
+     * missing-return warning points at the name: name_line/name_col.) */
     s64 fn_line = next ? next->line : cc->lineno;
     s64 fn_col  = next ? next->col  : 0;
     s64 fn_len  = next ? next->len  : 1;
@@ -3233,7 +3285,7 @@ Ast *parseFunctionDef(Cctrl *cc, AstType *rettype,
     if (rt && rt->kind != AST_TYPE_VOID && !(func->flags & AST_FLAG_INLINE) &&
         !has_asm && astStmtFallsThrough(func_body))
     {
-        cctrlWarningAt(cc, fn_line, fn_col, fn_len,
+        cctrlWarningAt(cc, name_line, name_col, len,
             "control may reach the end of non-void function '%.*s' "
             "without returning a value",
             len, fname);
@@ -3505,7 +3557,8 @@ Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int i
     }
     if (tokenPunctIs(tok, '{')) {
         Ast *fn = parseFunctionDef(cc,rettype,fname,len,params,
-                                   has_var_args,is_inline);
+                                   has_var_args,is_inline,
+                                   name_tok_line,name_tok_col);
         if (fn) {
             fn->line = name_line;
             fn->col = name_col;
