@@ -212,11 +212,15 @@ public U8 *FileRead(U8 *path, I64 *_size=NULL)
 }
 
 public Bool FileWrite(U8 *filename, U8 *buf, I64 size,
-    I64 flags=O_CREAT|O_RDWR)
+    I64 flags=O_CREAT|O_WRONLY|O_TRUNC)
 {
   I64 towrite = size, nwritten = 0;
   I32 fd;
   I32 perms = 420;
+
+  if (!filename || !buf || size < 0) {
+    return FALSE;
+  }
 
   if ((fd = open(filename,flags,perms)) == -1) {
     return FALSE;
