@@ -48,16 +48,20 @@ _CALLOC::
 _REALLOC:: // U0 *ReAlloc(U0 *ptr, I64 size);
     PUSHQ  RBP
     MOVQ   RBP, RSP
-    SUB    RSP, 16
+    SUB    RSP, 32
     TEST   RDI, RDI
     JZ     @@1
     MOV    -8[RBP], RDI
-    MOV    RDI, RSI      // new_size
+    MOV    -24[RBP], RSI // new_size
+    MOV    RDI, RSI
     CALL   _MALLOC
     MOV    -16[RBP], RAX // new memory saved
     MOV    RDI, -8[RBP]  // find out the old size
     CALL   _MSIZE
     MOV    RDX, RAX      // old size
+    MOV    RCX, -24[RBP]
+    CMP    RDX, RCX
+    CMOVA  RDX, RCX      // copy min(old size, new size)
     MOV    RSI, -8[RBP]  // old pointer
     MOV    RDI, -16[RBP] // new pointer
     CALL   _MEMCPY       // copy over
