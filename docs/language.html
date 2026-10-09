@@ -715,7 +715,10 @@ supported"), so write a function instead. With a space, <code>#define CALC (2 * 
 is an ordinary macro whose value is the expression in brackets. Names in a macro's value
 must be other macros. A numeric macro has the type of its value, as in C: if any operand
 is a float the macro is an <code>F64</code> (<code>#define AREA (1.5 * SIDE)</code> and
-<code>(SIDE * 1.5)</code> both are), otherwise an <code>I64</code>.
+<code>(SIDE * 1.5)</code> both are), otherwise an <code>I64</code>. A comparison or a
+logical operator (<code>&amp;&amp;</code>, <code>||</code>, <code>!</code>) is an
+<code>I64</code> 0 or 1 even with float operands, and a float counts as true when it isn't
+0.0, as at run time: <code>#define ON (0.5 &amp;&amp; 1)</code> is 1.
 A postfix cast to a built-in type works and gives the macro that type:
 <code>#define BIG (5(U64) % 3)</code> is a <code>U64</code>, <code>#define HALF (5(F64) / 2)</code>
 an <code>F64</code> (2.5). Classes are not known to the preprocessor, so
