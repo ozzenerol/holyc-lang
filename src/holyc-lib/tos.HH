@@ -1308,7 +1308,11 @@ public U0 SqlRowRelease(SqlRow *row);
 #endif /* End of SQLite */
 
 /* Socket options level */
+#ifdef IS_LINUX
+#define SOL_SOCKET      1               /* Socket-level options */
+#else
 #define SOL_SOCKET      0xffff          /* Socket-level options */
+#endif
 
 /*
  * Address families.
@@ -1316,7 +1320,11 @@ public U0 SqlRowRelease(SqlRow *row);
 #define AF_UNSPEC       0               /* Unspecified */
 #define AF_UNIX         1               /* Local communication (unix pipes) */
 #define AF_INET         2               /* Internet IPv4 */
+#ifdef IS_LINUX
+#define AF_INET6        10              /* Internet IPv6 */
+#else
 #define AF_INET6        30              /* Internet IPv6 */
+#endif
 
 /* Socket types */
 #define SOCK_STREAM     1               /* Stream (connection-oriented) socket */
@@ -1327,6 +1335,18 @@ public U0 SqlRowRelease(SqlRow *row);
 /*
  * Per-socket option flags.
  */
+#ifdef IS_LINUX
+#define SO_DEBUG        1               /* Enable debugging information */
+#define SO_ACCEPTCONN   30              /* Socket has had listen() applied */
+#define SO_REUSEADDR    2               /* Allow reuse of local addresses */
+#define SO_KEEPALIVE    9               /* Keep connections active */
+#define SO_DONTROUTE    5               /* Route packets through local interfaces */
+#define SO_BROADCAST    6               /* Allow broadcast messages */
+#define SO_LINGER       13              /* Linger on close if data is present */
+#define SO_OOBINLINE    10              /* Leave out-of-band data inline */
+#define SO_REUSEPORT    15              /* Allow reuse of local ports */
+#define SO_TIMESTAMP    29              /* Timestamp incoming datagrams */
+#else
 #define SO_DEBUG        0x0001          /* Enable debugging information */
 #define SO_ACCEPTCONN   0x0002          /* Socket has had listen() applied */
 #define SO_REUSEADDR    0x0004          /* Allow reuse of local addresses */
@@ -1338,12 +1358,31 @@ public U0 SqlRowRelease(SqlRow *row);
 #define SO_REUSEPORT    0x0200          /* Allow reuse of local ports */
 #define SO_TIMESTAMP    0x0400          /* Timestamp incoming datagrams */
 #define SO_TIMESTAMP_MONOTONIC  0x0800  /* Use monotonic timestamps for datagrams */
+#endif
 
 /* Protocols */
 #define IPPROTO_IP              0               /* Placeholder for IP */
+#define IPPROTO_ICMP            1               /* Internet Control Message Protocol */
+#define IPPROTO_TCP             6               /* Transmission Control Protocol */
+#define IPPROTO_UDP             17              /* User Datagram Protocol */
 #define IPPROTO_IPV6            41              /* IPv6 protocol */
+#define IPPROTO_ICMPV6          58              /* ICMP for IPv6 */
+#define IPPROTO_RAW             255             /* Raw IP packets */
 
 /* TCP options */
+#ifdef IS_LINUX
+#define TCP_NODELAY             1       /* Disable Nagle's algorithm */
+#define TCP_MAXSEG              2       /* Set maximum segment size */
+#define TCP_CORK                3       /* Don't send partial frames */
+#define TCP_KEEPIDLE            4       /* Set keepalive idle time */
+#define TCP_KEEPALIVE           4       /* The macOS name of TCP_KEEPIDLE */
+#define TCP_KEEPINTVL           5       /* Interval between keepalives */
+#define TCP_KEEPCNT             6       /* Number of keepalives before close */
+#define TCP_INFO                11      /* TCP connection state info */
+#define TCP_QUICKACK            12      /* Disable/enable delayed acks */
+#define TCP_USER_TIMEOUT        18      /* Timeout for unacknowledged data */
+#define TCP_FASTOPEN            23      /* TCP Fast Open */
+#else
 #define TCP_NODELAY             0x01    /* Disable Nagle's algorithm */
 #define TCP_MAXSEG              0x02    /* Set maximum segment size */
 #define TCP_NOPUSH              0x04    /* Disable push on final write */
@@ -1359,6 +1398,7 @@ public U0 SqlRowRelease(SqlRow *row);
 #define TCP_ENABLE_ECN          0x104   /* Enable Explicit Congestion Notification */
 #define TCP_FASTOPEN            0x105   /* TCP Fast Open */
 #define TCP_CONNECTION_INFO     0x106   /* TCP connection state info */
+#endif
 
 #define INET6_ADDRSTRLEN        46      /* Length of string form of IPv6 address */
 
@@ -1366,8 +1406,12 @@ public U0 SqlRowRelease(SqlRow *row);
 #define AI_PASSIVE     0x00000001 /* Suitable for bind() */
 #define AI_CANONNAME   0x00000002 /* Request canonical name */
 #define AI_NUMERICHOST 0x00000004 /* Numeric host address string */
+#ifdef IS_LINUX
+#define AI_NUMERICSERV 0x00000400 /* Numeric service address string */
+#else
 #define AI_NUMERICSERV 0x00001000 /* Numeric service address string */
 #define AI_UNUSABLE    0x10000000 /* Include unusable addresses */
+#endif
 
 /*
  * The hostent class represents an entry from the database of host names and addresses.
@@ -1424,8 +1468,12 @@ public class protoent
  */
 public class sockaddr
 {
+#ifdef IS_LINUX
+  U16 sa_family;   /* Address family (Linux has no length byte) */
+#else
   U8 sa_len;       /* Length of the structure */
   U8 sa_family;    /* Address family */
+#endif
   U8 sa_data[14];  /* Actual address information */
 };
 
@@ -1444,8 +1492,12 @@ public class in_addr
  */
 public class sockaddr_in
 {
+#ifdef IS_LINUX
+  U16 sin_family;     /* Address family, AF_INET */
+#else
   U8 sin_len;         /* Length of the structure */
   U8 sin_family;      /* Address family, AF_INET */
+#endif
   U16 sin_port;       /* Port number */
   in_addr sin_addr;   /* IPv4 address */
   U8 sin_zero[8];     /* Padding to make structure the same size as sockaddr */
@@ -1472,9 +1524,13 @@ public class in6_addr
  */
 public class sockaddr_in6
 {
+#ifdef IS_LINUX
+  U16 sin6_family;     /* Address family, AF_INET6 */
+#else
   U8  sin6_len;        /* Length of this struct */
   U8  sin6_family;     /* Address family, AF_INET6 */
-  I64 sin6_port;       /* Transport layer port number */
+#endif
+  U16 sin6_port;       /* Transport layer port number */
   U32 sin6_flowinfo;   /* IPv6 flow information */
   in6_addr sin6_addr;  /* IPv6 address */
   U32 sin6_scope_id;   /* Scope zone index */
@@ -1493,8 +1549,13 @@ public class addrinfo
   I32 ai_socktype;   /* Socket type */
   I32 ai_protocol;   /* Protocol for the socket */
   U32 ai_addrlen;    /* Length of the address */
+#ifdef IS_LINUX
+  sockaddr *ai_addr; /* Binary address */
+  U8  *ai_canonname; /* Canonical name for the host */
+#else
   U8  *ai_canonname; /* Canonical name for the host */
   sockaddr *ai_addr; /* Binary address */
+#endif
   addrinfo *ai_next; /* Next structure in the linked list */
 };
 
@@ -1509,8 +1570,12 @@ public class addrinfo
  */
 public class sockaddr_storage
 {
+#ifdef IS_LINUX
+  U16 ss_family;      /* Address family (AF_*) */
+#else
   U8  ss_len;         /* Total length of the address */
   U8  ss_family;      /* Address family (AF_*) */
+#endif
   U8  __ss_pad1[_SS_PAD1SIZE]; /* Padding to achieve alignment */
   I64 __ss_align;     /* Force alignment of the structure */
   U8  __ss_pad2[_SS_PAD2SIZE]; /* Additional padding to reach desired size */
@@ -1538,9 +1603,14 @@ public class msghdr
  */
 public class sockaddr_un
 {
+#ifdef IS_LINUX
+  U16 sun_family;    /* Address family: AF_UNIX */
+  U8 sun_path[108];  /* Path name */
+#else
   U8 sun_len;        /* Length of the sockaddr including null */
   U8 sun_family;     /* Address family: AF_UNIX */
   U8 sun_path[104];  /* Path name */
+#endif
 };
 
 public extern "c" I32 setsockopt(I32 __sockfd, I32 __level, I32 __option_name,

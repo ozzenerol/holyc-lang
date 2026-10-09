@@ -475,7 +475,13 @@ close(srv);
 <p>These are covered in the <a href="stdlib.html">library reference</a>:</p>
 <ul>
   <li><a href="stdlib.html#threads">Threads</a>: pthreads (<code>pthread_create</code>, mutexes, condition variables) plus <code>ThreadWorker</code> helpers.</li>
-  <li><a href="stdlib.html#net">Networking</a>: sockets, <code>getaddrinfo</code> and friends.</li>
+  <li><a href="stdlib.html#net">Networking</a>: sockets, <code>getaddrinfo</code> and friends.
+  <code>NetCreateUnixServerSocket(path, backlog)</code> and <code>NetCreateUnixClientSocket(path)</code>
+  make Unix domain sockets; they return -1 on failure, also when the path is longer than
+  107 bytes on Linux or 103 on macOS. The address classes (<code>sockaddr_in</code>,
+  <code>sockaddr_un</code>, <code>addrinfo</code>, ...) have the platform's C layout, and
+  <code>SOL_SOCKET</code>, <code>SO_*</code>, <code>AF_INET6</code>, <code>IPPROTO_*</code>,
+  <code>TCP_*</code> and <code>AI_*</code> the platform's values.</li>
   <li><a href="stdlib.html#csv">CSV</a>: <code>CsvParserInit</code> and <code>CsvParse</code>, a streaming tokenizer.</li>
   <li><a href="stdlib.html#fzf">Fuzzy matching</a>: fzf-style scoring.</li>
   <li><a href="stdlib.html#set">Sets</a>: red-black-tree-backed integer and string sets.</li>
