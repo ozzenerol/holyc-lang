@@ -37,10 +37,30 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>A local declaration accepts a class value into an integer</td>
+        <td><code>P p; I64 z = p;</code> inside a function is only a warning and stores the class's address; assigning (<code>y = p</code>) or a global <code>I64 gz = gp;</code> are errors</td>
+        <td>Treat the warning as an error, or build with <code>-Werror</code></td></tr>
+    <tr><td>The C transpiler crashes on a cast after a double dereference</td>
+        <td><code>I64 v = **pp(I64 *);</code> with <code>Pt **pp</code> makes <code>-transpile</code> print "Unary type is being assigned as NULL" and segfault</td>
+        <td>The transpiler is experimental; split the expression</td></tr>
+  </tbody>
+</table>
 
 <h3>Diagnostics</h3>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>An escaped character constant is misprinted in errors</td>
+        <td><code>I64 s = 2 '\n' 3;</code> reports "Unexpected character constant `\`" instead of showing <code>'\n'</code></td>
+        <td>Look at the caret position</td></tr>
+    <tr><td>A function pointer without a name gives a second, bogus error</td>
+        <td><code>I64 (*)(I64 x);</code> reports "Expected function pointer name" and then "Cannot handle 'TK_PUNCT )'"</td>
+        <td>Read only the first error</td></tr>
+  </tbody>
+</table>
 
 <h2>JIT and code generation</h2>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
