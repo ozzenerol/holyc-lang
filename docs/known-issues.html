@@ -46,9 +46,6 @@ there works as shown.</p>
     <tr><td>Two bad statements in a row can crash hcc</td>
         <td><code>I64 x = 1 2;</code> followed by <code>"ab" y;</code> in the same function: segmentation fault (each one alone is reported normally)</td>
         <td>Fix the first error and recompile</td></tr>
-    <tr><td><code>\x</code> escapes followed by a hex digit differ between AOT and JIT</td>
-        <td><code>U8 *s = "\x01b";</code>: the JIT gives 2 bytes (1, 'b'), a compiled program gives 1 byte (27) because the assembler reads <code>\x01b</code> as one escape; a <code>U8 a[] = "\x42";</code> array also gets no terminating NUL</td>
-        <td>Escape the next character too: <code>"\x01\x62"</code> (splitting the literal doesn't help, the pieces are joined first)</td></tr>
     <tr><td>The character constant <code>'\b'</code> is 92</td>
         <td><code>"%d\n", '\b';</code> prints 92 (the backslash) instead of 8; <code>"\b"</code> in a string is correct</td>
         <td>Use <code>'\x08'</code> or <code>8</code></td></tr>

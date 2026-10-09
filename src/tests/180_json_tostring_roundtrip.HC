@@ -51,13 +51,10 @@ I32 Main()
   /* Other control characters become \u00XX; DEL and UTF-8 stay as they are */
   Json *j = JsonParse("{\"s\": \"x\"}");
   Free(j->object->str);
-  /* built byte by byte: AOT writes "\x01b" to the assembly as one escape */
-  U8 *ctl = MAlloc(16), bytes[9] = {'a', 1, 'b', 0x1F, 'c', 0x0B, 0x7F, 0xC3, 0xA9};
-  MemCpy(ctl, bytes, 9);
-  ctl[9] = '\0';
+  U8 *ctl = StrNew("a\x01b\x1Fc\x0B\x7F\xC3\xA9");
   j->object->str = ctl;
   U8 *out = JsonToString(j);
-  Expect(out, "{\"s\": \"a\\u0001b\\u001fc\\u000b\x7F\xC3\xA9\"}"); /* \x7F\xC3: no hex digit follows */
+  Expect(out, "{\"s\": \"a\\u0001b\\u001fc\\u000b\x7F\xC3\xA9\"}");
   Free(out);
   JsonRelease(j);
 
