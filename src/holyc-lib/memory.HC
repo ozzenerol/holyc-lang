@@ -122,16 +122,18 @@ _MEMSET::
     PUSHQ RBP
     MOVQ  RBP, RSP
     MOVQ  RCX, RDX
+    MOVQ  RDX, RDI   // return dst
     MOVB  AL,  SIL
     CLD
     REP   STOSB
-    MOVQ  RDI, RAX
+    MOVQ  RAX, RDX
     LEAVE
     RET
 
 _MEMCPY::
     PUSHQ  RBP
     MOV    RBP, RSP
+    MOVQ   RAX, RDI  // return dst
     MOVQ   RCX, RDX
     CLD
     REP    MOVSB
@@ -181,8 +183,8 @@ _MSIZE::
 
 /* Assumes the X0 pointer is not NULL */
 _MEMSET::
+    MOV   X3, X0     // return dst
     CBZ	  X2, @@2
-    MOV   X3, X0
     ADD	  X2, X0, X2
 @@1:
     STRB  W1, [X0], 1
@@ -193,6 +195,7 @@ _MEMSET::
     RET
 
 _MEMCPY::
+    MOV   X4, X0     // return dst
     CBZ	  X2, @@2
     ADD	  X2, X0, X2
 @@1:
@@ -201,6 +204,7 @@ _MEMCPY::
     CMP   X2, X0
     BNE   @@1
 @@2:
+    MOV   X0, X4
     RET
 
 _CALLOC::
