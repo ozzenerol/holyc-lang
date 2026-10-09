@@ -121,9 +121,6 @@ there works as shown.</p>
     <tr><td><code>%d</code> of the smallest <code>I64</code> prints garbage</td>
         <td><code>"%d\n", 0x8000000000000000;</code> prints punctuation instead of <code>-9223372036854775808</code></td>
         <td>Special-case that value</td></tr>
-    <tr><td><code>NetAccept</code> returns <code>Bool</code>, and <code>NetCreateServer</code> returns 0 on some failures</td>
-        <td>A socket number over 255 from <code>NetAccept</code> is truncated; 0 from <code>NetCreateServer</code> looks like a valid socket</td>
-        <td>Call <code>accept</code> directly, and treat <code>&lt;= 0</code> from <code>NetCreateServer</code> as failure</td></tr>
     <tr><td>Unix domain sockets don't work on Linux</td>
         <td><code>sockaddr_un</code> has the BSD layout (a leading length byte), so <code>NetCreateUnixServerSocket</code> fails and returns 0; a path over 104 bytes also overflows it</td>
         <td>Use TCP on 127.0.0.1</td></tr>

@@ -326,7 +326,7 @@ public Bool NetGetIpv4Address(sockaddr *sAddr, I32 ai_family, U8 *outbuf, I32 si
 }
 
 public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
-{
+{// Returns the connected socket, or -1 on failure
   U8 strport[6];
   I32 sockfd;
   addrinfo hints, *servinfo, *ptr;
@@ -339,7 +339,7 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
   sockfd = -1;
 
   if ((rv = getaddrinfo(addr, strport, &hints, &servinfo)) != 0) {
-    return rv;
+    return -1;
   }
 
   /* connect on the first one we can */
@@ -367,9 +367,9 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
   return sockfd;
 
 error:
-  close(sockfd);
+  if (sockfd != -1) close(sockfd);
   freeaddrinfo(servinfo);
-  return FALSE;
+  return -1;
 }
 
 public Bool NetListen(I32 sockfd, addrinfo *sa, I32 backlog)
@@ -388,7 +388,7 @@ public Bool NetListen(I32 sockfd, addrinfo *sa, I32 backlog)
 
 public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
     I32 addrfam=AF_UNSPEC, Bool non_blocking=FALSE)
-{
+{// Returns the listening socket, or -1 on failure
   I32 sockfd = -1, rv;
   U8 strport[6];
   addrinfo hints, *servinfo, *ptr;
@@ -406,7 +406,7 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
     bindaddr = NULL;
 
   if ((rv = getaddrinfo(bindaddr, strport, &hints, &servinfo)) != 0)
-    return rv;
+    return -1;
 
   for (ptr = servinfo; ptr != NULL; ptr = ptr->ai_next) {
     if ((sockfd = socket(ptr->ai_family, ptr->ai_socktype,
@@ -414,7 +414,10 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
       continue;
 
     if (!NetSetSockReuseAddr(sockfd)) goto error;
-    if (!NetListen(sockfd, ptr, backlog)) goto error;
+    if (!NetListen(sockfd, ptr, backlog)) {
+      sockfd = -1; /* NetListen closed it */
+      goto error;
+    }
     if (non_blocking)
       if (!NetSetSocketNonBlocking(sockfd)) goto error;
     break;
@@ -428,25 +431,25 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
   return sockfd;
 
 error:
-  close(sockfd);
+  if (sockfd != -1) close(sockfd);
   freeaddrinfo(servinfo);
-  return FALSE;
+  return -1;
 }
 
-public Bool NetAccept(I32 socket, Bool non_blocking=FALSE)
-{
+public I32 NetAccept(I32 socket, Bool non_blocking=FALSE)
+{// Returns the accepted socket, or -1 on failure
   I32 accepted;
   I64 socklen = sizeof(sockaddr_storage);
   sockaddr_storage in_addr;
 
   if ((accepted = accept(socket,(&in_addr)(sockaddr *),&socklen)) == -1) {
-    return FALSE;
+    return -1;
   }
 
   if (non_blocking) {
     if (!NetSetSocketNonBlocking(accepted)) {
       close(accepted);
-      return FALSE;
+      return -1;
     }
   }
   return accepted;
