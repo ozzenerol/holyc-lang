@@ -179,7 +179,14 @@ U0 SqlCtxRelease(SqlCtx *ctx)
 SqlPreparedStmt *SqlPrepare(SqlCtx *ctx, U8 *sql)
 {
   SqlPreparedStmt *pstmt = MAlloc(sizeof(SqlPreparedStmt));
-  sqlite3_prepare_v2(ctx->conn, sql, -1, &(pstmt->stmt), NULL);
+  pstmt->stmt = NULL;
+  if (sqlite3_prepare_v2(ctx->conn, sql, -1, &(pstmt->stmt), NULL) != SQLITE_OK ||
+      pstmt->stmt == NULL) {
+    /* A failed prepare leaves stmt NULL; so does an empty string. */
+    sqlite3_finalize(pstmt->stmt);
+    Free(pstmt);
+    return NULL;
+  }
   pstmt->params_count = sqlite3_bind_parameter_count(pstmt->stmt);
   pstmt->params_type = MAlloc(pstmt->params_count * sizeof(I64));
   return pstmt;
@@ -193,6 +200,7 @@ static U0 SqlReset(SqlPreparedStmt *pstmt)
 
 U0 SqlFinalizePrepared(SqlPreparedStmt *pstmt)
 {
+  if (!pstmt) return;
   sqlite3_finalize(pstmt->stmt);
   Free(pstmt->params_type);
   Free(pstmt);
@@ -212,13 +220,17 @@ U8 *SqlExecRaw(SqlCtx *ctx, U8 *sql)
 I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row, SqlParam *params)
 {
   I32 rc = 0;
-  SqlReset(pstmt);
 
   if (row) {
     row->stmt = NULL;
   }
+  if (!pstmt) {
+    return SQLITE_MISUSE;
+  }
+  SqlReset(pstmt);
 
-  for (auto i = 0; i < pstmt->params_count; ++i) {
+  /* NULL params: every parameter is left unbound, which is SQL NULL. */
+  for (auto i = 0; params && i < pstmt->params_count; ++i) {
     SqlParam *param = &params[i];
     switch (param->type) {
       case SQL_INT:
