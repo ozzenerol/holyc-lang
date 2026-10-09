@@ -1,20 +1,18 @@
 #define RM_RECURSE  0x1
 #define RM_VERBOSE  0x2
 #define RM_FORCE    0x4
-#define INTERNAL_RM_DIRECORY 0x6
 
+/* 0 if `path` is a directory afterwards (made now or already there) */
 static I32 MkDirIfNotExist(U8 *path, I32 mode=MKDIR_DEFAULT)
 {
   cStat st;
-  if (stat(path, &st) != 0) {
-    if (mkdir(path, mode) != 0) {
-      /* Means it already exists */
-      return 0;
-    }
-  } else if (!((st.st_mode & S_IFMT) == S_IFDIR)) {
-    return -1;
+  if (mkdir(path, mode) == 0) {
+    return 0;
   }
-  return 0;
+  if (stat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR) {
+    return 0;
+  }
+  return -1;
 }
 
 public I32 RmDir(U8 *path, Bool flags=0)
@@ -26,6 +24,8 @@ public I32 RmDir(U8 *path, Bool flags=0)
   cStat st;
   Dirent *ent;
   result = -1;
+
+  if (!path) return -1;
 
   if (!(flags & RM_RECURSE)) {
     result = rmdir(path);
@@ -55,23 +55,24 @@ public I32 RmDir(U8 *path, Bool flags=0)
 
     buf = StrPrint(NULL,"%s/%s",path,ent->name);
     if (buf) {
-      if (ent->type & DT_DIR) {
+      if (ent->type == DT_DIR) {
         r2 = RmDir(buf,flags);
-      } else if (ent->type & DT_REG) {
-
-        if ((r2 = unlink(buf)) == 0 && flags & RM_VERBOSE) {
-          "Rm: %s\n",buf;
-        } else {
-          "Error Rm: %s\n",buf;
+      } else if (ent->type != DT_UNKNOWN) {
+        /* Anything but a directory, links included, is unlinked; the
+         * type is a number, not a bit mask (DT_SOCK & DT_DIR != 0) */
+        r2 = unlink(buf);
+        if (is_verbose) {
+          if (r2 == 0) "Rm: %s\n",buf;
+          else         "Error Rm: %s\n",buf;
         }
       } else if (!lstat(buf,&st)) {
           if ((st.st_mode & S_IFMT) == S_IFDIR) {
             r2 = RmDir(buf,flags);
           } else {
-            if ((r2 = unlink(buf)) == 0 && flags & RM_VERBOSE) {
-              "Rm: %s\n",buf;
-            } else {
-              "Error Rm: %s\n",buf;
+            r2 = unlink(buf);
+            if (is_verbose) {
+              if (r2 == 0) "Rm: %s\n",buf;
+              else         "Error Rm: %s\n",buf;
             }
           }
         }
@@ -107,54 +108,38 @@ public I32 Rm(U8 *path, Bool flags=0)
   I32 result;
   cStat st;
 
+  if (!path) return -1;
+
+  /* lstat: a symlink is removed itself, never what it points to */
   if (lstat(path,&st) == -1) {
+    /* RM_FORCE: like rm -f, a file that does not exist is not an error */
+    if (flags & RM_FORCE) return 0;
     return -1;
   }
 
-  /* A symlink is removed itself, never what it points to (like rm -r) */
-  if ((st.st_mode & S_IFMT) == S_IFLNK) {
-    result = unlink(path);
-    if (flags & RM_VERBOSE) {
-      "Rm '%s'",path;
-      if (result != 0) " failed\n";
-      else             "\n";
-    }
-    return result;
-  }
-
+  /* An empty directory, or with RM_RECURSE everything in it */
   if ((st.st_mode & S_IFMT) == S_IFDIR) {
-    flags |= INTERNAL_RM_DIRECORY; 
-  }
-
-  if (flags == 0) {
-    result = unlink(path);
-    if (flags & RM_VERBOSE) {
-      "Rm '%s'",path;
-      if (result != 0) " failed\n";
-      else             "\n";
-    }
-    return result;
-  } 
-
-  /* Just try to remove a directory */
-  if (!(flags & RM_RECURSE) && flags & INTERNAL_RM_DIRECORY) {
     return RmDir(path,flags);
   }
 
-  /* Destroy everything and everything inbetween */
-  if (flags & (RM_RECURSE|RM_FORCE)) {
-    return RmDir(path,flags);
-  } 
-  return 0;
+  result = unlink(path);
+  if (flags & RM_VERBOSE) {
+    "Rm '%s'",path;
+    if (result != 0) " failed\n";
+    else             "\n";
+  }
+  return result;
 }
 
-public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
-{ /* Make a directory, by default does not recurse folder permissions are: 
-   * drwxr-xr-x */
+public I32 MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
+{ /* Make a directory, by default does not recurse. The mode is
+   * MKDIR_DEFAULT minus the umask. Returns 0 if path is a directory
+   * afterwards, -1 if not */
   Bool relative = TRUE;
   U8 *ptr,*tmp;
   I64 i;
-  if (path == NULL) return -1;
+  I32 result = 0;
+  if (path == NULL || *path == '\0') return -1;
   if (path[0] == '/') {
     relative = FALSE;
   }
@@ -164,7 +149,7 @@ public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
   } else {
     /* Each prefix of `path` is copied here, so it needs path's length */
     if ((tmp = MAlloc(StrLen(path)+1)) == NULL) {
-      return FALSE;
+      return -1;
     }
     ptr = path;
     i = 0;
@@ -177,16 +162,16 @@ public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
         tmp[i] = '\0';
         if (MkDirIfNotExist(tmp,mode) != 0) {
           Free(tmp);
-          return FALSE;
+          return -1;
         } 
       }
       ptr++;
     }
     if (*ptr == '\0' && *(ptr -1) != '/') {
       tmp[i] = '\0';
-      MkDirIfNotExist(tmp,mode);
+      result = MkDirIfNotExist(tmp,mode);
     }
     Free(tmp);
   }
-  return TRUE;
+  return result;
 }
