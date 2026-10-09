@@ -205,7 +205,43 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
         }
         cctrlTokenRewind(cc);
         if (tokenPunctIs(tok,'{')) {
-            init = parseDeclArrayInitInt(cc,type->ptr);
+            /* A nested list initialises the next array element or, in a
+             * class, the next field, which must then be an array or a
+             * class itself. */
+            AstType *sub_type = type->ptr;
+            if (type->kind == AST_TYPE_CLASS) {
+                if (i >= cls_fields->indexes->size) {
+                    cctrlRaiseException(cc,
+                            "More initialisers than class fields for class: %s",
+                            astTypeToString(type));
+                }
+                u64 cls_field_idx = (unsigned long)cls_fields->indexes->entries[i];
+                MapNode *entry = &cls_fields->entries[cls_field_idx];
+                sub_type = entry->value;
+                if (sub_type->kind != AST_TYPE_ARRAY &&
+                    (sub_type->kind != AST_TYPE_CLASS || sub_type->is_intrinsic))
+                {
+                    cctrlRaiseException(cc,
+                            "Cannot use an initialiser list for field %s of type %s",
+                            (char *)entry->key, astTypeToString(sub_type));
+                }
+                i++;
+            } else if (sub_type == NULL) {
+                cctrlRaiseException(cc,
+                        "Cannot use an initialiser list for an element of type %s",
+                        astTypeToString(type));
+            }
+            init = parseDeclArrayInitInt(cc,sub_type);
+            /* Extra items for an array field would be written over the
+             * fields that follow it. */
+            if (type->kind == AST_TYPE_CLASS &&
+                sub_type->kind == AST_TYPE_ARRAY && sub_type->len >= 0 &&
+                listCount(init->arrayinit) > sub_type->len)
+            {
+                cctrlRaiseException(cc,
+                        "Invalid array initializer: expected %d items but got %d",
+                        sub_type->len, listCount(init->arrayinit));
+            }
             tok = cctrlTokenGet(cc);
             listAppend(initlist,init);
             if (tokenPunctIs(tok,'}')) {
