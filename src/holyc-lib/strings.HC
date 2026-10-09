@@ -8,7 +8,6 @@ extern "c" F64 strtod(U8 *nptr, U8 **endptr);
 extern "c" I64 strtoll(U8 *nptr, U8 **endptr, I64 base=10);
 extern "c" U64 strtoul(U8 *nptr, U8 **endptr, I64 base=10);
 extern "c" I64 snprintf(I8 *nptr, U64 len, I8 *fmt,...);
-extern "c" I64 strlen(U8 *s);
 extern "c" I64 strnlen(U8 *s, I64 size);
 extern "c" U8 *strcat(U8 *__s1, U8 *__s2);
 extern "c" U8 *strchr(U8 *__s, I32 __c);
@@ -17,7 +16,6 @@ extern "c" I32 strcoll(U8 *__s1, U8 *__s2);
 extern "c" U8 *strcpy(U8 *__dst, U8 *__src);
 extern "c" U64 strcspn(U8 *__s, U8 *__u8set);
 extern "c" U8 *strerror(I32 __errnum);
-extern "c" U64 strlen(U8 *__s);
 extern "c" U8 *strncat(U8 *__s1, U8 *__s2, U64 __n);
 extern "c" I32 strncmp(U8 *__s1, U8 *__s2, U64 __n);
 extern "c" U8 *strncpy(U8 *__dst, U8 *__src, U64 __n);
@@ -42,22 +40,12 @@ public Bool WildMatch(U8 *test_str, U8 *wild_str);
 #define PRTF_PAD_ZERO        0x001
 #define PRTF_LEFT_JUSTIFY	 0x002
 #define PRTF_TRUNCATE		 0x004
-#define PRTF_COMMA		     0x008
-#define PRTF_DOLLAR          0x010
 #define PRTF_SLASH		     0x020
-#define PRTF_QUESTION		 0x040
-#define PRTF_AUX_FMT_NUM	 0x080
 #define PRTF_DECIMAL		 0x100
-#define PRTF_NEG		     0x200
-#define PRTF_NEG_E           0x400
-#define PRTF_NEG_AUX_FMT_NUM 0x800
 #define PRTF_PLUS            0x1000 /* `+`: a sign on positive numbers too */
 #define PRTF_SPACE           0x2000 /* ` `: a space where `+` would go */
 #define PRTF_ALT             0x4000 /* `#`: 0x/0X before hex, a leading 0 in octal */
 
-#define CH_BACKSPACE   0x08
-#define CH_ESC         0x1B
-#define CH_SHIFT_ESC   0x1C
 #define CH_SHIFT_SPACE 0x1F
 #define CH_SPACE	   0x20
 
@@ -79,6 +67,9 @@ asm {
 _STRNICMP::
     PUSHQ  RBP
     MOVQ   RBP, RSP
+    CALL   _STRNULLCMP     // NULL sorts first: RAX = result, RCX = 1 if done
+    TEST   RCX, RCX
+    JNZ    @@2
     MOVQ   RCX, RDX
     XORQ   RAX, RAX
 @@3:
@@ -113,6 +104,9 @@ _STRNICMP::
 _STRNCMP::
     PUSHQ   RBP
     MOVQ    RBP, RSP
+    CALL    _STRNULLCMP
+    TEST    RCX, RCX
+    JNZ     @@2
     MOVQ    RCX, RDX
     XORQ    RAX, RAX
 @@3:
@@ -131,10 +125,34 @@ _STRNCMP::
     LEAVE
     RET
 
+// RDI=s1, RSI=s2. NULL sorts before every string: sets RAX to
+// -1/0/1 and RCX to 1 when either is NULL, else RCX = 0. Keeps RDX.
+_STRNULLCMP::
+    XORQ   RAX, RAX
+    MOVQ   RCX, 1
+    TEST   RDI, RDI
+    JZ     @@1
+    TEST   RSI, RSI
+    JZ     @@2
+    XORQ   RCX, RCX
+    RET
+@@1:
+    TEST   RSI, RSI
+    JZ     @@3
+    MOVQ   RAX, -1
+    RET
+@@2:
+    MOVQ   RAX, 1
+@@3:
+    RET
+
 // RDI=s1, RSI=s2. LODSB reads s2 into AL, SCASB compares it with s1.
 _STRCMP::
     PUSH  RBP
     MOV   RBP,RSP
+    CALL  _STRNULLCMP
+    TEST  RCX, RCX
+    JNZ   @@3
 @@2:
     LODSB
     SCASB
@@ -225,26 +243,36 @@ _ISSPACE::
     RET
 
 /* RDI: U8 * string
- * RET U64 hashed string */
+ * RET U64 hashed string: h = h*31 + c over the bytes (0 for ""), then
+ * the murmur3 64-bit finaliser so similar keys spread over the bits a
+ * hash table masks with */
 _STRHASH::
-    MOVZBL ECX, [RDI]
-    LEAQ   RSI, 1[RDI]
-    MOVSBL EAX, 1[RDI]
-    TEST   AL, AL
-    JE     @@10
+    XOR    RAX, RAX
 @@5:
-    MOVQ   RDX, RCX
+    MOVZBL ECX, [RDI]
+    TEST   ECX, ECX
+    JE     @@10
+    MOVQ   RDX, RAX
     SALQ   RDX, 5
-    SUB    RDX,RCX
-    MOVZBL EAX, AL
-    MOVQ   RCX,RAX
-    ADD    RCX, RDX
-    ADD    RSI, 1
-    MOVZBL EAX, [RSI]
-    TEST   AL, AL
-    JNE    @@5
+    SUB    RDX, RAX
+    ADD    RDX, RCX
+    MOVQ   RAX, RDX
+    ADD    RDI, 1
+    JMP    @@5
 @@10:
-    MOV    RAX, RCX
+    MOVQ   RDX, RAX
+    SHR    RDX, 33
+    XOR    RAX, RDX
+    MOVABS RDX, 0xFF51AFD7ED558CCD
+    IMUL   RAX, RDX
+    MOVQ   RDX, RAX
+    SHR    RDX, 33
+    XOR    RAX, RDX
+    MOVABS RDX, 0xC4CEB9FE1A85EC53
+    IMUL   RAX, RDX
+    MOVQ   RDX, RAX
+    SHR    RDX, 33
+    XOR    RAX, RDX
     RET
 }
 
@@ -256,8 +284,10 @@ public _extern _STRHASH U64 StrHash(U8 *str);
 
 #ifdef __aarch64__
 asm {
-// strncmp(x0=str1, x1=str2, x2=len)
+// strncmp(x0=str1, x1=str2, x2=len); NULL sorts first
 _STRNCMP::
+    CBZ     X0, @@10
+    CBZ     X1, @@11
     CBZ     X2, @@2
 @@1:
     LDRB    W4, [X0], 1
@@ -273,10 +303,21 @@ _STRNCMP::
 @@3:
     SXTW    X0, W6
     RET
+@@10:
+    MOV     X0, 0
+    CBZ     X1, @@12
+    SUB     X0, X0, 1
+@@12:
+    RET
+@@11:
+    MOV     X0, 1
+    RET
 
 // strnicmp(str1, str2, len) - case-insensitive (ASCII)
-// X0 = str1, X1 = str2, X2 = len
+// X0 = str1, X1 = str2, X2 = len; NULL sorts first
 _STRNICMP::
+    CBZ     X0, @@10
+    CBZ     X1, @@11
     CBZ     X2, @@2
 @@1:
     LDRB    W4, [X0], 1
@@ -303,8 +344,20 @@ _STRNICMP::
 @@3:
     SXTW    X0, W6
     RET
+@@10:
+    MOV     X0, 0
+    CBZ     X1, @@12
+    SUB     X0, X0, 1
+@@12:
+    RET
+@@11:
+    MOV     X0, 1
+    RET
 
+// NULL sorts first
 _STRCMP::
+    CBZ     X0, @@10
+    CBZ     X1, @@11
 @@1:
     LDRB    W4, [X0], 1
     LDRB    W5, [X1], 1
@@ -316,14 +369,31 @@ _STRCMP::
 @@2:
     SXTW    X0, W6
     RET
+@@10:
+    MOV     X0, 0
+    CBZ     X1, @@12
+    SUB     X0, X0, 1
+@@12:
+    RET
+@@11:
+    MOV     X0, 1
+    RET
 
+// Like x86_64: a NULL dst does nothing, a NULL src copies ""
 _STRCPY::
+    CBZ     X0, @@3
     MOV     X2, X0
+    CBNZ    X1, @@1
+    MOV     W3, 0
+    STRB    W3, [X0]
+    MOV     X0, X2
+    RET
 @@1:
     LDRB    W3, [X1], 1
     STRB    W3, [X0], 1
     CBNZ    W3, @@1
     MOV     X0, X2
+@@3:
     RET
 }
 
@@ -346,19 +416,24 @@ public Bool IsSpace(U8 ch)
 }
 
 public U64 StrHash(U8 *str)
-{
-  U64 h = str[0];
-  U64 i = 1;
-  while (str[i]) {
+{// h = h*31 + c over the bytes (0 for ""), then the murmur3 finaliser;
+ // must match _STRHASH on x86_64
+  U64 h = 0;
+  for (I64 i = 0; str[i]; ++i) {
     h = (h << 5) - h + str[i];
-    i++;
   }
+  h ^= h >> 33;
+  h *= 0xFF51AFD7ED558CCD;
+  h ^= h >> 33;
+  h *= 0xC4CEB9FE1A85EC53;
+  h ^= h >> 33;
   return h;
 }
 #endif
 
 public I64 Atoi(U8 *str)
-{
+{// The integer at the start of str (like atol); 0 for NULL
+  if (!str) return 0;
   return atol(str);
 }
 
@@ -375,11 +450,17 @@ public _extern _STRCMP I64 StrCmp(U8 *s1, U8 *s2);
 public _extern _STRCPY U0 StrCpy(U8 *dst, U8 *src);
 
 public U8 *StrNCpy(U8 *buf, I64 len)
-{
-  U8 *str = MAlloc(sizeof(U8)*(len+1));
-  if (len == 0) return str;
-  MemCpy(str,buf,len);
-  str[len] = '\0';
+{// A new string with at most the first `len` bytes of buf, stopping at
+ // its NUL (like C's strndup); always NUL terminated. A negative len is
+ // 0 and a NULL buf gives "".
+  I64 n = 0;
+  if (len < 0) len = 0;
+  if (buf) {
+    while (n < len && buf[n]) n++;
+  }
+  U8 *str = MAlloc(n+1);
+  if (n) MemCpy(str,buf,n);
+  str[n] = '\0';
   return str;
 }
 
@@ -402,6 +483,7 @@ U8 *StrNew(U8 *buf)
 public U8 *FileExtDot(U8 *src)
 {//@TempleOS - Find dot char in name.
   I64 ch;
+  if (!src) return NULL;
   while (ch=*src++)
     if (ch=='.' && *src!='/' && *src!='.')
       return src-1;
@@ -411,6 +493,10 @@ public U8 *FileExtDot(U8 *src)
 public U8 *FileExtRem(U8 *src,U8 *dst=NULL)
 {//@TempleOS - Remove filename extension from str.
   U8 *ptr;
+  if (!src) {
+    if (dst) *dst=0;
+    return dst;
+  }
   if (ptr=FileExtDot(src)) {
     if (dst)
       StrCpy(dst,ptr+1);
@@ -422,6 +508,7 @@ public U8 *FileExtRem(U8 *src,U8 *dst=NULL)
 
 public Bool IsDotZ(U8 *filename)
 {//@TempleOS - Does name end in .Z?
+  if (!filename) return FALSE;
   I64 i=StrLen(filename);
   if (StrOcc(filename,'.')>1 && filename[i-1]=='Z' && filename[i-2]=='.')
     return TRUE;
@@ -431,6 +518,7 @@ public Bool IsDotZ(U8 *filename)
 
 public Bool IsDotC(U8 *filename)
 {//@TempleOS - Does name end in .C?
+  if (!filename) return FALSE;
   I64 i=StrLen(filename);
   if (StrOcc(filename,'.')>1 && filename[i-1]=='C' && filename[i-2]=='.')
     return TRUE;
@@ -446,7 +534,9 @@ public U0 SPutChar(U8 **_dst,U8 ch,U8 **_buf)
     buf=*_buf;
     i=dst-buf;
     if (i+1>=MSize(buf)) { /* room for ch and the '\0' after it */
-      buf=MAlloc(i<<1+1);
+      /* Double, with room for ch and the '\0' even when i is 0.
+       * (TempleOS wrote i<<1+1, which hcc parses as i<<2.) */
+      buf=MAlloc((i+2)*2);
       MemCpy(buf,*_buf,i);
       Free(*_buf);
       dst=buf+i;
@@ -514,6 +604,7 @@ public I64 StrOcc(U8 *src, I64 ch)
 public U8 *StrFirstOcc(U8 *src,U8 *marker)
 {//@TempleOS - Point to 1st occurrence of marker set in str.
   I64 ch;
+  if (!src || !marker) return NULL;
   while ((ch=*src++) && !StrOcc(marker,ch));
   if (ch)
     return src-1;
@@ -525,6 +616,10 @@ U8 *StrFirstRem(U8 *src,U8 *marker,U8 *dst=NULL)
 {//@TempleOS - Remove first str segment and place in dst buf or NULL.
   I64 ch;
   U8 *ptr=src,*res=dst;
+  if (!src || !marker) {
+    if (dst) *dst=0;
+    return res;
+  }
   if (dst) {
     while ((ch=*ptr++) && !StrOcc(marker,ch))
       *dst++=ch;
@@ -542,6 +637,7 @@ public U8 *StrLastOcc(U8 *src,U8 *marker)
 {// @TempleOS - Point to last occurrence of market set in str.
   I64 ch;
   U8 *res=NULL;
+  if (!src || !marker) return NULL;
   while (ch=*src++)
     if (StrOcc(marker,ch))
       res=src-1;
@@ -551,6 +647,10 @@ public U8 *StrLastOcc(U8 *src,U8 *marker)
 public U8 *StrLastRem(U8 *src,U8 *marker,U8 *dst=NULL)
 {// @TempleOS - Remove last str segment and place in dst buf or NULL.
   U8 *ptr;
+  if (!src || !marker) {
+    if (dst) *dst=0;
+    return dst;
+  }
   if ((ptr=StrLastOcc(src,marker)) != NULL) {
     if (dst)
       StrCpy(dst,ptr+1);
@@ -565,22 +665,32 @@ public U8 *StrLastRem(U8 *src,U8 *marker,U8 *dst=NULL)
 
 public U8 *StrTrimStart(U8 *str, I64 str_len=-1, I64 *_new_len=NULL)
 { // Mutates the string, removes whitespace at the start
-  // of the string, MSize calls are still safe
+  // of the string, MSize calls are still safe. Only the first str_len
+  // bytes are looked at (the whole string if str_len < 0); when something
+  // is removed the result is NUL terminated at its new length. NULL
+  // returns NULL.
   I64 new_len,len,j;
 
-  len = StrLen(str);
+  if (!str) {
+    if (_new_len) *_new_len = 0;
+    return NULL;
+  }
+  if (str_len < 0) {
+    len = StrLen(str);
+  } else {
+    len = str_len;
+  }
   j = 0;
 
-  while (TRUE) {
-    if (IsSpace(str[j])) ++j;
-    else break;
+  while (j < len && IsSpace(str[j])) {
+    ++j;
   }
 
   new_len = len-j;
   if (_new_len) {
     *_new_len = new_len;
   }
-  if (new_len == len) {
+  if (j == 0) {
     return str;
   }
   memmove(str,str+j,new_len);
@@ -589,20 +699,25 @@ public U8 *StrTrimStart(U8 *str, I64 str_len=-1, I64 *_new_len=NULL)
 }
 
 public U8 *StrTrimEnd(U8 *str, I64 str_len=-1, I64 *_new_len=NULL)
-{ // Mutates the string, removes whitespace at the end 
-  // of the string, MSize calls are still safe
+{ // Mutates the string, removes whitespace at the end
+  // of the string, MSize calls are still safe. Only the first str_len
+  // bytes are looked at (the whole string if str_len < 0). NULL returns
+  // NULL.
   I64 new_len,len,i;
 
-  if (str_len == -1) {
+  if (!str) {
+    if (_new_len) *_new_len = 0;
+    return NULL;
+  }
+  if (str_len < 0) {
     len = StrLen(str);
   } else {
     len = str_len;
   }
   i = len-1;
 
-  while (TRUE) {
-    if (IsSpace(str[i])) --i;
-    else break;
+  while (i >= 0 && IsSpace(str[i])) {
+    --i;
   }
   i++;
 
@@ -613,7 +728,6 @@ public U8 *StrTrimEnd(U8 *str, I64 str_len=-1, I64 *_new_len=NULL)
   if (new_len == len) {
     return str;
   }
-  memmove(str,str,new_len);
   str[new_len] = '\0';
   return str;
 }
@@ -674,12 +788,7 @@ public U64 U64ToStr(U8 *dst, U64 num, I64 len=5000)
   }
 
   while (num != 0 && len != 0) {
-    I64 rem = num%10;
-    if (rem > 9) {
-      dst[i++] = (rem - 10) + 'a';
-    } else {
-      dst[i++] = rem + '0';
-    }
+    dst[i++] = num%10 + '0';
     num = num / 10;
     len--;
   }
@@ -715,18 +824,6 @@ U8 *MPrintQ(U8 *ptr,I64 flags = 0)
   _dst=&dst;
   if (ptr)
     while (ch=*ptr++) {
-      /* XXX: '$$' creates a ridiculously high number which makes the jump table
-       * occupy over 10k lines in assembly as the table is not optimised to 
-       * if's. Thus it is split out. */
-      if (ch == '$$') {
-        if (flags&PRTF_DOLLAR) {
-          SPutChar(_dst,'\\',_buf);
-          SPutChar(_dst,'d',_buf);
-        } else {
-          SPutChar(_dst,ch,_buf);
-          SPutChar(_dst,ch,_buf);
-        }
-      } else {
         switch (ch) {
           case '%':
             SPutChar(_dst,ch,_buf);
@@ -768,7 +865,6 @@ U8 *MPrintQ(U8 *ptr,I64 flags = 0)
                 SPutChar(_dst,*ptr2++,_buf);
             }
         }
-      }
     }
   SPutChar(_dst,0,_buf);
   return buf;
@@ -1348,210 +1444,224 @@ U8 *CatLenPrint(U8 *_dst, I64 *_len, U8 *fmt, ...)
   return _dst;
 }
 
-I64 days[] =
-{ 'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat' };
-I64 months[] =
-{ 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec' };
-/* similar to strptime  */
+static U8 *_str_date_days[7] = {
+  "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
+};
+static U8 *_str_date_months[12] = {
+  "january", "february", "march", "april", "may", "june", "july",
+  "august", "september", "october", "november", "december"
+};
+
+/* Read up to `max_digits` decimal digits (after any spaces) */
+static Bool _StrDateNum(U8 **_s, I64 max_digits, I64 *_out)
+{
+  U8 *s = *_s;
+  I64 v = 0, n = 0;
+  while (*s == ' ' || *s == '\t') s++;
+  while (n < max_digits && *s >= '0' && *s <= '9') {
+    v = v * 10 + (*s - '0');
+    s++;
+    n++;
+  }
+  if (n == 0) return FALSE;
+  *_s = s;
+  *_out = v;
+  return TRUE;
+}
+
+/* A day or month name: the full name or its first three letters, any
+ * case. Returns the index or -1. */
+static I64 _StrDateName(U8 **_s, U8 **names, I64 count)
+{
+  U8 *s = *_s;
+  for (I64 i = 0; i < count; ++i) {
+    I64 len = StrLen(names[i]);
+    if (StrNICmp(s, names[i], len) == 0) {
+      *_s = s + len;
+      return i;
+    }
+  }
+  for (I64 i = 0; i < count; ++i) {
+    if (StrNICmp(s, names[i], 3) == 0) {
+      *_s = s + 3;
+      return i;
+    }
+  }
+  return -1;
+}
+
+/* similar to strptime. Conversions: %Y year, %m month (1-12), %d day,
+ * %H hour (0-23, or 1-12 with %p), %M minutes, %s or %S seconds, %a day
+ * name, %b month name (full or 3 letters), %p AM/PM, %z zone offset, %%.
+ * A space in the format matches any run of spaces. Fields the format
+ * doesn't set stay -1, except the time fields, which default to 0.
+ * Returns FALSE for empty input, input that ends before the format, text
+ * that doesn't match the format, an unknown conversion or a field out of
+ * range; text after the end of the format is ignored. */
 Bool Str2CDateStruct(U8 *strdate, U8 *format, CDateStruct *t)
 {
+  I64 year = -1, mon = -1, day = -1, hour = 0, min = 0, sec = 0;
+  I64 dow = -1, zone = -1, v, pm = -1, sign;
+  Bool has_hour = FALSE;
+
   /* initialise the date struct's field to -1, error state */
   MemSet(t, -1, sizeof(CDateStruct));
-  /* This is for when we pass the string to strtoll */
-  U8 *endptr = strdate;
-  I64 day,tmp_day,mon,tmp_mon;
   t->sec10000 = 0;
   t->sec100 = 0;
+  t->sec = 0;
   t->min = 0;
   t->hour = 0;
 
-  while (*strdate && *format) {
+  if (!strdate || !format || !*strdate) {
+    return FALSE;
+  }
+
+  while (*format) {
     if (*format == '%') {
       format++;
       switch (*format) {
-        case 'a':
-          tmp_day = 0;
-          tmp_day = ToLower((strdate[0] << 16)) |
-                    ToLower((strdate[1] <<  8)) |
-                    ToLower(strdate[2]);
-          for (I64 i = 0; i < 7; ++i) {
-            if (tmp_day == days[i]) {
-              strdate += 3;
-              t->day_of_week = i;
-              break;
-            }
-          }
-
-          // full name of day
-          if (strdate[0] == 'd' || strdate[0] == 'D') {
-            strdate += 2;
-          }
-          if (t->day_of_week == -1) {
+        case 'a': /* day name */
+          if ((dow = _StrDateName(&strdate, _str_date_days, 7)) < 0) {
             return FALSE;
           }
           break;
-
-        case 'b': /* abbreviation of month string */
-          tmp_mon = ToLower((strdate[0] << 16)) |
-                    ToLower((strdate[1] <<  8)) |
-                    ToLower(strdate[2]);
-          for (I64 i = 0; i < 12; ++i) {
-            if (tmp_mon == months[i]) {
-              strdate += 2;
-              t->mon = i;
-              break;
-            }
+        case 'b': /* month name */
+          if ((v = _StrDateName(&strdate, _str_date_months, 12)) < 0) {
+            return FALSE;
           }
-          if (t->mon == -1) {
-            return 0;
-          }
+          mon = v + 1;
           break;
-
-        case 'd': /* day of the month */
-          t->day_of_mon = strtoll(strdate, &endptr);
-          if (strdate == endptr) {
-            return 0;
-          }
-          strdate = endptr;
-          strdate += 1;
+        case 'd': if (!_StrDateNum(&strdate, 2, &day)) return FALSE; break;
+        case 'm': if (!_StrDateNum(&strdate, 2, &mon)) return FALSE; break;
+        case 'Y': if (!_StrDateNum(&strdate, 4, &year)) return FALSE; break;
+        case 'H':
+          if (!_StrDateNum(&strdate, 2, &hour)) return FALSE;
+          has_hour = TRUE;
           break;
-
-        case 'm': /* month as a number */
-          t->mon = strtoll(strdate, &endptr);
-          if (strdate == endptr) {
-            return 0;
-          }
-          strdate = endptr;
-          strdate += 1;
-          break;
-
-        case 'Y': /* Year */
-          t->year = strtoll(strdate, &endptr);
-          if (strdate == endptr) {
-            return 0;
-          }
-          strdate = endptr;
-          strdate += 1;
-          break;
-
-        case 'H': /* Hour */
-          t->hour = strtoll(strdate, &endptr);
-          if (strdate == endptr) {
-            return 0;
-          }
-          strdate = endptr;
-          strdate += 1;
-          break;
-
-        case 'M': /* Minutes */
-          t->min = strtoll(strdate, &endptr);
-          if (strdate == endptr) {
-            return 0;
-          }
-          strdate = endptr;
-          strdate += 1;
-          break;
-
+        case 'M': if (!_StrDateNum(&strdate, 2, &min)) return FALSE; break;
+        case 's':
+        case 'S': if (!_StrDateNum(&strdate, 2, &sec)) return FALSE; break;
         case 'p': /* am or pm */
+          while (*strdate == ' ') strdate++;
           if (StrNICmp(strdate, "AM", 2) == 0) {
-            if (t->hour >= 12) {
-              t->hour -= 12;
-            }
+            pm = 0;
           } else if (StrNICmp(strdate, "PM", 2) == 0) {
-            t->hour += 12;
+            pm = 1;
+          } else {
+            return FALSE;
           }
-          if (strdate == endptr) {
-            return 0;
-          }
-          strdate += 1;
+          strdate += 2;
           break;
-
-        case 's': /* seconds */
-          t->sec = strtoll(strdate, &endptr);
-          if (strdate == endptr) {
-            return 0;
+        case 'z': /* timezone difference, e.g. +0100 */
+          while (*strdate == ' ') strdate++;
+          sign = 1;
+          if (*strdate == '+') {
+            strdate++;
+          } else if (*strdate == '-') {
+            sign = -1;
+            strdate++;
           }
-          strdate = endptr;
-          strdate += 1;
+          if (!_StrDateNum(&strdate, 4, &zone)) return FALSE;
+          zone *= sign;
           break;
-
-        case 'z': /* timezone difference */
-          t->zone_diff = strtoll(strdate, &endptr);
-          if (strdate == endptr) {
-            return 0;
-          }
-          strdate = endptr;
-          strdate += 1;
+        case '%':
+          if (*strdate != '%') return FALSE;
+          strdate++;
           break;
-
         default:
-          break;
+          return FALSE;
+      }
+      format++;
+    } else if (*format == ' ') {
+      while (*format == ' ') format++;
+      while (*strdate == ' ' || *strdate == '\t') strdate++;
+    } else {
+      if (*strdate != *format) {
+        return FALSE;
+      }
+      strdate++;
+      format++;
+    }
+  }
+
+  if (pm != -1) {
+    if (!has_hour || hour < 1 || hour > 12) {
+      return FALSE;
+    }
+    if (pm == 0 && hour == 12) {
+      hour = 0;
+    } else if (pm == 1 && hour != 12) {
+      hour += 12;
+    }
+  }
+  if (hour > 23 || min > 59 || sec > 59) {
+    return FALSE;
+  }
+  if (mon != -1 && (mon < 1 || mon > 12)) {
+    return FALSE;
+  }
+  if (day != -1) {
+    I64 max_day = 31;
+    if (mon == 4 || mon == 6 || mon == 9 || mon == 11) {
+      max_day = 30;
+    } else if (mon == 2) {
+      max_day = 29;
+      if (year != -1 &&
+          !((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) {
+        max_day = 28;
       }
     }
-
-    /* This means we parsed a number and it was the end of the string
-     * That can be considered a successful parse for us. We can always
-     * check if the field was populated by ensuring it is not -1 */
-    if (*endptr == '\0') {
-      break;
+    if (day < 1 || day > max_day) {
+      return FALSE;
     }
-
-    if (*format == *strdate) {
-      strdate++;
-    }
-    format++;
   }
-  /* We did it! */
+
+  t->year = year;
+  t->mon = mon;
+  t->day_of_mon = day;
+  t->day_of_week = dow;
+  t->hour = hour;
+  t->min = min;
+  t->sec = sec;
+  t->zone_diff = zone;
   return TRUE;
 }
 
 CDate StrToCDate(U8 *_str, U8 *fmt)
-{
+{// Parse with Str2CDateStruct into a CDate; 0 if that fails or the
+ // format doesn't give the year, month and day
   CDateStruct ds;
-  CDate cdt;
-  Bool ok;
-  if ((ok = Str2CDateStruct(_str,fmt,&ds)) == FALSE) {
-    return FALSE;
+  if (!Str2CDateStruct(_str,fmt,&ds)) {
+    return 0;
   }
-  cdt = Struct2Date(&ds);
-  return cdt;
+  if (ds.year(I64) == -1 || ds.mon(I64) == -1 || ds.day_of_mon(I64) == -1) {
+    return 0;
+  }
+  return Struct2Date(&ds);
 }
 
 Bool WildMatch(U8 *test_str, U8 *wild_str)
-{// @TempleOS Wildcard match with '*' and '?'.
-  I64 ch1, ch2;
-  U8 *fall_back_src = NULL, *fall_back_wild = NULL;
-  while (TRUE) {
-    if (!(ch1 = *test_str++)) {
-      if (*wild_str && *wild_str != '*')
-        return FALSE;
-      else
-        return TRUE;
+{// Wildcard match of the whole of test_str: '*' matches any run of
+ // characters (also none) and '?' any one character; everything else
+ // matches itself. FALSE if either string is NULL.
+  U8 *star_wild = NULL, *star_test = NULL;
+  if (!test_str || !wild_str) return FALSE;
+  while (*test_str) {
+    if (*wild_str == '*') {
+      /* remember where to retry if the rest doesn't match */
+      star_wild = ++wild_str;
+      star_test = test_str;
+    } else if (*wild_str && (*wild_str == '?' || *wild_str == *test_str)) {
+      wild_str++;
+      test_str++;
+    } else if (star_wild) {
+      /* let the last '*' swallow one more character and retry */
+      wild_str = star_wild;
+      test_str = ++star_test;
     } else {
-      if (!(ch2 = *wild_str++))
-        return FALSE;
-      else {
-        if (ch2 == '*') {
-          fall_back_wild = wild_str - 1;
-          fall_back_src = test_str;
-          if (!(ch2 = *wild_str++)) {
-            return TRUE;
-          }
-          while (ch2 != ch1) {
-            if (!(ch1 = *test_str++)) {
-              return FALSE;
-            }
-          }
-        } else if (ch2 != '?' && ch1 != ch2) {
-          if (fall_back_wild) {
-            wild_str = fall_back_wild;
-            test_str = fall_back_src;
-            fall_back_wild = NULL;
-            fall_back_src = NULL;
-          } else
-            return FALSE;
-        }
-      }
+      return FALSE;
     }
   }
+  while (*wild_str == '*') wild_str++;
+  return *wild_str == '\0';
 }
