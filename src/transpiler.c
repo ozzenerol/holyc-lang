@@ -513,6 +513,28 @@ AoStr *transpileLValue(Ast *ast, TranspileCtx *ctx) {
     return buf;
 }
 
+/* `*(a + i)`: how `a[i]` is parsed (`(a + i)->field` is not one) */
+static int transpileIsIndex(Ast *ast) {
+    return astIsDeref(ast) && ast->deref_symbol != TK_ARROW &&
+           astIsBinOp(ast->operand) && ast->operand->binop == AST_BIN_OP_ADD;
+}
+
+/* A prefix unary (`*p`) or binary (`p + 1`) expression needs brackets
+ * before a postfix `.field` / `->field`, which binds tighter in C */
+static int transpileNeedsBracketsBeforeField(Ast *ast) {
+    if (astIsBinOp(ast)) return 1;
+    return astIsUnOp(ast) && !transpileIsIndex(ast) &&
+           !(astIsDeref(ast) && ast->deref_symbol == TK_ARROW);
+}
+
+/* The object of a class reference `cls.field` / `cls->field` */
+static void transpileClassRefObject(Ast *cls, TranspileCtx *ctx, s64 *indent) {
+    int brackets = transpileNeedsBracketsBeforeField(cls);
+    if (brackets) aoStrPutChar(ctx->buf, '(');
+    transpileAstInternal(cls, ctx, indent);
+    if (brackets) aoStrPutChar(ctx->buf, ')');
+}
+
 void transpileUnary(Ast *ast, TranspileCtx *ctx, s64 *indent) {
     int operand_is_binop = astIsBinOp(ast->operand);
     char *op = (char *)astUnOpKindToString(ast->unop);
@@ -520,29 +542,35 @@ void transpileUnary(Ast *ast, TranspileCtx *ctx, s64 *indent) {
 
     *indent = 0;
 
-    aoStrCatFmt(ctx->buf, "%s", op);
-    if (operand_is_binop) aoStrPutChar(ctx->buf, '('); 
-   
-    if (astIsDeref(ast)) {
-        if (operand_is_binop && ast->operand->binop == AST_BIN_OP_ADD) {
-            Ast *left = ast->operand->left;
-            Ast *right = ast->operand->right;
-            transpileAstInternal(left,ctx,indent);
-            aoStrPutChar(ctx->buf, '[');
-            transpileAstInternal(right,ctx,indent);
-            aoStrPutChar(ctx->buf, ']');
-        } else {
-            /* As `->` is a dereference we need to be able to distinguish 
-             * between a class dereference and a general pointer dereference */
-            if (ast->deref_symbol != TK_ARROW) {
-                aoStrCatFmt(ctx->buf, "*");
-            }
-            transpileAstInternal(ast->operand,ctx,indent);
-        }
-    } else {
-        transpileAstInternal(ast->operand, ctx, indent);
+    /* `*(a + i)`, which is how `a[i]` is parsed, is written as `a[i]`: no
+     * `*` in front, which would dereference the element again, and no
+     * brackets, so `a[i].field` and `a[i][j]` stay valid C. */
+    if (transpileIsIndex(ast)) {
+        Ast *left = ast->operand->left;
+        Ast *right = ast->operand->right;
+        int left_is_binop = astIsBinOp(left);
+        if (left_is_binop) aoStrPutChar(ctx->buf, '(');
+        transpileAstInternal(left,ctx,indent);
+        if (left_is_binop) aoStrPutChar(ctx->buf, ')');
+        aoStrPutChar(ctx->buf, '[');
+        transpileAstInternal(right,ctx,indent);
+        aoStrPutChar(ctx->buf, ']');
+        *indent = saved_indent;
+        return;
     }
-    if (operand_is_binop) aoStrPutChar(ctx->buf, ')'); 
+
+    /* As `->` is a dereference we need to be able to distinguish
+     * between a class dereference and a general pointer dereference: the
+     * `->` is written by the class reference, so no `*` here. */
+    if (!astIsDeref(ast) || ast->deref_symbol != TK_ARROW) {
+        aoStrCatFmt(ctx->buf, "%s", op);
+        if (operand_is_binop) aoStrPutChar(ctx->buf, '(');
+        transpileAstInternal(ast->operand, ctx, indent);
+        if (operand_is_binop) aoStrPutChar(ctx->buf, ')');
+    } else {
+        /* `(*pp)->field`, `(p + 1)->field` */
+        transpileClassRefObject(ast->operand, ctx, indent);
+    }
     *indent = saved_indent;
 }
 
@@ -674,7 +702,7 @@ void transpileAstInternal(Ast *ast, TranspileCtx *ctx, s64 *indent) {
          * to create class methods */
         if (ast->ref && ast->ref->kind == AST_CLASS_REF) {
             Ast *ref = ast->ref;
-            transpileAstInternal(ref->cls, ctx, indent);
+            transpileClassRefObject(ref->cls, ctx, indent);
             if (ref->cls->deref_symbol == TK_ARROW) {
                 aoStrCat(buf, "->");
             } else {
@@ -906,7 +934,7 @@ void transpileAstInternal(Ast *ast, TranspileCtx *ctx, s64 *indent) {
     }
 
     case AST_CLASS_REF: {
-        transpileAstInternal(ast->cls, ctx, indent);
+        transpileClassRefObject(ast->cls, ctx, indent);
         if (ast->cls->deref_symbol == TK_ARROW) {
             aoStrCatFmt(buf, "->%s", ast->field);
         } else {
@@ -1127,7 +1155,8 @@ AoStr *transpileArgvList(Vec *argv, TranspileCtx *ctx) {
 typedef struct TypeInfo {
     int kind;
     AoStr *base_name;
-    int array_dimensions;
+    /* `[2][3]`, outermost first; NULL if not an array */
+    AoStr *array_dimensions;
     int stars;
     AoStr *params;
     AoStr *array_init_label;
@@ -1187,12 +1216,17 @@ static void transpileTypeInternal(TranspileCtx *ctx, AstType *type, TypeInfo *in
     }
 
     case AST_TYPE_ARRAY: {
-        transpileTypeInternal(ctx, type->ptr, info);
         if (type->size == -1 && type->ptr->clsname != NULL) {
             info->array_init_label = type->ptr->clsname;
         } else {
-            info->array_dimensions = type->size;
+            /* The element count (`len`), not the size in bytes; an
+             * inner array type adds its own dimension after this one */
+            if (!info->array_dimensions) {
+                info->array_dimensions = aoStrNew();
+            }
+            aoStrCatFmt(info->array_dimensions, "[%i]", type->len);
         }
+        transpileTypeInternal(ctx, type->ptr, info);
         break;
     }
 
@@ -1255,7 +1289,7 @@ AoStr *transpileVarDeclInfo(TranspileCtx *ctx, TypeInfo *info, char *name) {
         if (name) {
             aoStrCatFmt(str, "%s",name);
         }
-        aoStrCatFmt(str, "[%i]",info->array_dimensions);
+        aoStrCatFmt(str, "%S",info->array_dimensions);
     } else if (info->array_init_label) {
         if (name) {
             aoStrCatFmt(str, "%s",name);
@@ -1313,7 +1347,7 @@ AoStr *transpileFunctionProto(TranspileCtx *ctx, AstType *type, char *name) {
         }
     } else if (info.array_dimensions) {
         aoStrCatFmt(str, "%s",name);
-        aoStrCatFmt(str, "[%i]",info.array_dimensions);
+        aoStrCatFmt(str, "%S",info.array_dimensions);
     } else {
         aoStrCatFmt(str, "%s",name);
     }
