@@ -1113,21 +1113,26 @@ __noreturn void cctrlTerminate(Cctrl *cc) {
     exit(EXIT_FAILURE);
 }
 
-/* Walks the ring buffer back to a token on a strictly earlier
- * line than `tok->line`, renders an INFO message positioned at
- * that token, then re-advances so the buffer head ends up where
- * the caller left it. The walk is capped at 16 rewinds and bails
- * on a same-peek-after-rewind (ring floor). Returns NULL when no
- * earlier-line token exists in reach - the caller should treat
- * that as "no hint available" rather than an error. */
+/* Walks the ring buffer back to the token just before `tok` and, if
+ * `tok` starts its line and that token ends an earlier one, renders an
+ * INFO message positioned at it, then re-advances so the buffer head
+ * ends up where the caller left it. A `tok` in the middle of a line
+ * (`I64 x = 2 3;`) gets no hint: the earlier line is not what's wrong,
+ * and neither is one ending in `;` or `{`. The walk is capped at 16
+ * rewinds and bails on a same-peek-after-rewind (ring floor). Returns
+ * NULL when there is no hint to give. */
 CctrlDiagnostic *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok,
                                          const char *fmt, ...) {
-    int rewinds = 0;
+    int rewinds = 0, passed_tok = 0;
     Lexeme *prev = cctrlTokenPeek(cc);
-    while (prev && prev->line >= tok->line && rewinds < 16) {
+    while (prev && !passed_tok && rewinds < 16) {
+        if (prev == tok) passed_tok = 1;
         cctrlTokenRewind(cc);
         Lexeme *new_prev = cctrlTokenPeek(cc);
-        if (new_prev == prev) break;
+        if (new_prev == prev) {
+            passed_tok = 0;
+            break;
+        }
         prev = new_prev;
         rewinds++;
     }
@@ -1135,7 +1140,8 @@ CctrlDiagnostic *cctrlInfoAtPreviousLine(Cctrl *cc, Lexeme *tok,
     /* Built while rewound so its position is the previous line's last
      * token, not tok's. */
     CctrlDiagnostic *info = NULL;
-    if (prev && prev->line < tok->line) {
+    if (passed_tok && prev && prev->line < tok->line &&
+        !tokenPunctIs(prev, ';') && !tokenPunctIs(prev, '{')) {
         va_list ap;
         va_start(ap, fmt);
         AoStr *info_msg = cctrlMessagVnsPrintF(cc, (char *)fmt, ap, CCTRL_INFO);
