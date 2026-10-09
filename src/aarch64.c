@@ -2174,11 +2174,9 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
             aoStrCatFmt(buf, ".globl %S\n", label);
         }
         aoStrCatFmt(buf, ".data\n");
-        if (declinit->kind == AST_ARRAY_INIT) {
-            Ast *head = (Ast *)declinit->arrayinit->next->value;
-            if (head->kind == AST_STRING) {
-                aoStrCatFmt(buf, ".align 4\n");
-            }
+        int align_log2 = asmDataAlignLog2(declvar->type);
+        if (align_log2 > 0) {
+            aoStrCatPrintf(buf, ".p2align %d\n", align_log2);
         }
         aoStrCatFmt(buf, "%S:\n\t", label);
         if (declinit->kind == AST_ARRAY_INIT) {
@@ -2189,8 +2187,16 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
         }
     } else {
         if (declvar->is_static) {
-            aoStrCatFmt(buf, ".lcomm %S, %i\n\t", label,
-                        declvar->type->size);
+            /* Mach-O's .lcomm takes no default alignment; ELF's
+             * aligns by size. */
+            if (cc->target == TARGET_AARCH64_APPLE_DARWIN) {
+                aoStrCatFmt(buf, ".lcomm %S, %i, %i\n\t", label,
+                            declvar->type->size,
+                            asmDataAlignLog2(declvar->type));
+            } else {
+                aoStrCatFmt(buf, ".lcomm %S, %i\n\t", label,
+                            declvar->type->size);
+            }
         } else if (label->len == 4 &&
                    (!strncmp(label->data, str_lit("argc")) ||
                     !strncmp(label->data, str_lit("argv"))))

@@ -387,6 +387,13 @@ static int asmInitImageAt(Ast *init, AstType *type, u8 *bytes, Ast **items,
     return off + ((type && type->size > 0) ? type->size : 8);
 }
 
+int asmDataAlignLog2(AstType *type) {
+    int align = astTypeAlign(type);
+    int log2 = 0;
+    while ((1 << log2) < align) log2++;
+    return log2;
+}
+
 int asmInitItemWidth(Ast *item) {
     if (item->kind == AST_STRING || !item->type) return 8;
     int w = item->type->size;

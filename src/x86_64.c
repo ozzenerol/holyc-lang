@@ -2532,11 +2532,9 @@ void x86_64GlobalVar(Cctrl *cc,
             aoStrCatFmt(buf, ".globl %S\n", label);
         }
         aoStrCatPrintf(buf, ".data\n");
-        if (declinit->kind == AST_ARRAY_INIT) {
-            Ast *head = (Ast *)declinit->arrayinit->next->value;
-            if (head->kind == AST_STRING) {
-                aoStrCatPrintf(buf, ".align 4\n");
-            }
+        int align_log2 = asmDataAlignLog2(declvar->type);
+        if (align_log2 > 0) {
+            aoStrCatPrintf(buf, ".p2align %d\n", align_log2);
         }
         aoStrCatFmt(buf, "%S:\n\t", label);
         if (declinit->kind == AST_ARRAY_INIT) {
@@ -2547,8 +2545,16 @@ void x86_64GlobalVar(Cctrl *cc,
         x86_64DataInternal(buf, declinit);
     } else {
         if (declvar->is_static) {
-            aoStrCatFmt(buf, ".lcomm %S, %i\n\t", label,
-                        declvar->type->size);
+            /* Mach-O's .lcomm takes no default alignment; ELF's
+             * aligns by size. */
+            if (cc->target == TARGET_X86_64_APPLE_DARWIN) {
+                aoStrCatFmt(buf, ".lcomm %S, %i, %i\n\t", label,
+                            declvar->type->size,
+                            asmDataAlignLog2(declvar->type));
+            } else {
+                aoStrCatFmt(buf, ".lcomm %S, %i\n\t", label,
+                            declvar->type->size);
+            }
         } else {
             /* argc/argv are linked from the startup file - use .comm
              * not .zerofill so the linker doesn't double-allocate. */
