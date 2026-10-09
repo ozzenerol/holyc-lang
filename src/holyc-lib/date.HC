@@ -125,12 +125,12 @@ U0 Date2Struct(CDateStruct *_ds,CDate cdt)
   date-=i;
   if (YearStartDate(_ds->year+1)-i==365) {
     k=0;
-    while (date>=mon_start_days1[k+1] && k<11)
+    while (k<11 && date>=mon_start_days1[k+1])
       k++;
     date-=mon_start_days1[k];
   } else {
     k=0;
-    while (date>=mon_start_days2[k+1] && k<11)
+    while (k<11 && date>=mon_start_days2[k+1])
       k++;
     date-=mon_start_days2[k];
   }
@@ -148,13 +148,23 @@ U0 Date2Struct(CDateStruct *_ds,CDate cdt)
 CDate Struct2Date(CDateStruct *_ds)
 {//Cvt CDateStruct to CDate.
   CDate cdt;
-  I64 i1,i2;
-  i1=YearStartDate(_ds->year);
-  i2=YearStartDate(_ds->year+1);
-  if (i2-i1==365) {
-    i1+=mon_start_days1[_ds->mon-1];
+  I64 i1,i2,year=_ds->year,mon=_ds->mon(I64)-1;
+  /* A month outside 1-12 carries into the year, as a day past the end
+   * of the month carries into the next month: 13 is January of the next
+   * year, 0 December of the one before */
+  if (mon<0) {
+    year-=(11-mon)/12;
+    mon=11-(11-mon)%12;
   } else {
-    i1+=mon_start_days2[_ds->mon-1];
+    year+=mon/12;
+    mon%=12;
+  }
+  i1=YearStartDate(year);
+  i2=YearStartDate(year+1);
+  if (i2-i1==365) {
+    i1+=mon_start_days1[mon];
+  } else {
+    i1+=mon_start_days2[mon];
   }
   cdt.date=i1+_ds->day_of_mon-1;
   cdt.time=((_ds->sec10000+100*(_ds->sec100+100*(_ds->sec
