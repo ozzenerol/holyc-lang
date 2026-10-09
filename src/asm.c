@@ -317,10 +317,20 @@ int asmEmitBlockBytes(Cctrl *cc, AoStr *buf, AoStr *text, int src_line) {
 }
 
 void asmEmitAsmInfo(Cctrl *cc, AoStr *buf) {
+    /* Depends on the target, not the host, so cross compiling works:
+     * ELF wants the non-executable stack note, Mach-O has no such
+     * section and its assembler rejects it. */
+    switch (cc->target) {
+        case TARGET_AARCH64_UNKNOWN_LINUX_GNU:
+        case TARGET_X86_64_UNKNOWN_LINUX_GNU:
+            aoStrCatFmt(buf,
+                    ".section    .note.GNU-stack,\"\",@progbits\n");
+            break;
+        case TARGET_AARCH64_APPLE_DARWIN:
+        case TARGET_X86_64_APPLE_DARWIN:
+            break;
+    }
     aoStrCatFmt(buf,
-#if IS_LINUX
-               ".section    .note.GNU-stack,\"\",@progbits\n"
-#endif
                ".ident      \"hcc: %s %s %s hash: %s\"\n",
                 OS_STR,
                 cliTargetToString(cc->target),

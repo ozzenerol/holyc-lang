@@ -46,9 +46,6 @@ there works as shown.</p>
     <tr><td>A function pointer can't be called as <code>(*fp)()</code></td>
         <td><code>U0 (*fp)() = &amp;G; (*fp)();</code> is an error ("The `*` operator cannot be applied to a function pointer"); C accepts it</td>
         <td>Call it as <code>fp()</code></td></tr>
-    <tr><td>Cross-compiling to macOS from Linux fails to assemble</td>
-        <td><code>--target=*-apple-darwin</code> on Linux still emits <code>.section .note.GNU-stack</code>, which the Mach-O assembler rejects</td>
-        <td>Build on the Mac</td></tr>
   </tbody>
 </table>
 
