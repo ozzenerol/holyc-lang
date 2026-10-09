@@ -21,6 +21,16 @@ class FloatVec
   F64 *entries;
 };
 
+/* Get/Set with an index outside [0, size): report it on stderr and exit,
+ * rather than read or write past the entries. */
+static U0 _VecIndexError(U8 *fn_name, I64 idx, I64 size)
+{
+  U8 *msg = StrPrint(NULL, "%s: index %d out of range (size %d)\n",
+                     fn_name, idx, size);
+  Write(STDERR, msg, StrLen(msg));
+  Exit(1);
+}
+
 FloatVec *FloatVecNew(I64 size = 32)
 {
   FloatVec *vec = MAlloc(sizeof(FloatVec));
@@ -58,12 +68,9 @@ F64 FloatVecPop(FloatVec *vec, Bool *_ok)
 
 F64 FloatVecGet(FloatVec *vec, I64 idx)
 {
-#ifdef DEBUG
   if (idx < 0 || idx >= vec->size) {
-    "idx %ld is out of range for vector of size %ld\n",idx,vec->size;
-    Exit(EXIT_FAILURE);
+    _VecIndexError("FloatVecGet", idx, vec->size);
   }
-#endif
   return vec->entries[idx];
 }
 
@@ -128,12 +135,9 @@ I64 IntVecPop(IntVec *vec, Bool *_ok)
 
 I64 IntVecGet(IntVec *vec, I64 idx)
 {
-#ifdef DEBUG
   if (idx < 0 || idx >= vec->size) {
-    "idx %ld is out of range for vector of size %ld\n",idx,vec->size;
-    Exit(EXIT_FAILURE);
+    _VecIndexError("IntVecGet", idx, vec->size);
   }
-#endif
   return vec->entries[idx];
 }
 
@@ -198,12 +202,9 @@ U0 *PtrVecPop(PtrVec *vec, Bool *_ok)
 
 U0 *PtrVecGet(PtrVec *vec, I64 idx)
 {
-#ifdef DEBUG
   if (idx < 0 || idx >= vec->size) {
-    "idx %ld is out of range for vector of size %ld\n",idx,vec->size;
-    Exit(EXIT_FAILURE);
+    _VecIndexError("PtrVecGet", idx, vec->size);
   }
-#endif
   return vec->entries[idx];
 }
 
