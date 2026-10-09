@@ -33,61 +33,23 @@
 #define I8_MIN  0xFFFFFF80
 
 public class List;
-/* A circular doubly linked list of U0 * values. The list itself is a head
- * node (value unused) that links to itself when the list is empty; walk it
- * with `for (List *it = l->next; it != l; it = it->next)`. Values are
- * borrowed: the list never frees them unless you pass a free function. */
 public class List
 {
   U0 *value;
   List *next, *prev;
 };
 
-/* Make `l` (usually a head on the stack or inside a class) an empty list.
- * Such a head must be emptied with ListClear, never ListRelease. */
 public U0 ListInit(List *l);
-/* A new empty list (a heap-allocated head); free it with ListRelease. */
 public List *ListNew();
-/* Add `value` at the front. */
 public U0 ListPrepend(List *head, U0 *value);
-/* Add `value` at the end. */
-public U0 ListAppend(List *head, U0 *value);
-/* TRUE if the list has no values (also for NULL). */
 public Bool ListEmpty(List *l);
-/* Remove the first value and return it (a queue's shift): NULL when the
- * list is empty or NULL - a stored NULL looks the same, so check
- * ListEmpty first if you store NULLs. */
+public U0 ListAppend(List *head, U0 *value);
 public U0 *ListDeque(List *l);
-/* Link `new_node` (not in any list) in before `ll`; with `ll` the head,
- * that is the end of the list. */
 public U0 ListInsertBefore(List *ll, List *new_node);
-/* Insert `value` before the node `ll` (before the head = at the end). */
 public U0 ListInsertValueBefore(List *ll, U0 *value);
-/* Remove the last value and return it: NULL when the list is empty or NULL
- * (a stored NULL looks the same, see ListDeque). */
 public U0 *ListPop(List *l);
-/* Free every node, calling FreeValue on each value if it is not NULL,
- * and then the head itself - so only for ListNew lists (use ListClear on a
- * ListInit head). NULL is ignored. */
 public U0 ListRelease(List *ll, U0 (*FreeValue)(U0 *arg));
-/* The number of values. O(n): it walks the list. 0 for NULL. */
 public I64 ListCount(List *ll);
-/* Free every node (calling free_value on each value, if given) but keep
- * the head, now empty; works on a ListInit (stack) head. NULL is ignored. */
-public U0 ListClear(List *l, U0 (*free_value)(U0 *value) = NULL);
-/* Unlink `node` from its list, free it and return its value. Must not be
- * given the list's head (an empty head is left alone, returning NULL).
- * NULL returns NULL. */
-public U0 *ListRemove(List *node);
-/* The first value without removing it; NULL if the list is empty or
- * NULL (a stored NULL looks the same: check ListEmpty). */
-public U0 *ListFirst(List *l);
-/* The last value without removing it; NULL if the list is empty or NULL. */
-public U0 *ListLast(List *l);
-/* Move all of l2's nodes to the start (Prepend) or the end (Append) of
- * l1, then free l2's head: l2 must not be used afterwards, and must have
- * come from ListNew. An empty l2 is just freed; if either is NULL nothing
- * happens. */
 public U0 ListMergePrepend(List *l1, List *l2);
 public U0 ListMergeAppend(List *l1, List *l2);
 
@@ -175,125 +137,60 @@ public I64 LastDayOfYear(I64 i);
 public CDate Now();
 public U0 IsoFromTimespec(cTimespec *ts, U8 *buf);
 
-#define HT_LOAD  0.60
+/* The `order` of a deleted hash table node (a tombstone) */
 #define HT_DELETED 0x7fffffffffffffff
-#define HT_PROBE_1 1
-#define HT_PROBE_3 3
 
-/* Growable arrays: `entries[0..size)` are the values, and the vector
- * owns `entries`. `size` and `entries` can be read directly, and
- * `for (I64 x : v)` walks the values; push, pop and set go through the
- * functions so the storage can grow. */
 public class IntVec
 {
   I64 size;
   I64 *entries;
 };
 
-/* A growable array of U0 * values; see IntVec. The values are borrowed
- * unless a free function is passed to PtrVecRelease. */
 public class PtrVec
 {
   I64 size;
   U0 **entries;
 };
 
-/* A growable array of F64 values; see IntVec. */
 public class FloatVec 
 {
   I64 size;
   F64 *entries;
 };
 
-/* Sort arr[low..high] in place (note the order: high before low).
- * `_compare_fn(a, b)` returns TRUE when `a` must come before `b` - a
- * "less than", not a C-style -1/0/1 comparator, which leaves the array
- * unsorted. Not stable; O(n log n), also on sorted, reversed and
- * all-equal input. IntVecSort/FloatVecSort/PtrVecSort use it. */
 U0 QSortGeneric(U0 **arr, I64 high, I64 low, 
     I64 (*_compare_fn)(U0 *_arg1, U0 *_arg2));
 
-/* A new empty vector with room for `size` values before it has to grow
- * (its initial capacity). A size below 1 (0 or negative) is taken as 1. */
 public FloatVec *FloatVecNew(I64 size = 32);
-/* How many values fit before the next push has to grow the storage. */
-public U64 FloatVecCapacity(FloatVec *vec);
-/* Append `value`, growing the storage (doubling it) when needed. */
+public U64 FloatVecCapacity(IntVec *vec);
 public U0 FloatVecPush(FloatVec *vec, F64 value);
-/* Remove and return the last entry. When empty, returns -1.0 and sets
- * *_ok to FALSE; `_ok` may be NULL if you don't need to tell. */
-public F64 FloatVecPop(FloatVec *vec, Bool *_ok = NULL);
-/* The entry at `idx`. An index outside [0, size) prints
- * "FloatVecGet: index N out of range (size M)" on stderr and exits with 1. */
+public F64 FloatVecPop(FloatVec *vec, Bool *_ok);
 public F64 FloatVecGet(FloatVec *vec, I64 idx);
-/* Replace the entry at `idx`; out of range prints an error and exits,
- * like FloatVecGet. */
-public U0 FloatVecSet(FloatVec *vec, I64 idx, F64 value);
-/* The last entry without removing it; -1.0 and *_ok = FALSE when empty. */
-public F64 FloatVecLast(FloatVec *vec, Bool *_ok = NULL);
-/* Set the size to 0; the storage is kept for reuse. */
 public U0 FloatVecClear(FloatVec *vec);
-/* Free the storage and the vector. NULL is ignored. */
 public U0 FloatVecRelease(FloatVec *vec);
-/* Sort ascending, in place (not stable, O(n log n)). */
 public U0 FloatVecSort(FloatVec *vec);
 
-/* A new empty vector with room for `size` values before it has to grow
- * (its initial capacity). A size below 1 (0 or negative) is taken as 1. */
 public IntVec *IntVecNew(I64 size = 32);
-/* How many values fit before the next push has to grow the storage. */
 public U64 IntVecCapacity(IntVec *vec);
-/* Append `value`, growing the storage (doubling it) when needed. */
 public U0 IntVecPush(IntVec *vec, I64 value);
-/* Remove and return the last entry. When empty, returns -1 and sets
- * *_ok to FALSE; `_ok` may be NULL if you don't need to tell. */
-public I64 IntVecPop(IntVec *vec, Bool *_ok = NULL);
-/* The entry at `idx`. An index outside [0, size) prints
- * "IntVecGet: index N out of range (size M)" on stderr and exits with 1. */
+public I64 IntVecPop(IntVec *vec, Bool *_ok);
 public I64 IntVecGet(IntVec *vec, I64 idx);
-/* Replace the entry at `idx`; out of range prints an error and exits,
- * like IntVecGet. */
-public U0 IntVecSet(IntVec *vec, I64 idx, I64 value);
-/* The last entry without removing it; -1 and *_ok = FALSE when empty. */
-public I64 IntVecLast(IntVec *vec, Bool *_ok = NULL);
-/* Set the size to 0; the storage is kept for reuse. */
 public U0 IntVecClear(IntVec *vec);
-/* Free the storage and the vector. NULL is ignored. */
 public U0 IntVecRelease(IntVec *vec);
-/* Sort ascending, in place (not stable, O(n log n)). */
 public U0 IntVecSort(IntVec *vec);
 
-/* A new empty vector with room for `size` values before it has to grow
- * (its initial capacity). A size below 1 (0 or negative) is taken as 1. */
 public PtrVec *PtrVecNew(I64 size = 32);
-/* How many values fit before the next push has to grow the storage. */
-public U64 PtrVecCapacity(PtrVec *vec);
-/* Append `value`, growing the storage (doubling it) when needed. */
+public U64 PtrVecCapacity(IntVec *vec);
 public U0 PtrVecPush(PtrVec *vec, U0 *value);
-/* Remove and return the last entry. When empty, returns NULL and sets
- * *_ok to FALSE; `_ok` may be NULL if you don't need to tell (but a
- * stored NULL then looks like an empty vector). */
-public U0 *PtrVecPop(PtrVec *vec, Bool *_ok = NULL);
-/* The entry at `idx`. An index outside [0, size) prints
- * "PtrVecGet: index N out of range (size M)" on stderr and exits with 1. */
+public U0 *PtrVecPop(PtrVec *vec, Bool *_ok);
 public U0 *PtrVecGet(PtrVec *vec, I64 idx);
-/* Replace the entry at `idx`; out of range prints an error and exits,
- * like PtrVecGet. The old value is not freed. */
-public U0 PtrVecSet(PtrVec *vec, I64 idx, U0 *value);
-/* The last entry without removing it; NULL and *_ok = FALSE when empty. */
-public U0 *PtrVecLast(PtrVec *vec, Bool *_ok = NULL);
-/* Set the size to 0; the storage is kept for reuse, the values are not
- * freed. */
 public U0 PtrVecClear(PtrVec *vec);
-/* Free the storage and the vector, first calling `_free_value` on every
- * value if it is given (e.g. `&Free`). NULL is ignored. */
 public U0 PtrVecRelease(PtrVec *vec, U0 (*_free_value)(U0 *_val) = NULL);
-/* Sort in place with `_compare_fn(a, b)` returning TRUE when `a` comes
- * before `b` (a "less than", not a C-style -1/0/1 comparator). Not
- * stable; O(n log n). */
 public U0 PtrVecSort(PtrVec *vec,
                      I64 (*_compare_fn)(U0 *_arg1, U0 *_arg2));
 
+/* An IntMap entry, as IntMapIter hands it out: `key` and `value` are the
+ * caller's; `order` is the map's bookkeeping. */
 public class IntMapNode
 {
   I64 key;
@@ -301,6 +198,8 @@ public class IntMapNode
   I64 order; /* Position in the map's `indexes`; HT_DELETED once deleted */
 };
 
+/* A StrMap entry, as StrMapIter hands it out: `key` is the pointer the map
+ * stores (not a copy), `key_len` its StrLen. */
 public class StrMapNode
 {
   U8 *key;
@@ -309,68 +208,133 @@ public class StrMapNode
   I64 order; /* Position in the map's `indexes`; HT_DELETED once deleted */
 };
 
+/* A hash table from I64 keys to U0 * values. `size` is the number of
+ * entries; `capacity` the number of slots (a power of two), which grows
+ * when the entries and deleted holes reach 60% of it and never shrinks.
+ * The other fields are internal. */
 public class IntMap
 {
   U64 size;     /* How many entries are in the hashtable */
-  U64 capacity; /* How much capacity we have in the entries array */
-  U64 mask;     /* Used for hashing, as the capacity is always a power of 2
-                 * we can use fast modulo of `<int> & capacity-1`. */
-  IntVec *indexes; /* Where all of the values are in the entries array, in 
-                 * insertion order. Means we can iterate over the HashTable 
-                 * quickly at the cost of memory */
-  U64 threashold; /* rebuild threashold */
+  U64 capacity; /* How many slots the entries array has, a power of 2 */
+  U64 mask;     /* capacity - 1: `hash & mask` is the home slot */
+  IntVec *indexes; /* The slot of every entry, in insertion order, with
+                    * HT_DELETED for deleted ones: iteration walks this */
+  U64 threashold; /* Rebuild when `indexes` reaches this (60% of capacity) */
   U0 (*_free_value)(U0 *value); /* User defined callback for freeing values */
-  IntMapNode **entries; /* All of the entries, XXX: could this be IntMapNode *entries? */
+  IntMapNode **entries; /* The slots */
 };
 
-
+/* A hash table from NUL-terminated strings to U0 * values; see IntMap for
+ * the fields. The map stores the key pointers it is given, it does not
+ * copy them. */
 public class StrMap
 {
   U64 size;     /* How many entries are in the hashtable */
-  U64 capacity; /* How much capacity we have in the entries array */
-  U64 mask;     /* Used for hashing, as the capacity is always a power of 2
-                 * we can use fast modulo of `<int> & capacity-1`. */
-  IntVec *indexes; /* Where all of the values are in the entries array, in 
-                 * insertion order. Means we can iterate over the HashTable 
-                 * quickly at the cost of memory */
-  U64 threashold; /* rebuild threashold */
+  U64 capacity; /* How many slots the entries array has, a power of 2 */
+  U64 mask;     /* capacity - 1: `hash & mask` is the home slot */
+  IntVec *indexes; /* The slot of every entry, in insertion order, with
+                    * HT_DELETED for deleted ones: iteration walks this */
+  U64 threashold; /* Rebuild when `indexes` reaches this (60% of capacity) */
   U0 (*_free_value)(U0 *_value); /* User defined callback for freeing values */
-U0 (*_free_key)(U0 *_key); /* User defined callback for freeing keys */
-  StrMapNode **entries; /* All of the entries, XXX: could this be IntMapNode *entries? */
+  U0 (*_free_key)(U0 *_key); /* User defined callback for freeing keys */
+  StrMapNode **entries; /* The slots */
 };
 
+/* A new, empty map with room for `capacity` slots: rounded up to a power
+ * of two, at least 8; a negative request gets 8 and one above 2^28 slots
+ * gets 2^28 (the map still grows past it). NULL when out of memory. */
 public StrMap *StrMapNew(U64 capacity = 32);
+/* Map `key` to `value`; TRUE, or FALSE when out of memory or `map` or
+ * `key` is NULL. A new key's pointer is stored, not copied, so it must
+ * live as long as the map. Setting a key that is there replaces the
+ * value and keeps the stored key: with destructors registered, the
+ * replaced value is freed and so is the key you passed (unless it is the
+ * stored key or the new value). */
 public Bool StrMapSet(StrMap *map, U8 *key, U0 *value);
+/* TRUE when the `key_len` bytes at `key` are a key of the map (`key` need
+ * not be NUL-terminated there) */
 public Bool StrMapHasLen(StrMap *map, U8 *key, I64 key_len);
+/* TRUE when `key` is in the map; FALSE also for a NULL map or key */
 public Bool StrMapHas(StrMap *map, U8 *key);
+/* StrMapGet for the `key_len` bytes at `key` */
 public U0 *StrMapGetLen(StrMap *map, U8 *key, I64 key_len, Bool *_ok = NULL);
+/* The value of `key`, or NULL when it is missing. A stored NULL also gives
+ * NULL: pass `_ok`, set to TRUE when the key is there, to tell them
+ * apart. */
 public U0 *StrMapGet(StrMap *map, U8 *key, Bool *_ok = NULL);
+/* Register a destructor for values, run when a value is replaced, deleted,
+ * cleared or released */
 public U0 StrMapSetFreeValue(StrMap *map, U0 (*_free_value)(U0 *value));
+/* Register a destructor for keys, run when a key is deleted, cleared or
+ * released, and on a duplicate key passed to StrMapSet. A pointer that is
+ * both a key and its value is freed once. */
 public U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key));
+/* Free the map, running the destructors on every entry. NULL is a no-op. */
 public U0 StrMapRelease(StrMap *map);
+/* Double the capacity; FALSE when out of memory. The map grows by itself;
+ * this is for presizing. */
 public Bool StrMapResize(StrMap *map);
+/* Remove `key`, running the destructors on its key and value; FALSE when
+ * it was not there. Safe while iterating. */
 public Bool StrMapDelete(StrMap *map, U8 *key);
+/* Remove every entry, running the destructors; the capacity is kept */
 public U0 StrMapClear(StrMap *map);
+/* The next entry in insertion order: start with `*_idx = 0` and call until
+ * FALSE; `*_idx` is an opaque cursor. Deleting entries while iterating is
+ * fine; adding them is not (an added entry may be skipped or the table
+ * rebuilt). */
 public Bool StrMapIter(StrMap *map, I64 *_idx, StrMapNode **_node);
+/* StrMapIter giving only the values */
 public Bool StrMapValueIter(StrMap *map, I64 *_idx, U0 **_value);
+/* StrMapIter giving only the keys */
 public Bool StrMapKeyIter(StrMap *map, I64 *_idx, U8 **_key);
+/* `{[key] => value, ...}` in insertion order, each value turned into a
+ * string by `stringify_value` (whose result is freed); free the result */
 public U8 *StrMapToString(StrMap *map, U8 *(*stringify_value)(U0 *));
+/* `{key, ...}` in insertion order; free the result */
 public U8 *StrMapKeysToString(StrMap *map);
 
 
+/* Map `key` to `value`; TRUE, or FALSE when out of memory or `map` is
+ * NULL. Setting a key that is there replaces the value, freeing the old
+ * one if a destructor is registered. */
 public Bool IntMapSet(IntMap *map, I64 key, U0 *value);
+/* TRUE when `key` is in the map; FALSE also for a NULL map */
 public Bool IntMapHas(IntMap *map, I64 key);
+/* The value of `key`, or NULL when it is missing. A stored NULL or 0 also
+ * gives NULL: pass `_ok`, set to TRUE when the key is there, to tell them
+ * apart. */
 public U0 *IntMapGet(IntMap *map, I64 key, Bool *_ok = NULL);
+/* A new, empty map; the capacity as for StrMapNew. NULL when out of
+ * memory. */
 public IntMap *IntMapNew(U64 capacity = 32);
+/* Register a destructor for values, run when a value is replaced, deleted,
+ * cleared or released */
 public U0 IntMapSetFreeValue(IntMap *map, U0 (*_free_value)(U0 *value));
+/* Free the map, running the value destructor on every entry. NULL is a
+ * no-op. */
 public U0 IntMapRelease(IntMap *map);
+/* Double the capacity; FALSE when out of memory. The map grows by itself;
+ * this is for presizing. */
 public Bool IntMapResize(IntMap *map);
+/* Remove `key`, running the value destructor; FALSE when it was not
+ * there. Safe while iterating. */
 public Bool IntMapDelete(IntMap *map, I64 key);
+/* Remove every entry, running the value destructor; the capacity is
+ * kept */
 public U0 IntMapClear(IntMap *map);
+/* The next entry in insertion order: start with `*_idx = 0` and call until
+ * FALSE; `*_idx` is an opaque cursor. Deleting entries while iterating is
+ * fine; adding them is not. */
 public Bool IntMapIter(IntMap *map, I64 *_idx, IntMapNode **_node);
+/* IntMapIter giving only the values */
 public Bool IntMapValueIter(IntMap *map, I64 *_idx, U0 **_value);
+/* IntMapIter giving only the keys */
 public Bool IntMapKeyIter(IntMap *map, I64 *_idx, I64 *_key);
+/* `{[key] => value, ...}` in insertion order, each value turned into a
+ * string by `stringify_value` (whose result is freed); free the result */
 public U8 *IntMapToString(IntMap *map, U8 *(*stringify_value)(U0 *));
+/* `{key, ...}` in insertion order; free the result */
 public U8 *IntMapKeysToString(IntMap *map);
 
 /* THREADS ==========*/

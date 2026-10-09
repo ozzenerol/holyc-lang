@@ -206,7 +206,10 @@ def find_definitions(decls):
                 if d is None or d["kind"] == "define" or name in where:
                     continue
                 before = s[:m.start()]
-                # a definition or prototype: type words before the name, not a call
+                # a definition or prototype: type words before the name, not a
+                # call (`return StrPrint(...)` is a call, not a definition)
+                if re.match(r"^\s*(return|else|case|goto|do|sizeof)\b", before):
+                    continue
                 if re.match(r"^(public\s+)?(static\s+)?(inline\s+)?(extern\s+\"c\"\s+|_extern\s+\w+\s+)?[A-Za-z_]\w*[\s*]+$", before):
                     where[name] = (fname, comment_above(lines, idx))
             cm = re.match(r"(?:public\s+)?(?:class|union)\s+([A-Za-z_]\w*)", s)

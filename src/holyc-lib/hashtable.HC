@@ -6,8 +6,6 @@
 
 #define HT_LOAD 60
 #define HT_DELETED 0x7fffffffffffffff
-#define HT_PROBE_1 1
-#define HT_PROBE_3 3
 #define HT_MIN_CAPACITY 8
 #define HT_MAX_CAPACITY (1 << 28)
 
@@ -44,7 +42,7 @@ public class IntMap
                     * quickly at the cost of memory */
   U64 threashold; /* rebuild threashold */
   U0 (*_free_value)(U0 *value); /* User defined callback for freeing values */
-  IntMapNode **entries; /* All of the entries, XXX: could this be IntMapNode *entries? */
+  IntMapNode **entries; /* The slots */
 };
 
 public class StrMap
@@ -59,7 +57,7 @@ public class StrMap
   U64 threashold; /* rebuild threashold */
   U0 (*_free_value)(U0 *_value); /* User defined callback for freeing values */
   U0 (*_free_key)(U0 *_key); /* User defined callback for freeing keys */
-  StrMapNode **entries; /* All of the entries, XXX: could this be StrMapNode *entries? */
+  StrMapNode **entries; /* The slots */
 };
 
 U64 RoundUpToNextPowerOf2(U64 v)
@@ -283,7 +281,7 @@ static Bool IntMapRehash(IntMap *map, U64 new_capacity)
 }
 
 public Bool IntMapResize(IntMap *map)
-{// Double the hashtable, will return false if OMM
+{// Double the hashtable, will return false if OOM
   if (!map) {
     return FALSE;
   }
@@ -698,7 +696,7 @@ static Bool StrMapRehash(StrMap *map, U64 new_capacity)
 }
 
 public Bool StrMapResize(StrMap *map)
-{// Double the hashtable, will return false if OMM
+{// Double the hashtable, will return false if OOM
   if (!map) {
     return FALSE;
   }
