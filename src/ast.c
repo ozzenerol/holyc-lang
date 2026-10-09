@@ -1182,6 +1182,17 @@ AstType *astTypeCheck(AstType *expected, Ast *ast, AstBinOp op) {
         goto out;
     }
 
+    /* `U0 *` converts to and from a function pointer without a cast, as
+     * the common C extension (and POSIX dlsym) allows. */
+    if ((e->kind == AST_TYPE_FUNC && a->kind == AST_TYPE_POINTER &&
+         a->ptr && a->ptr->kind == AST_TYPE_VOID) ||
+        (a->kind == AST_TYPE_FUNC && e->kind == AST_TYPE_POINTER &&
+         e->ptr && e->ptr->kind == AST_TYPE_VOID))
+    {
+        ret = e;
+        goto out;
+    }
+
 check_type:
     if (e == NULL || a == NULL) {
         goto out;

@@ -5,40 +5,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>No brace elision for class-typed fields</td>
-        <td><code>class L { I64 t; P a; I64 z; }; L l = {1, 2, 3};</code> warns instead of filling <code>a</code>'s fields</td>
-        <td>Brace the inner class: <code>{1, {2, 3}, 4}</code></td></tr>
-    <tr><td>Assigning a <code>U0 *</code> to a function pointer warns</td>
-        <td><code>U0 *v = &amp;F; I64 (*fp)(I64 x) = v;</code>: "'U0 *' is not assignable to type '&lt;fn&gt; I64'"</td>
-        <td>The assignment still works; ignore the warning</td></tr>
-  </tbody>
-</table>
-
-<h3>Diagnostics</h3>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>A wrong argument count is underlined at the wrong place</td>
-        <td><code>U0 Main() { I64 x = One(1); I64 y = Two(1); }</code>: the error for <code>Two</code> underlines <code>Main()</code></td>
-        <td>Read the function name in the message</td></tr>
-    <tr><td>Warnings for compound assignments and some pointer/array mismatches point at the nearest <code>=</code></td>
-        <td><code>y = y + q; arr = arr + 1;</code>: the warning for the second statement is placed on the first</td>
-        <td>Read the types in the message</td></tr>
-    <tr><td>Array types show their size in bytes</td>
-        <td>A diagnostic about <code>I64 arr[2]</code> calls it <code>I64[16]</code></td>
-        <td>Divide by the element size</td></tr>
-  </tbody>
-</table>
-
-<h2>JIT and code generation</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Standard library</h2>
 <table>
