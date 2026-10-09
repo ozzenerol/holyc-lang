@@ -313,9 +313,9 @@ AstType *parseBaseDeclSpec(Cctrl *cc) {
         return type;
     }
     cctrlRewindUntilStrMatch(cc,tok->start,tok->len,NULL);
-    cctrlRaiseException(cc,"Declaration or specfier must be an identifier got %s `%.*s`",
+    cctrlRaiseException(cc,"Declaration or specfier must be an identifier got %s `%s`",
             lexemeTypeToString(tok->tk_type),
-            tok->len, tok->start);
+            lexemeAsWritten(tok));
 }
 
 AstType *parseDeclSpec(Cctrl *cc) {
@@ -875,9 +875,9 @@ Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len,
                                 "terminate with `)`";
             cctrlInfo(cc, "Function call `%.*s` not terminated correctly", len,fname);
             cctrlRaiseSuggestion(cc,suggestion,
-                    "Invalid %s `%.*s` while parsing function call, perhaps you meant to terminate the arguments with `%c` or keep going with `,`?",
+                    "Invalid %s `%s` while parsing function call, perhaps you meant to terminate the arguments with `%c` or keep going with `,`?",
                     lexemeTypeToString(tok->tk_type),
-                   tok->len, tok->start, terminator);
+                   lexemeAsWritten(tok), terminator);
         }
 
         tok = cctrlTokenPeek(cc);
@@ -1490,8 +1490,8 @@ Ast *parseSubscriptExpr(Cctrl *cc, Ast *ast) {
     if (subscript == NULL) {
         cctrlRewindUntilPunctMatch(cc,'[',NULL);
         Lexeme *tok = cctrlTokenPeek(cc);
-        cctrlRaiseException(cc,"Failed to parse subscript value last valid %s was `%.*s`",
-                lexemeTypeToString(tok->tk_type),tok->len,tok->start);
+        cctrlRaiseException(cc,"Failed to parse subscript value last valid %s was `%s`",
+                lexemeTypeToString(tok->tk_type),lexemeAsWritten(tok));
     }
     cctrlTokenExpect(cc, ']');
     Ast *binop = parseCreateBinaryOp(cc, AST_BIN_OP_ADD, ast, subscript);
@@ -1544,10 +1544,9 @@ Ast *parseGetClassField(Cctrl *cc, Ast *cls) {
                 "Unexpected end of input after '->' or '.'");
     }
     if (tok->tk_type != TK_IDENT) {
-        cctrlRaiseExceptionFromTo(cc,NULL,'-',*tok->start,"Expected class member got %s `%.*s`",
+        cctrlRaiseExceptionFromTo(cc,NULL,'-',*tok->start,"Expected class member got %s `%s`",
                             lexemeTypeToString(tok->tk_type),
-                            tok->len,
-                            tok->start);
+                            lexemeAsWritten(tok));
     }
 
     // XXX: This is hacky and only for recusive data types 
@@ -1843,15 +1842,14 @@ Ast *parseExpr(Cctrl *cc, int prec) {
             cctrlTokenRewind(cc);
             char *err_lvar = astLValueToString(LHS,0);
             char *punct_str = lexemePunctToStringWithFlags(tok->i64,0);
-            char *msg = mprintf("`%s %s var2` is the expected usage however got `%.*s`",
+            char *msg = mprintf("`%s %s var2` is the expected usage however got `%s`",
                     err_lvar,
-                    punct_str,peek->len,peek->start);
-            cctrlRaiseSuggestion(cc,msg,"Second operand missing to `%s %s` got invalid %s `%.*s`",
+                    punct_str,lexemeAsWritten(peek));
+            cctrlRaiseSuggestion(cc,msg,"Second operand missing to `%s %s` got invalid %s `%s`",
                                  err_lvar,
                                  punct_str,
                                  lexemeTypeToString(peek->tk_type),
-                                 peek->len, 
-                                 peek->start);
+                                 lexemeAsWritten(peek));
         }
 
         /* This de-sugars the compound assign which I think is okay */

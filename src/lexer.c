@@ -562,6 +562,19 @@ char *lexemePunctToStringWithFlags(s64 op, u64 flags) {
     else                             return lexemePunctToString(op);
 }
 
+/* `tok` as written in the source, for a diagnostic: a string or a
+ * character constant with its quotes (its start and len are what is
+ * between them), anything else its text. */
+char *lexemeAsWritten(Lexeme *tok) {
+    if (tok->tk_type == TK_STR) {
+        return mprintf("\"%.*s\"", tok->len, tok->start);
+    }
+    if (tok->tk_type == TK_CHAR_CONST) {
+        return mprintf("'%.*s'", tok->len, tok->start);
+    }
+    return mprintf("%.*s", tok->len, tok->start);
+}
+
 AoStr *lexemeToAoStr(Lexeme *tok) {
     if (!tok) {
         return aoStrPrintf("(null)");
@@ -1236,12 +1249,14 @@ done:
 }
 
 /* Length of the char const is returned, it OR's in at max 8 characters. 
- * A s64 being 64 bits and 64/8 = 8. */
+ * A s64 being 64 bits and 64/8 = 8. l->cur_strlen is set to its length in
+ * the source, between the quotes (`'\n'` is 2), as for a string. */
 u64 lexCharConst(Lexer *l) {
     u64 char_const = 0, idx;
     s64 hex_num = 0;
     s64 len, overflowed = 0;
     char ch = 0;
+    char *begin = l->ptr;
 
     for (len = 0; ; ++len) {
         /* Skipped #if text need not be HolyC: an apostrophe there
@@ -1343,7 +1358,7 @@ u64 lexCharConst(Lexer *l) {
     }
 
     l->cur_i64 = char_const;
-    l->cur_strlen = len;
+    l->cur_strlen = (l->ptr - begin) - (ch == '\'' ? 1 : 0);
     return TK_CHAR_CONST;
 }
 

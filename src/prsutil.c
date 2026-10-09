@@ -115,9 +115,9 @@ void assertTokenIsTerminator(Cctrl *cc, Lexeme *tok, s64 terminator_flags) {
      * the underline lands on the wrong thing. */
     cctrlTokenRewind(cc);
     AoStr *error_msg = cctrlMessagePrintF(cc,CCTRL_ERROR,
-            "Unexpected %s `%.*s` %s",
+            "Unexpected %s `%s` %s",
             lexemeTypeToString(tok->tk_type),
-            tok->len, tok->start,
+            lexemeAsWritten(tok),
             suggestion);
     /* Positioned on tok too, while still rewound. */
     CctrlDiagnostic *err_d = cctrlMakeDiag(cc, CCTRL_ERROR, error_msg, NULL);
@@ -158,9 +158,9 @@ void assertTokenIsTerminatorWithMsg(Cctrl *cc, Lexeme *tok,
 
     cctrlRewindUntilPunctMatch(cc,tok->i64,NULL);
     char *token_msg = assertionTerminatorMessage(cc,tok,terminator_flags);
-    cctrlRaiseException(cc,"Unexpected %s `%.*s` %s - %s",
+    cctrlRaiseException(cc,"Unexpected %s `%s` %s - %s",
                         lexemeTypeToString(tok->tk_type),
-                        tok->len,tok->start,
+                        lexemeAsWritten(tok),
                         msg,
                         token_msg);
 }

@@ -11,9 +11,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>An escaped character constant is misprinted in errors</td>
-        <td><code>I64 s = 2 '\n' 3;</code> reports "Unexpected character constant `\`" instead of showing <code>'\n'</code></td>
-        <td>Look at the caret position</td></tr>
     <tr><td>A function pointer without a name gives a second, bogus error</td>
         <td><code>I64 (*)(I64 x);</code> reports "Expected function pointer name" and then "Cannot handle 'TK_PUNCT )'"</td>
         <td>Read only the first error</td></tr>
