@@ -15,7 +15,8 @@
 #define CCTRL_TOKEN_BUFFER_SIZE 16
 #define CCTRL_TOKEN_BUFFER_MASK CCTRL_TOKEN_BUFFER_SIZE-1
 /* Expanded macro uses remembered; only a token in the ring buffer can be
- * peeked again, so twice its size is plenty */
+ * peeked again, and every one was expanded as it was loaded, so twice
+ * its size is plenty */
 #define CCTRL_MACRO_USE_CACHE_SIZE (CCTRL_TOKEN_BUFFER_SIZE*2)
 
 #define CCTRL_TRANSPILING          (1<<0)
@@ -195,8 +196,8 @@ typedef struct Cctrl {
     TokenRingBuffer *token_buffer;
     Lexer *lexer_;
 
-    /* Recent macro expansions, so peeking the same use again hands back
-     * the same token (callers compare token pointers) */
+    /* Recent macro expansions, so a diagnostic on one can find the
+     * macro use it came from */
     CctrlMacroUse macro_uses[CCTRL_MACRO_USE_CACHE_SIZE];
     int macro_use_next;
 
