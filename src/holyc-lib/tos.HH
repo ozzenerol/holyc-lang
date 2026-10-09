@@ -658,6 +658,10 @@ public class ThreadPool {
   U0 *priv_data;
 };
 
+/* The thread handle is the pointer itself: declare `pthread_t *th;`, pass
+ * `&th` to pthread_create and `th` to pthread_join/pthread_detach. On Linux
+ * the C pthread_t is an unsigned long, so `th` doesn't point at anything:
+ * never dereference it. pthread_create returns 0 or an error number. */
 public extern "c" I64 pthread_create(pthread_t **th, U0 *thread_attr = NULL,
                 U0 *(*function_ptr)(U0 *_argv), U0 *argv = NULL);
 public extern "c" I32 pthread_mutex_init(pthread_mutex_t *lk,
@@ -1880,6 +1884,7 @@ public U0 SqlRowRelease(SqlRow *row);
 /* Protocols */
 #define IPPROTO_IP              0               /* Placeholder for IP */
 #define IPPROTO_ICMP            1               /* Internet Control Message Protocol */
+#define IPPROTO_IPV4            4               /* IPv4 encapsulation */
 #define IPPROTO_TCP             6               /* Transmission Control Protocol */
 #define IPPROTO_UDP             17              /* User Datagram Protocol */
 #define IPPROTO_IPV6            41              /* IPv6 protocol */
@@ -2153,10 +2158,10 @@ public extern "c" U0 endservent();
 public extern "c" U0 freeaddrinfo(addrinfo *info);
 public extern "c" U8 *gai_strerror(I32 __err);
 public extern "c" I32 getaddrinfo(U8 *hostname, U8 *servname, addrinfo *hints, addrinfo **res);
-/* Depricated */
-hostent *gethostbyaddr(U0 *ptr, I64 len, I32 type);
-/* Depricated */
-hostent *gethostbyname(U8 * name);
+/* Deprecated by POSIX (IPv4 only, not thread-safe): use getaddrinfo */
+public extern "c" hostent *gethostbyaddr(U0 *ptr, I64 len, I32 type);
+/* Deprecated by POSIX (IPv4 only, not thread-safe): use getaddrinfo */
+public extern "c" hostent *gethostbyname(U8 *name);
 
 public extern "c" hostent *gethostent();
 public extern "c" I32 getnameinfo(sockaddr *sa, I64 salen, U8 *host,
@@ -2190,17 +2195,56 @@ public extern "c" I64 send(I32 socket, U0 *buffer, U64 length, I32 flags);
 public extern "c" I64 sendmsg(I32 socket, msghdr *message, I32 flags);
 public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U64 dest_len);
 
+/* Writing to a socket whose peer has closed raises SIGPIPE, which kills the
+ * process: there is no way yet to ignore it or to pass MSG_NOSIGNAL. */
+
+/* Set O_NONBLOCK on sockfd: reads, writes, connect and accept then return
+ * -1 instead of waiting. TRUE on success, FALSE if fcntl fails. */
 public Bool NetSetSocketNonBlocking(I32 sockfd);
+/* Set SO_REUSEADDR, so a server can bind its port again right after a
+ * restart (while old connections are in TIME_WAIT). TRUE on success. */
 public Bool NetSetSockReuseAddr(I32 sockfd);
+/* Set TCP_NODELAY (turn off Nagle's algorithm): small writes are sent at
+ * once instead of being collected. TRUE on success, FALSE if setsockopt
+ * fails (also when sockfd isn't a TCP socket). */
 public Bool NetSetSocketNoDelay(I32 sockfd);
+/* Write the address in sAddr as text ("127.0.0.1", "::1") into outbuf of
+ * `size` bytes. ai_family must be sAddr's family, AF_INET or AF_INET6.
+ * FALSE for any other family or if outbuf is too small. Despite the name
+ * it handles IPv6 too. */
 public Bool NetGetIpv4Address(sockaddr *sAddr, I32 ai_family, U8 *outbuf, I32 size);
+/* Connect a TCP socket to `addr` (a host name, or an IPv4 or IPv6 address)
+ * on `port`, trying each address the name resolves to in turn. Returns the
+ * socket, or -1 if none accepted or port is outside 0..65535. The connect
+ * itself always blocks: non_blocking makes the socket non-blocking after
+ * it is connected. */
 public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE);
+/* bind() and listen() sockfd on the address in sa. On failure it closes
+ * sockfd and returns FALSE. */
 public Bool NetListen(I32 sockfd, addrinfo *sa, I32 backlog);
+/* A TCP socket listening on `port` (0 lets the kernel pick one; read it
+ * with getsockname) at `bindaddr`: a numeric IPv4 or IPv6 address (host
+ * names are not looked up), "*" or NULL for any address of addrfam, or
+ * "::*" for any IPv6 address. addrfam is AF_INET, AF_INET6 or AF_UNSPEC
+ * (the family of bindaddr; IPv4 for "*"). SO_REUSEADDR is set. Returns the
+ * socket, or -1 on failure (bad port, family or address, port in use). */
 public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
     I32 addrfam=AF_UNSPEC, Bool non_blocking=FALSE);
+/* Wait for the next connection on a listening socket and return it, or -1.
+ * non_blocking makes the accepted socket non-blocking; to not wait in
+ * NetAccept itself, make the listening socket non-blocking. */
 public I32 NetAccept(I32 socket, Bool non_blocking=FALSE);
+/* Write the peer address of a connected socket (IPv4 or IPv6) as text
+ * into ipbuf of `outlen` bytes. FALSE for a unix domain socket, a socket
+ * that isn't connected or a buffer too small. */
 public Bool NetGetIpv4AddressFromAcceptedSocket(I32 sockfd, U8 *ipbuf, I32 outlen);
+/* A unix domain socket listening on the file `name` (at most 107 bytes on
+ * Linux, 103 on macOS). A socket file left by a server that is gone is
+ * replaced; any other file there, or a socket a server is listening on,
+ * makes it fail (the live server sees a connection that closes at once).
+ * Returns the socket or -1. Unlink the file when done. */
 public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog);
+/* Connect to the unix domain socket file `name`; the socket or -1. */
 public I32 NetCreateUnixClientSocket(U8 *name);
 
 

@@ -52,6 +52,7 @@
 #define IPPROTO_ICMP            1               /* control message protocol */
 #define IPPROTO_IPV4            4               /* IPv4 encapsulation */
 #define IPPROTO_TCP             6               /* tcp */
+#define IPPROTO_UDP             17              /* user datagram protocol */
 #define IPPROTO_IPV6            41              /* IP6 header */
 #define IPPROTO_ICMPV6          58              /* ICMP6 */
 #define IPPROTO_RAW             255             /* raw IP packet */
@@ -278,10 +279,10 @@ public extern "c" U0 endservent();
 public extern "c" U0 freeaddrinfo(addrinfo *info);
 public extern "c" U8 *gai_strerror(I32 __err);
 public extern "c" I32 getaddrinfo(U8 *hostname, U8 *servname, addrinfo *hints, addrinfo **res);
-/* Depricated */
-hostent *gethostbyaddr(U0 *ptr, I64 len, I32 type);
-/* Depricated */
-hostent *gethostbyname(U8 * name);
+/* Deprecated by POSIX (IPv4 only, not thread-safe): use getaddrinfo */
+public extern "c" hostent *gethostbyaddr(U0 *ptr, I64 len, I32 type);
+/* Deprecated by POSIX (IPv4 only, not thread-safe): use getaddrinfo */
+public extern "c" hostent *gethostbyname(U8 *name);
 
 public extern "c" hostent *gethostent();
 public extern "c" I32 getnameinfo(sockaddr *sa, I64 salen, U8 *host,

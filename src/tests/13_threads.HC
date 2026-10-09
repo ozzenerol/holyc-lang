@@ -48,17 +48,15 @@ Bool pthread_test()
   return x == THREAD_COUNT;
 }
 
-U0 *PoolFunc(ThreadPool *pool, ThreadArgs *args)
+U0 PoolFunc(U0 *priv_data, ThreadArgs *args)
 {
   pthread_mutex_lock(args->lk);
   I64 x = *args->ptr;
   x++;
   *args->ptr = x;
   pthread_mutex_unlock(args->lk);
-  return NULL;
 }
 
-/* XXX: This hangs on linux */
 Bool ThreadPoolTest()
 {
   I64 x = 0;
@@ -78,15 +76,16 @@ Bool ThreadPoolTest()
   ThreadPoolWait(pool);
   pthread_mutex_destroy(&lk);
   ThreadPoolRelease(pool);
+  Free(arg);
   return x == 10;
 }
 
 I32 Main()
 {
-  I32 correct = 0, tests = 1;
+  I32 correct = 0, tests = 2;
   "Test - Simple Threading: \n";
   if (pthread_test()) correct++;
-  // if (ThreadPoolTest()) correct++;
+  if (ThreadPoolTest()) correct++;
   PrintResult(correct, tests);
   "====\n";
   return 0;

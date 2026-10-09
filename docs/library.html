@@ -1241,7 +1241,13 @@ ones use exact repeated squaring (<code>Pow(2, 10)</code> is 1024.0) and the res
 <code>NetAccept(server)</code> the next connection on it and <code>NetConnect(addr, port)</code>
 a connected socket. All three return the socket as an <code>I32</code>, or -1 on failure
 (0 is a valid socket number). Read and write them with <code>read</code>/<code>write</code>
-or <code>recv</code>/<code>send</code>, and <code>close</code> them when done.</p>
+or <code>recv</code>/<code>send</code>, and <code>close</code> them when done.
+<code>NetConnect</code> takes a host name or an IPv4 or IPv6 address and tries every address
+the name resolves to. The server's bind address must be numeric (<code>"127.0.0.1"</code>,
+<code>"::1"</code>), <code>"*"</code> for any IPv4 address or <code>"::*"</code> for any IPv6
+address; port 0 lets the kernel pick one. Ports outside 0..65535 give -1.
+Writing to a socket whose peer has closed raises <code>SIGPIPE</code>, which ends the program
+(see <a href="known-issues.html">known issues</a>).</p>
 <pre><code>I32 srv = NetCreateServer(8080, "127.0.0.1", 16);
 if (srv == -1) {
   "can't listen on 8080\n";
@@ -1258,7 +1264,10 @@ close(srv);
 <h2>More modules</h2>
 <p>These are covered in the <a href="stdlib.html">library reference</a>:</p>
 <ul>
-  <li><a href="stdlib.html#threads">Threads</a>: pthreads (<code>pthread_create</code>, mutexes, condition variables) plus <code>ThreadWorker</code> helpers.</li>
+  <li><a href="stdlib.html#threads">Threads</a>: pthreads (<code>pthread_create</code>, mutexes, condition variables) and a thread pool:
+  <code>ThreadPoolNew(n)</code> (NULL if <code>n</code> &lt;= 0 or a thread can't start), <code>ThreadPoolEnqueue(pool, argv, &amp;Fn)</code>
+  runs <code>Fn(pool-&gt;priv_data, argv)</code> on a worker, <code>ThreadPoolWait</code> waits until the queue is empty (never call it
+  from inside a job), <code>ThreadPoolRelease</code> runs what is left and frees the pool.</li>
   <li><a href="stdlib.html#net">Networking</a>: sockets, <code>getaddrinfo</code> and friends.
   <code>NetCreateUnixServerSocket(path, backlog)</code> and <code>NetCreateUnixClientSocket(path)</code>
   make Unix domain sockets; they return -1 on failure, also when the path is longer than
