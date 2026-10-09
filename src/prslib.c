@@ -1478,17 +1478,24 @@ static s64 astBinOpToTokenPunct(AstBinOp op) {
     }
 }
 
-Ast *parseCreateBinaryOp(Cctrl *cc, AstBinOp operation, Ast *left, Ast *right) {
+/* `op_tok` is the operator token as written in the source, which the
+ * diagnostic rewinds to. For a de-sugared compound assignment (`y += p`)
+ * that is `+=`, not `+`: rewinding for a `+` that is not there would
+ * land before the statement and the per-statement recovery would then
+ * re-parse it forever. */
+static Ast *parseCreateBinaryOpAt(Cctrl *cc, AstBinOp operation, Ast *left,
+                                  Ast *right, s64 op_tok)
+{
     int is_err = 0;
     Ast *binop = astBinaryOp(operation,left,right,&is_err);
     if (!is_err) {
         return binop;
     } else if (is_err && !(cc->flags & CCTRL_TRANSPILING)) {
-        const char *opstr = astBinOpKindToString(operation);
+        const char *opstr = op_tok ? lexemePunctToStringWithFlags(op_tok,0)
+                                   : astBinOpKindToString(operation);
         const char *left_kind = astTypeKindToHumanReadable(left->type);
         const char *right_kind = astKindToHumanReadable(right);
         const char *right_type_kind = astTypeKindToHumanReadable(right->type);
-        s64 op_tok = astBinOpToTokenPunct(operation);
         if (op_tok) {
             cctrlRewindUntilPunctMatch(cc, op_tok, NULL);
         }
@@ -1501,6 +1508,11 @@ Ast *parseCreateBinaryOp(Cctrl *cc, AstBinOp operation, Ast *left, Ast *right) {
         binop->type = ast_int_type;
     }
     return binop;
+}
+
+Ast *parseCreateBinaryOp(Cctrl *cc, AstBinOp operation, Ast *left, Ast *right) {
+    return parseCreateBinaryOpAt(cc,operation,left,right,
+                                 astBinOpToTokenPunct(operation));
 }
 
 Ast *parseExpr(Cctrl *cc, int prec) {
@@ -1624,12 +1636,15 @@ Ast *parseExpr(Cctrl *cc, int prec) {
 
         /* This de-sugars the compound assign which I think is okay */
         if (compound_assign) {
+            /* Check the operation first so `y += p` reports the same
+             * error as `y = y + p` */
+            Ast *value = parseCreateBinaryOpAt(cc, deconstructed_compound_op,
+                                               LHS, RHS, tok->i64);
             AstType *ok = astTypeCheck(LHS->type,RHS,compound_assign);
             if (!ok) {
                 typeCheckWarn(cc,'=',LHS,RHS);
             }
-            LHS = parseCreateBinaryOp(cc,AST_BIN_OP_ASSIGN, LHS,
-                    parseCreateBinaryOp(cc, deconstructed_compound_op, LHS, RHS));
+            LHS = parseCreateBinaryOp(cc,AST_BIN_OP_ASSIGN, LHS, value);
         } else {
             if (tok->i64 == '=') {
                 AstType *ok = astTypeCheck(LHS->type,RHS,AST_BIN_OP_ASSIGN);
