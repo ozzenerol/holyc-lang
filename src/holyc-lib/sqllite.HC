@@ -73,7 +73,6 @@ class SqlPreparedStmt
 {
   sqlite3_stmt *stmt;
   I64  params_count;
-  I64 *params_type;
 };
 
 class SqlColumn
@@ -219,7 +218,6 @@ SqlPreparedStmt *SqlPrepare(SqlCtx *ctx, U8 *sql)
     return NULL;
   }
   pstmt->params_count = sqlite3_bind_parameter_count(pstmt->stmt);
-  pstmt->params_type = MAlloc(pstmt->params_count * sizeof(I64));
   return pstmt;
 }
 
@@ -233,7 +231,6 @@ U0 SqlFinalizePrepared(SqlPreparedStmt *pstmt)
 {
   if (!pstmt) return;
   sqlite3_finalize(pstmt->stmt);
-  Free(pstmt->params_type);
   Free(pstmt);
 }
 
@@ -273,21 +270,29 @@ I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row, SqlParam *params)
     SqlParam *param = &params[i];
     switch (param->type) {
       case SQL_INT:
-        sqlite3_bind_int64(pstmt->stmt, i + 1, param->i64);
+        rc = sqlite3_bind_int64(pstmt->stmt, i + 1, param->i64);
         break;
       case SQL_FLOAT:
-        sqlite3_bind_double(pstmt->stmt, i + 1, param->f64);
+        rc = sqlite3_bind_double(pstmt->stmt, i + 1, param->f64);
         break;
       case SQL_TEXT:
-        sqlite3_bind_text(pstmt->stmt, i + 1, param->str, -1, SQLITE_TRANSIENT(U0 *));
+        rc = sqlite3_bind_text(pstmt->stmt, i + 1, param->str, -1, SQLITE_TRANSIENT(U0 *));
         break;
       case SQL_BLOB:
-        sqlite3_bind_blob(pstmt->stmt, i + 1, param->blob, param->blob_len,
+        rc = sqlite3_bind_blob(pstmt->stmt, i + 1, param->blob, param->blob_len,
             SQLITE_TRANSIENT(U0 *));
         break;
       case SQL_NULL:
-        sqlite3_bind_text(pstmt->stmt, i + 1, NULL, -1, NULL);
+        rc = sqlite3_bind_null(pstmt->stmt, i + 1);
         break;
+      default:
+        rc = SQLITE_MISMATCH;
+        break;
+    }
+    if (rc != SQLITE_OK) {
+      /* Don't run the statement with a parameter missing; the next
+       * SqlExecPrepared clears what was bound so far. */
+      return rc;
     }
   }
 

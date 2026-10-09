@@ -1889,7 +1889,6 @@ class SqlPreparedStmt
 {
   sqlite3_stmt *stmt;
   I64  params_count;
-  I64 *params_type;
 };
 
 /* One column of the current row: type is SQL_INT, SQL_FLOAT, SQL_TEXT,
@@ -1999,8 +1998,11 @@ public U8 *SqlExecRaw(SqlCtx *ctx, U8 *sql);
 /* Run a prepared statement with params[0] .. params[n - 1] for its n
  * parameters (NULL params binds them all to NULL). Returns sqlite's
  * code: SQLITE_ROW when row now holds the first row (read the rest with
- * SqlIterPrepared), SQLITE_DONE when there are no rows, or an error
- * (SQLITE_MISUSE for a NULL pstmt). The row belongs to the statement:
+ * SqlIterPrepared), SQLITE_DONE when there are no rows, or an error:
+ * SQLITE_MISUSE for a NULL pstmt, SQLITE_MISMATCH for a parameter type
+ * other than SQL_INT/FLOAT/TEXT/BLOB/NULL, or the code of a failed bind
+ * (e.g. SQLITE_TOOBIG). On an error the statement does not run and row
+ * holds no row. The row belongs to the statement:
  * it is valid until the next SqlExecPrepared or SqlFinalizePrepared. */
 public I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row,
     SqlParam *params);
