@@ -116,8 +116,8 @@ public class CsvSlice {
 public U0 CsvParserInit(CsvParser *p, U8 *csv, U64 len);
 public I64 CsvParse(CsvParser *p, CsvSlice *s);
 
-#define CDATE_YEAR_DAYS        365.24225
-#define CDATE_YEAR_DAYS_INT    36524225
+#define CDATE_YEAR_DAYS        365.2425
+#define CDATE_YEAR_DAYS_INT    36524250
 #define CDATE_BASE_DAY_OF_WEEK 0
 
 /* XXX: Normalise stat ? */

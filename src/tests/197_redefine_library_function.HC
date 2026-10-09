@@ -88,9 +88,9 @@ U0 Main()
 
   /* Same signature: links in AOT, and both modes call the program's */
   tests++;
-  if (RunRedefine(FALSE, rd_same_sig, 0, "now=42 len=3", "date=01/01/0000")) correct++;
+  if (RunRedefine(FALSE, rd_same_sig, 0, "now=42 len=3", "date=01/02/0000")) correct++;
   tests++;
-  if (RunRedefine(TRUE, rd_same_sig, 0, "now=42 len=3", "date=01/01/0000")) correct++;
+  if (RunRedefine(TRUE, rd_same_sig, 0, "now=42 len=3", "date=01/02/0000")) correct++;
 
   /* An integer return type spelt as the plain integer the intrinsic
    * class is (`I64 class CDate`) is the same signature */

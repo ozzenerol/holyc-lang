@@ -2,8 +2,8 @@
 #include "./defs.HH"
 #include "./memory.HC"
 
-#define CDATE_YEAR_DAYS		365.24225
-#define CDATE_YEAR_DAYS_INT	36524225
+#define CDATE_YEAR_DAYS		365.2425
+#define CDATE_YEAR_DAYS_INT	36524250
 #define CDATE_BASE_DAY_OF_WEEK	0
 
 U64 ModU64(U64 *k, U64 m);
@@ -65,6 +65,7 @@ U0 NowDateTimeStruct(CDateStruct *_ds)
   timeval _tv;
   tm *ptm;
   U64 milliseconds,seconds;
+  I64 gmtoff;
 
   gettimeofday(&_tv,NULL);
   milliseconds = (_tv.tv_sec*1000) +
@@ -72,7 +73,9 @@ U0 NowDateTimeStruct(CDateStruct *_ds)
   seconds = milliseconds / 1000;
   ptm = localtime(&seconds);
 
-  _ds->sec10000 = _tv.tv_usec/100;
+  /* sec100 is the hundredths, sec10000 the ten-thousandths below them
+   * (0-99 each), as Struct2Date and Date2Struct use them */
+  _ds->sec10000 = (_tv.tv_usec/100) % 100;
   _ds->sec100 = _tv.tv_usec/10000;
   _ds->sec  = ptm->tm_sec(U64);
   _ds->min  = ptm->tm_min(U64);
@@ -83,12 +86,24 @@ U0 NowDateTimeStruct(CDateStruct *_ds)
   _ds->day_of_week = ptm->tm_wday(U64);
   _ds->day_of_mon = ptm->tm_mday(U64);
   _ds->year += 1900;
+  /* Offset from UTC as +-hhmm, like Str2CDateStruct's %z */
+  gmtoff = ptm->tm_gmtoff/60;
+  if (gmtoff < 0) _ds->zone_diff = -((-gmtoff)/60*100 + (-gmtoff)%60);
+  else            _ds->zone_diff = gmtoff/60*100 + gmtoff%60;
 }
 
 I64 YearStartDate(I64 year)
 {//32-bit day since AD 0, given year number.
-  I64 y1=year-1,yd4000=y1/4000,yd400=y1/400,yd100=y1/100,yd4=y1/4;
-  return year*365+yd4-yd100+yd400-yd4000;
+  /* Proleptic Gregorian, year 0 a leap year. Day 0 is Jan 2 of year 0,
+   * so years 1 to 3999 keep the day numbers of TempleOS's calendar
+   * (which had no Feb 29 in years 0 and 4000). Years before 1 are moved
+   * up by whole 400-year cycles of 97 leap days, so the divisions floor. */
+  I64 y1=year-1,n=0;
+  if (y1<0) {
+    n=(399-y1)/400;
+    y1+=400*n;
+  }
+  return year*365+y1/4-y1/100+y1/400-97*n;
 }
 
 I64 DayOfWeek(I64 i)
@@ -104,21 +119,26 @@ U0 Date2Struct(CDateStruct *_ds,CDate cdt)
 {//Cvt CDate to CDateStruct.
   I64 i,k,date=cdt.date;
   _ds->day_of_week=DayOfWeek(date);
+  /* An estimate, can be a year off either way */
   _ds->year=(date+1)*100000/CDATE_YEAR_DAYS_INT;
   i=YearStartDate(_ds->year);
   while (i>date) {
     _ds->year--;
     i=YearStartDate(_ds->year);
   }
+  while (YearStartDate(_ds->year+1)<=date) {
+    _ds->year++;
+    i=YearStartDate(_ds->year);
+  }
   date-=i;
   if (YearStartDate(_ds->year+1)-i==365) {
     k=0;
-    while (date>=mon_start_days1[k+1] && k<11)
+    while (k<11 && date>=mon_start_days1[k+1])
       k++;
     date-=mon_start_days1[k];
   } else {
     k=0;
-    while (date>=mon_start_days2[k+1] && k<11)
+    while (k<11 && date>=mon_start_days2[k+1])
       k++;
     date-=mon_start_days2[k];
   }
@@ -136,17 +156,36 @@ U0 Date2Struct(CDateStruct *_ds,CDate cdt)
 CDate Struct2Date(CDateStruct *_ds)
 {//Cvt CDateStruct to CDate.
   CDate cdt;
-  I64 i1,i2;
-  i1=YearStartDate(_ds->year);
-  i2=YearStartDate(_ds->year+1);
-  if (i2-i1==365) {
-    i1+=mon_start_days1[_ds->mon-1];
+  I64 i1,i2,year=_ds->year,mon=_ds->mon(I64)-1;
+  /* A month outside 1-12 carries into the year, as a day past the end
+   * of the month carries into the next month: 13 is January of the next
+   * year, 0 December of the one before */
+  if (mon<0) {
+    year-=(11-mon)/12;
+    mon=11-(11-mon)%12;
   } else {
-    i1+=mon_start_days2[_ds->mon-1];
+    year+=mon/12;
+    mon%=12;
   }
-  cdt.date=i1+_ds->day_of_mon-1;
-  cdt.time=((_ds->sec10000+100*(_ds->sec100+100*(_ds->sec
-	+60*(_ds->min+60*_ds->hour))))<<21)/(15*15*3*625);
+  i1=YearStartDate(year);
+  i2=YearStartDate(year+1);
+  if (i2-i1==365) {
+    i1+=mon_start_days1[mon];
+  } else {
+    i1+=mon_start_days2[mon];
+  }
+  /* The time in 1/10000 s; a day or more (or less than 0) carries into
+   * the date, as a day past the end of the month carries into the month */
+  I64 t=_ds->sec10000(I64)+100*(_ds->sec100(I64)+100*(_ds->sec(I64)
+	+60*(_ds->min(I64)+60*_ds->hour(I64))));
+  I64 days=t/864000000;
+  t%=864000000;
+  if (t<0) {
+    t+=864000000;
+    days--;
+  }
+  cdt.date=i1+_ds->day_of_mon-1+days;
+  cdt.time=(t<<21)/(15*15*3*625);
   return cdt;
 }
 
