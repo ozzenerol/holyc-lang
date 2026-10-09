@@ -1348,6 +1348,8 @@ class JsonState
   U8 ch;
   I64 offset;
   I64 error;
+  I64 line;   /* 1-based line and byte column of `offset` */
+  I64 col;
 };
 
 public class Json;
@@ -1386,6 +1388,7 @@ class Json
 #define JSON_INVALID_ARRAY_CHARACTER 15
 #define JSON_INVALID_ESCAPE_CHARACTER 16
 #define JSON_EOF 17
+#define JSON_INVALID_LITERAL 18 /* not true, false or null */
 
 /* Raw string, with option length of the string and 
  * flags */
@@ -1403,6 +1406,15 @@ public Bool JsonIsString(Json *j);
 public Bool JsonIsInt(Json *j);
 public Bool JsonIsFloat(Json *j);
 public Json *JsonSelect(Json *j, U8 *fmt, ...);
+/* The value stored under exactly `key` (the first if it is repeated), or
+ * NULL if obj isn't an object or has no such key; works for any key,
+ * including ones JsonSelect can't spell. A view into the document. */
+public Json *JsonObjectGet(Json *obj, U8 *key);
+/* Item i (from 0) of an array, or NULL if arr isn't an array or i is out
+ * of range (negative included). A view into the document. */
+public Json *JsonArrayGet(Json *arr, I64 i);
+/* The number of items of an array or object; 0 for any other node or NULL. */
+public I64 JsonLen(Json *node);
 
 #ifdef __HCC_LINK_SQLITE3__ 
 

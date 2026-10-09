@@ -33,6 +33,7 @@
 #define JSON_INVALID_ARRAY_CHARACTER 15
 #define JSON_INVALID_ESCAPE_CHARACTER 16
 #define JSON_EOF 17
+#define JSON_INVALID_LITERAL 18 /* not true, false or null */
 
 #define JSON_PARSER_STRING  0
 #define JSON_PARSER_NUMERIC 1
@@ -52,6 +53,8 @@ class JsonState
   U8 ch;
   I64 offset;
   I64 error;
+  I64 line;   /* 1-based line and byte column of `offset` */
+  I64 col;
 };
 
 class Json;
@@ -355,32 +358,22 @@ static Bool JsonParseBool(JsonParser *p)
 
   /* Check if the next character in the buffer is 't' for true */
   if (peek == 't') {
-    if (!JsonHasChars(p, 4)) {
-      goto error;
-    }
-    /* check next 3 characters for 'rue' */
-    if (!StrNCmp(p->buffer+p->offset,"true",4)) {
+    if (JsonHasChars(p, 4) && !StrNCmp(p->buffer+p->offset,"true",4)) {
       retval = TRUE;
+      JsonUnsafeAdvanceBy(p, 4);
     }
-    JsonUnsafeAdvanceBy(p, 4);
   }
   /* Check if the next character in the buffer is 'f' for false */
   else if (peek == 'f') {
-    if (!JsonHasChars(p, 5)) {
-      goto error;
-    }
-
-    /* check next 4 characters for 'alse' */
-    if (!StrNCmp(p->buffer+p->offset,"false",5)) {
+    if (JsonHasChars(p, 5) && !StrNCmp(p->buffer+p->offset,"false",5)) {
       retval = FALSE;
+      JsonUnsafeAdvanceBy(p, 5);
     }
-    JsonUnsafeAdvanceBy(p, 5);
   }
 
-error:
-  /* Failed to parse boolean */
+  /* Failed to parse boolean: report it where the literal starts */
   if (retval == -1) {
-    p->error = JSON_CANNOT_ADVANCE;
+    p->error = JSON_INVALID_LITERAL;
   }
   return retval;
 }
@@ -392,16 +385,12 @@ error:
  */
 static I32 JsonParseNull(JsonParser *p)
 {
-  I32 retval = -1;
-  if (!JsonHasChars(p, 4)) {
-    p->error = JSON_CANNOT_ADVANCE;
+  if (!JsonHasChars(p, 4) || StrNCmp(p->buffer + p->offset,"null",4)) {
+    p->error = JSON_INVALID_LITERAL; /* where the literal starts */
     return -1;
   }
-  if (!StrNCmp(p->buffer + p->offset,"null",4)) {
-    retval = 1;
-  }
   JsonUnsafeAdvanceBy(p, 4);
-  return retval;
+  return 1;
 }
 
 static Bool JsonSetExpectedType(JsonParser *p)
@@ -635,7 +624,10 @@ static U0 JsonCatQuoted(JsonStringBuilder *js, U8 *str)
   Free(buf);
 }
 
-static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
+/* `J` and, with `siblings`, the nodes after it (an array's or object's
+ * items, keys included); without it just J's value. */
+static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js,
+                               Bool siblings=TRUE)
 {
   U8 fbuf[64];
   if (J == NULL) {
@@ -644,7 +636,7 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
   }
 
   while (J) {
-    if (J->key) {
+    if (J->key && siblings) {
       JsonCatQuoted(js,J->key);
       js->buf = CatLenPrint(js->buf,&js->len,": ");
     }
@@ -684,6 +676,9 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
       default:
         break;
     }
+    if (!siblings) {
+      break;
+    }
     if (J->next) {
       js->buf = CatLenPrint(js->buf,&js->len,",");
     }
@@ -692,25 +687,22 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js)
 }
 
 public U8 *JsonToString(Json *json)
-{// Json to string
+{// The JSON text of json's value - only that node, not the nodes after
+ // it or its key, so a node from JsonSelect gives just its value. A new
+ // string to Free.
   U8 *buf = MAlloc(sizeof(U8)*1<<10);
   I64 len = 0;
   JsonStringBuilder sb;
   sb.buf = buf;
   sb.len = len;
-  JsonToStringInternal(json,&sb);
+  JsonToStringInternal(json,&sb,FALSE);
   sb.buf[sb.len] = '\0';
   return sb.buf;
 }
 
-/**
- * Recursively frees whole JSON object
- */
-public U0 JsonRelease(Json *J)
+/* Free J, the nodes after it and everything below them */
+static U0 JsonReleaseList(Json *J)
 {
-  if (J == NULL) {
-    return;
-  }
   Json *ptr = J;
   Json *next = NULL;
 
@@ -734,11 +726,11 @@ public U0 JsonRelease(Json *J)
         break;
 
       case JSON_ARRAY:
-        JsonRelease(ptr->array);
+        JsonReleaseList(ptr->array);
         break;
 
       case JSON_OBJECT:
-        JsonRelease(ptr->object);
+        JsonReleaseList(ptr->object);
         break;
 
       case JSON_FLOAT:
@@ -754,6 +746,16 @@ public U0 JsonRelease(Json *J)
     Free(ptr);
     ptr = next;
   }
+}
+
+public U0 JsonRelease(Json *J)
+{// Free a whole document: J must be what JsonParse returned (the root).
+ // NULL, or a node inside a document (from JsonSelect, or an item of an
+ // array or object), is ignored: those are views into the document.
+  if (J == NULL || J->state == NULL) {
+    return;
+  }
+  JsonReleaseList(J);
 }
 
 /**
@@ -797,7 +799,7 @@ static Json *JsonParseArray(JsonParser *p)
       } else if (ch == ']' && !can_advance) {
         break;
       } else {
-        JsonRelease(val); /* the whole list parsed so far, keys and values */
+        JsonReleaseList(val); /* the whole list parsed so far, keys and values */
         p->error = JSON_INVALID_ARRAY_CHARACTER;
         return NULL;
       }
@@ -830,16 +832,21 @@ Json *JsonParseObject(JsonParser *p)
     JsonAdvanceWhitespace(p);
 
     if (JsonPeek(p) != '"') {
-      JsonRelease(val); /* the whole list parsed so far, keys and values */
+      JsonReleaseList(val); /* the whole list parsed so far, keys and values */
       p->error = JSON_INVALID_KEY_TERMINATOR_CHARACTER;
       return NULL;
     }
 
     J->key = JsonParseString(p);
-    JsonAdvanceToTerminator(p, ':');
+    if (p->error != JSON_OK) {
+      JsonReleaseList(val); /* the whole list parsed so far, keys and values */
+      return NULL;
+    }
+    /* only whitespace between the key and ':', the error is at what isn't */
+    JsonAdvanceWhitespace(p);
     if (JsonPeek(p) != ':') {
-      JsonRelease(val); /* the whole list parsed so far, keys and values */
-      p->error = JSON_INVALID_KEY_TERMINATOR_CHARACTER;
+      JsonReleaseList(val); /* the whole list parsed so far, keys and values */
+      p->error = JSON_INVALID_KEY_VALUE_SEPARATOR;
       return NULL;
     }
 
@@ -860,7 +867,7 @@ Json *JsonParseObject(JsonParser *p)
       } else if (ch == '}' && !can_advance) {
         break;
       } else {
-        JsonRelease(val); /* the whole list parsed so far, keys and values */
+        JsonReleaseList(val); /* the whole list parsed so far, keys and values */
         p->error = JSON_INVALID_JSON_TYPE_CHAR;
         return NULL;
       }
@@ -952,6 +959,16 @@ Json *JsonParseWithLenAndFlags(U8 *raw, I64 len, I32 flags)
   J->state->error = p.error;
   J->state->ch = JsonPeek(&p);
   J->state->offset = p.offset;
+  J->state->line = 1;
+  J->state->col = 1;
+  for (I64 i = 0; i < p.offset && i < len && raw[i]; ++i) {
+    if (raw[i] == '\n') {
+      J->state->line++;
+      J->state->col = 1;
+    } else {
+      J->state->col++;
+    }
+  }
   return J;
 }
 
@@ -965,93 +982,72 @@ public Json *JsonParse(U8 *raw, I64 len=-1, I64 flags=0)
   return JsonParseWithLenAndFlags(raw,len,flags);
 }
 
-static U8 *JsonGetStrerrorInternal(I32 error, U8 ch, I64 offset)
+/* The offending character for a message: 'x', '\0' at the end of the
+ * input, '\xNN' for other control characters */
+static U8 *JsonErrorChar(U8 *buf, U8 ch)
 {
+  if (ch == '\0') {
+    StrCpy(buf, "'\\0'");
+  } else if (ch < 0x20 || ch == 0x7F) {
+    StrPrint(buf, "'\\x%02X'", ch);
+  } else {
+    StrPrint(buf, "'%c'", ch);
+  }
+  return buf;
+}
+
+static U8 *JsonGetStrerrorInternal(I32 error, U8 ch, I64 line, I64 col)
+{
+  U8 c[16], *what;
+  JsonErrorChar(c, ch);
   switch (error) {
     case JSON_OK:
       return StrPrint(NULL, "Success");
-
     case JSON_INVALID_UTF16:
-      return StrPrint(NULL,
-          "Unexpected UTF16 character '%c' while parsing UTF16 at position: %d",
-          ch, offset);
-
+      what = "Invalid UTF-16 code in a \\u escape"; break;
     case JSON_INVALID_UTF16_SURROGATE:
-      return StrPrint(NULL,
-          "Unexpected UTF16 surrogate character '%c' while parsing UTF16 at position: %d",
-          ch, offset);
-
+      what = "Invalid UTF-16 surrogate pair in a \\u escape"; break;
     case JSON_INVALID_HEX:
-      return StrPrint(NULL,
-          "Unexpected hex '%c' while parsing UTF16 at position: %d",
-          ch, offset);
-
+      what = "Expected 4 hex digits after \\u"; break;
     case JSON_INVALID_STRING_NOT_TERMINATED:
-      return StrPrint(NULL,
-          "Expected '\"' to terminate string recieved '%c' at position: %d",
-          ch, offset);
-
+      what = "Unterminated string"; break;
     case JSON_INVALID_NUMBER:
-      return StrPrint(NULL,
-          "Unexpected numeric character '%c' while parsing number at position: %d",
-          ch, offset);
-
     case JSON_INVALID_DECIMAL:
-      return StrPrint(NULL,
-          "Unexpected decimal character '%c' while parsing number at position: %d",
-          ch, offset);
-
     case JSON_INVALID_SIGN:
-      return StrPrint(NULL,
-          "Unexpected sign character '%c' while parsing number at position: %d",
-          ch, offset);
-
+      return StrPrint(NULL, "Invalid number at %s at line %d, column %d",
+                      c, line, col);
     case JSON_INVALID_KEY_TERMINATOR_CHARACTER:
-      return StrPrint(NULL,
-          "Unexpected character '%c' while parsing object key at position: %d",
-          ch, offset);
-
+      return StrPrint(NULL, "Expected '\"' to start an object key, got %s at "
+                      "line %d, column %d", c, line, col);
     case JSON_INVALID_KEY_VALUE_SEPARATOR:
-      return StrPrint(NULL,
-          "Unexpected character '%c' while parsing key value separator at position: %d",
-          ch, offset);
-
+      return StrPrint(NULL, "Expected ':' after an object key, got %s at line "
+                      "%d, column %d", c, line, col);
     case JSON_INVALID_ARRAY_CHARACTER:
-      return StrPrint(NULL,
-          "Unexpected character '%c' while parsing array at position: %d",
-          ch, offset);
-
+      return StrPrint(NULL, "Expected ',' or ']' in an array, got %s at line "
+                      "%d, column %d", c, line, col);
     case JSON_INVALID_ESCAPE_CHARACTER:
-      return StrPrint(NULL,
-          "Invalid JSON escape character '%c' at position: %d",
-          ch, offset);
-
+      return StrPrint(NULL, "Invalid escape character %s after '\\' at line "
+                      "%d, column %d", c, line, col);
     case JSON_INVALID_BOOL:
-      return StrPrint(NULL,
-          "Unexpected character '%c' while parsing boolean at position: %d",
-          ch, offset);
-
+    case JSON_INVALID_LITERAL:
+      what = "Invalid literal, expected true, false or null"; break;
     case JSON_INVALID_JSON_TYPE_CHAR:
-    case JSON_INVALID_TYPE: {
+    case JSON_INVALID_TYPE:
       if (ch == '\0') {
-        return StrPrint(NULL,
-            "Unexpected NULL terminator (possible EOF) at position: %d\n",
-            offset);
-      } else {
-        return StrPrint(NULL,
-            "Unexpected character '%c' while seeking next type to parse at position: %d",
-            ch, offset);
+        what = "Unexpected end of the JSON text"; break;
       }
-    }
+      return StrPrint(NULL, "Unexpected character %s where a value or ',' "
+                      "was expected at line %d, column %d", c, line, col);
     case JSON_CANNOT_START_PARSE:
-      return StrPrint(NULL, "JSON must start with '[' or '{', at position: %d",
-          offset);
+      what = "Expected a JSON value (object, array, string, number, true, "
+             "false or null)"; break;
     case JSON_CANNOT_ADVANCE:
     case JSON_EOF:
-      return StrPrint(NULL, "Unexpected end of json buffer at position: %d",
-          offset);
-    }
-  return NULL;
+      what = "Unexpected end of the JSON text"; break;
+    default:
+      return NULL;
+  }
+  return StrPrint(NULL, "%s at line %d, column %d", what, line, col);
 }
 
 /* If the json has state this will return the error as a human readible string
@@ -1059,12 +1055,12 @@ static U8 *JsonGetStrerrorInternal(I32 error, U8 ch, I64 offset)
  * advisable to use this for debugging purposes only as it calls malloc */
 U8 *JsonGetStrerror(Json *json)
 {
-  if (!json) {
-    return StrPrint(NULL, "Json is NULL");
+  if (!json || !json->state) { /* NULL or not a root: nothing to report */
+    return NULL;
   }
   if (json->state->error != JSON_OK) {
     U8 *str = JsonGetStrerrorInternal(json->state->error,json->state->ch,
-        json->state->offset);
+        json->state->line,json->state->col);
     return str;
   }
   return NULL;
@@ -1073,6 +1069,9 @@ U8 *JsonGetStrerror(Json *json)
 /* Print the error to stdout */
 U0 JsonPrintError(Json *json)
 {
+  if (!json || !json->state) { /* NULL or not a root: prints nothing */
+    return;
+  }
   U8 *str_error = JsonGetStrerror(json);
   if (str_error) {
     "%s\n", str_error;
@@ -1217,6 +1216,37 @@ static Json *JsonObjectAt(Json *j, U8 *name)
   return el;
 }
 
+public Json *JsonObjectGet(Json *obj, U8 *key)
+{// The value stored under exactly `key` (the first one if it is repeated),
+ // or NULL if obj isn't an object or has no such key. Any key works, also
+ // ones JsonSelect can't spell ('.', '[', ':' ...). A view, don't release.
+  return JsonObjectAt(obj, key);
+}
+
+public Json *JsonArrayGet(Json *arr, I64 i)
+{// Item i (from 0) of an array, or NULL if arr isn't an array or i is
+ // negative or past the end. A view, don't release.
+  return JsonArrayAt(arr, i);
+}
+
+public I64 JsonLen(Json *node)
+{// The number of items of an array or object; 0 for anything else and NULL
+  Json *it;
+  I64 n = 0;
+  if (JsonIsArray(node)) {
+    it = node->array;
+  } else if (JsonIsObject(node)) {
+    it = node->object;
+  } else {
+    return 0;
+  }
+  while (it) {
+    n++;
+    it = it->next;
+  }
+  return n;
+}
+
 /**
  * Allows selections like:
  *
@@ -1264,97 +1294,78 @@ public Json *JsonSelect(Json *j, U8 *fmt, ...)
    * everything goes smoothly, the function will return the selected JSON
    * object.
    */
-  I64 next = JSON_SEL_INVALD, arg = 0;
-  U8 path[JSON_SEL_MAX_BUF + 1], buf[64], *s = NULL, *end;
-  I64 path_len = 0, len = 0, idx = -1;
-  U8 *ptr = fmt;
+  I64 kind, arg = 0, path_len, len, idx;
+  U8 path[JSON_SEL_MAX_BUF + 1], buf[32], *s, *ptr = fmt;
 
-  if (*ptr != '.' && *ptr != '[') {
+  if (!j || !fmt || (*ptr != '.' && *ptr != '[')) {
     return NULL;
   }
 
-  while (TRUE) {
-    if (path_len && (*ptr == '\0' || strchr(".[]:", *ptr))) {
-      path[path_len] = '\0';
-      switch (next) {
-        case JSON_SEL_ARRAY:
-          idx = strtoll(path, &end)(I64);
-          if ((idx == 0 && *end != '\0') || idx < 0) {
-            goto fail;
-          }
+  while (*ptr) {
+    switch (*ptr) {
+      case '.': kind = JSON_SEL_OBJ; break;
+      case '[': kind = JSON_SEL_ARRAY; break;
+      case ':': kind = JSON_SEL_TYPECHECK; break;
+      default:  return NULL;
+    }
+    ptr++;
 
-          j = JsonArrayAt(j, idx);
-          if (!j) {
-            goto fail;
-          }
-          break;
-        case JSON_SEL_OBJ:
-          j = JsonObjectAt(j, path);
-          if (!j) {
-            goto fail;
-          }
-          break;
-        case JSON_SEL_TYPECHECK: {
-          if (!JsonTypeCheck(j, path[0])) {
-            goto fail;
-          }
-          break;
-        }
-
-        case JSON_SEL_INVALD:
-         goto fail;
-      }
-    } else if (next != JSON_SEL_INVALD) {
-      if (*ptr != '*') {
-        path[path_len] = *ptr++;
-        path_len++;
-        if (path_len > JSON_SEL_MAX_BUF) {
-          goto fail;
-        }
-        continue;
-      } else {
-        if (next == JSON_SEL_ARRAY) {
-          I64 idx = argv[arg++](I64);
-          len = snprintf(buf, sizeof(buf), "%d", idx);
-          buf[len] = '\0';
+    /* The component runs to the next '.', '[', ']', ':' or the end; a
+     * '*' takes the next argument: an I64 index in [..], a string after
+     * '.'. */
+    path_len = 0;
+    while (*ptr && *ptr != '.' && *ptr != '[' && *ptr != ']' && *ptr != ':') {
+      if (*ptr == '*') {
+        if (kind == JSON_SEL_ARRAY) {
+          len = snprintf(buf, sizeof(buf), "%ld", argv[arg++](I64));
           s = buf;
-        } else if (next == JSON_SEL_OBJ) {
-          s = argv[arg++](U8*);
+        } else if (kind == JSON_SEL_OBJ) {
+          s = argv[arg++](U8 *);
+          if (!s) return NULL;
           len = StrLen(s);
         } else {
-          goto fail;
+          return NULL;
         }
-        if (path_len + len > JSON_SEL_MAX_BUF) {
-          goto fail;
-        }
-
-        MemCpy(path + path_len, buf, len);
-        path_len += len;
-        ptr++;
-        continue;
+      } else {
+        s = ptr;
+        len = 1;
       }
-    }
-
-    if (*ptr == ']') {
+      if (path_len + len > JSON_SEL_MAX_BUF) {
+        return NULL;
+      }
+      MemCpy(path + path_len, s, len);
+      path_len += len;
       ptr++;
     }
-    if (*ptr == '\0') {
-      break;
-    } else if (*ptr == '[') {
-      next = JSON_SEL_ARRAY;
-    } else if (*ptr == '.') {
-      next = JSON_SEL_OBJ;
-    } else if (*ptr == ':') {
-      next = JSON_SEL_TYPECHECK;
-    } else {
-      goto fail;
+    path[path_len] = '\0';
+    if (path_len == 0) {
+      return NULL; /* ".", "[", "[]", "..x", ":" */
     }
-    path_len = 0;
-    ptr++;
+
+    switch (kind) {
+      case JSON_SEL_ARRAY:
+        if (*ptr != ']') return NULL;
+        ptr++;
+        /* only digits: no sign, spaces or trailing junk */
+        idx = 0;
+        for (len = 0; len < path_len; ++len) {
+          if (path[len] < '0' || path[len] > '9') return NULL;
+          idx = idx * 10 + path[len] - '0';
+          if (idx < 0) return NULL; /* overflow */
+        }
+        j = JsonArrayAt(j, idx);
+        break;
+      case JSON_SEL_OBJ:
+        j = JsonObjectAt(j, path);
+        break;
+      case JSON_SEL_TYPECHECK:
+        if (path_len != 1 || !JsonTypeCheck(j, path[0])) return NULL;
+        break;
+    }
+    if (!j) {
+      return NULL;
+    }
   }
 
   return j;
-
-fail:
-  return NULL;
 }
