@@ -269,6 +269,7 @@ void lexerRelease(Lexer *l);
 
 Lexeme *lexemeTokNew(char *start, int len, int line, s64 ch);
 Lexeme *lexemeNew(char *start, int len);
+Lexeme *lexemeCopy(Lexeme *le);
 Lexeme *lexemeSentinal(void);
 void lexSetAsmFlags(Lexer *l);
 void lexUnSetAsmFlags(Lexer *l);

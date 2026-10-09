@@ -14,6 +14,9 @@
 
 #define CCTRL_TOKEN_BUFFER_SIZE 16
 #define CCTRL_TOKEN_BUFFER_MASK CCTRL_TOKEN_BUFFER_SIZE-1
+/* Expanded macro uses remembered; only a token in the ring buffer can be
+ * peeked again, so twice its size is plenty */
+#define CCTRL_MACRO_USE_CACHE_SIZE (CCTRL_TOKEN_BUFFER_SIZE*2)
 
 #define CCTRL_TRANSPILING          (1<<0)
 #define CCTRL_SAVE_ANONYMOUS       (1<<1)
@@ -77,6 +80,14 @@ void tokenRingBufferPush(TokenRingBuffer *ring_buffer, Lexeme *token);
 Lexeme *tokenRingBufferPop(TokenRingBuffer *ring_buffer);
 Lexeme *tokenRingBufferPeek(TokenRingBuffer *ring_buffer);
 int tokenRingBufferRewind(TokenRingBuffer *ring_buffer);
+
+/* A macro use and its expansion: a copy of the macro's value placed
+ * where the macro name is written. */
+typedef struct CctrlMacroUse {
+    Lexeme *use;       /* the TK_IDENT naming the macro */
+    Lexeme *macro;     /* the value in macro_defs */
+    Lexeme *expansion; /* `macro` at `use`'s line and column */
+} CctrlMacroUse;
 
 typedef struct Cctrl {
     u64 flags;
@@ -183,6 +194,11 @@ typedef struct Cctrl {
     int is_static;
     TokenRingBuffer *token_buffer;
     Lexer *lexer_;
+
+    /* Recent macro expansions, so peeking the same use again hands back
+     * the same token (callers compare token pointers) */
+    CctrlMacroUse macro_uses[CCTRL_MACRO_USE_CACHE_SIZE];
+    int macro_use_next;
 
     /* Accumulated diagnostics emitted during this compilation.
      * Pushed in source order. Includes info and warnings. Not just errors. */ 
