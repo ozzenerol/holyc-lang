@@ -1592,6 +1592,9 @@ Ast *parseExpr(Cctrl *cc, int prec) {
         if (tok->i64 == '=') {
             next_prec++;
         }
+        /* Copied: parsing a long right hand side can cycle `tok` out of
+         * the token ring before a type check warning needs it. */
+        int op_line = tok->line, op_col = tok->col;
 
         RHS = parseExpr(cc,next_prec);
         if (!RHS) {
@@ -1614,7 +1617,7 @@ Ast *parseExpr(Cctrl *cc, int prec) {
         if (compound_assign) {
             AstType *ok = astTypeCheck(LHS->type,RHS,compound_assign);
             if (!ok) {
-                typeCheckWarn(cc,'=',LHS,RHS);
+                typeCheckWarn(cc,op_line,op_col,LHS,RHS);
             }
             LHS = parseCreateBinaryOp(cc,AST_BIN_OP_ASSIGN, LHS,
                     parseCreateBinaryOp(cc, deconstructed_compound_op, LHS, RHS));
@@ -1622,7 +1625,7 @@ Ast *parseExpr(Cctrl *cc, int prec) {
             if (tok->i64 == '=') {
                 AstType *ok = astTypeCheck(LHS->type,RHS,AST_BIN_OP_ASSIGN);
                 if (!ok) {
-                    typeCheckWarn(cc,'=',LHS,RHS);
+                    typeCheckWarn(cc,op_line,op_col,LHS,RHS);
                 }
             }
             AstBinOp binop;
