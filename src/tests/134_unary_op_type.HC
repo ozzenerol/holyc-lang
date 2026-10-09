@@ -126,10 +126,8 @@ I32 Main()
   if (nc == -5 && -c == -5 && -c + 0 == -5 && ~c == -6 && +c == 5) correct++;
   if (-sc == 128 && -h == -7 && -w == -3 && ~w == -4) correct++;
   if (-big == 0xFFFFFFFFFFFFFFFF) correct++;
-  /* Parenthesised: `-s[0] == -97` parses as `-(s[0] == -97)` (a separate
-   * precedence bug with a unary op before `name[`). */
-  if ((-s[0]) == -97 && -*s == -97) correct++;
-  if (-*p == -4 && (-arr[1]) == -6 && -pt.x == -9 && - -x == 4) correct++;
+  if (-s[0] == -97 && -*s == -97) correct++;
+  if (-*p == -4 && -arr[1] == -6 && -pt.x == -9 && - -x == 4) correct++;
   if (-(p - p) == 0) correct++;
   /* `!` takes anything. */
   if (!"s" == 0 && !p == 0 && !np == 1 && !arr == 0) correct++;
