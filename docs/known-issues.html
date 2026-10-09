@@ -83,9 +83,6 @@ there works as shown.</p>
     <tr><td>Warnings for compound assignments and some pointer/array mismatches point at the nearest <code>=</code></td>
         <td><code>y = y + q; arr = arr + 1;</code>: the warning for the second statement is placed on the first</td>
         <td>Read the types in the message</td></tr>
-    <tr><td>An error on a folded macro shows an empty value</td>
-        <td><code>#define T (N + 1)</code> then <code>I64 x = 2 T;</code>: "Unexpected integer ``"</td>
-        <td>The "expanded from macro" note names the macro</td></tr>
     <tr><td>The "perhaps a missing <code>;</code>" hint can point at the wrong line</td>
         <td><code>U0 Main() {</code> / <code>I64 x = 2 3;</code>: the hint points at <code>U0 Main() {</code></td>
         <td>Ignore the hint when that line can't take a <code>;</code></td></tr>
