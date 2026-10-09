@@ -1749,9 +1749,14 @@ Ast *parseContinueStatement(Cctrl *cc) {
 }
 
 Ast *parseReturnStatement(Cctrl *cc) {
+    /* The `return`, just consumed, and the `;`, for the warning below */
+    cctrlTokenRewind(cc);
+    Lexeme ret_tok = *cctrlTokenGet(cc);
     Ast *retval = parseExpr(cc,16);
     AstType *check;
     cctrlTokenExpect(cc,';');
+    cctrlTokenRewind(cc);
+    Lexeme semi_tok = *cctrlTokenGet(cc);
     /* A best attempt at trying to get the return type of a function */
     if (cc->tmp_rettype->kind == AST_TYPE_AUTO) {
         cc->tmp_rettype = parseReturnAuto(cc,retval);
@@ -1773,7 +1778,7 @@ Ast *parseReturnStatement(Cctrl *cc) {
     AstType *ok = astTypeCheck(cc->tmp_rettype,retval,'\0');
     if (!ok) {
         Ast *func = mapGet(cc->global_env, cc->tmp_fname->data);
-        typeCheckReturnTypeWarn(cc,func,check,retval);
+        typeCheckReturnTypeWarn(cc,func,check,retval,&ret_tok,&semi_tok);
     }
     if (maybe_fn->flags & AST_FLAG_INLINE && !(cc->flags & CCTRL_TRANSPILING)) {
         return astDecl(maybe_fn->inline_ret,retval);

@@ -48,5 +48,6 @@ void typeCheckWarn(Cctrl *cc, int op_line, int op_col, Ast *expected,
 int assertNotArrayAssign(Cctrl *cc, Ast *lhs, int op_line, int op_col,
                          int op_len);
 void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func, 
-                             AstType *check, Ast *retval);
+                             AstType *check, Ast *retval,
+                             Lexeme *ret_tok, Lexeme *semi_tok);
 #endif // PRS_UTIL

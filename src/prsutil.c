@@ -675,8 +675,14 @@ int assertNotArrayAssign(Cctrl *cc, Ast *lhs, int op_line, int op_col,
     return 1;
 }
 
+/* `return retval;` in a function whose return type `retval` doesn't
+ * suit. `ret_tok` is the `return` and `semi_tok` the `;`: when they are on
+ * the same line the expression is shown as written, from after the
+ * `return` to the `;`, and underlined with it; otherwise it is printed
+ * from the AST at the `return`. */
 void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func, 
-                             AstType *check, Ast *retval)
+                             AstType *check, Ast *retval,
+                             Lexeme *ret_tok, Lexeme *semi_tok)
 {
     char *fstring = NULL;
     if (maybe_func) {
@@ -688,19 +694,35 @@ void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func,
 
     char *expected = astTypeToColorString(cc->tmp_rettype);
     AoStr *got = astTypeToColorAoStr(check);
-    AoStr *ast_str = astLValueToAoStr(retval,0);
+    AoStr *ast_str = NULL;
+    s64 len = ret_tok->len;
 
+    if (cc->lexer_ && semi_tok && semi_tok->line == ret_tok->line &&
+        semi_tok->col > ret_tok->col + ret_tok->len)
+    {
+        char *line_buffer = lexerReportLine(cc->lexer_, ret_tok->line);
+        s64 start = ret_tok->col - 1 + ret_tok->len;
+        s64 end = semi_tok->col - 1;
+        if (end <= (s64)strlen(line_buffer)) {
+            while (start < end && isspace((unsigned char)line_buffer[start])) start++;
+            while (end > start && isspace((unsigned char)line_buffer[end - 1])) end--;
+            if (end > start) {
+                ast_str = aoStrNew();
+                aoStrCatLen(ast_str, line_buffer + start, end - start);
+                len = end - (ret_tok->col - 1);
+            }
+        }
+    }
+    if (!ast_str) {
+        ast_str = astLValueToAoStr(retval,0);
+    }
 
-    char *msg = mprintf(ESC_BOLD"%s unexpected return value '%s' of type '%s' expected '%s'"ESC_CLEAR_BOLD,
+    /* cctrlWarningAt makes it bold (when colours are on) */
+    char *msg = mprintf("%s unexpected return value '%s' of type '%s' expected '%s'",
                         fstring,
                         ast_str->data,
                         got->data,
                         expected);
 
-    int count = 0;
-    cctrlRewindUntilStrMatch(cc,str_lit("return"),&count);
-    cctrlWarning(cc, msg);
-    for (int i = 0; i < count; ++i) {
-        cctrlTokenGet(cc);
-    }
+    cctrlWarningAt(cc, ret_tok->line, ret_tok->col, len, "%s", msg);
 }

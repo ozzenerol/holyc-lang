@@ -71,9 +71,6 @@ there works as shown.</p>
     <tr><td>The underline under a string token leaves out its quotes</td>
         <td><code>I64 s = 2 "abcd" 3;</code> underlines 4 characters from the opening quote</td>
         <td>None needed</td></tr>
-    <tr><td>The warning for a value returned from a <code>U0</code> function misprints the expression</td>
-        <td><code>return g++;</code> is shown as <code>++g</code>; <code>return Twice(Twice(1));</code> as <code>Twice(Twice(1););</code></td>
-        <td>Read the line number in the warning</td></tr>
     <tr><td>A missing name after a comma is reported on the next line</td>
         <td><code>I64 a, ;</code> reports "Identifier expected: got TK_PUNCT ;" with the caret on the start of the following line</td>
         <td>Look at the end of the previous line</td></tr>
