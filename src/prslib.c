@@ -79,11 +79,33 @@ AstType *parseFunctionPointerType(Cctrl *cc,
     cctrlTokenExpect(cc,'*');
     fname = cctrlTokenGetRequired(cc);
     if (fname->tk_type != TK_IDENT) {
-        cctrlRaiseException(cc,"Expected function pointer name got: %s",
-                lexemeToString(fname));
+        /* `T (*)(params)`: report it at the token in place of the name
+         * and go on as if it had none. Unwinding here would resync
+         * inside the parameter list (`(I64 x)` starts like a new
+         * declaration) and report what follows as a second error. */
+        char *msg = mprintf("Expected function pointer name got: %s",
+                            lexemeToString(fname));
+        AoStr *bold = aoStrNew();
+        aoStrCatColoured(bold, ESC_BOLD, msg);
+        AoStr *buf = cctrlCreateErrorLineAt(cc, fname->line, fname->col,
+                                            fname->len, bold->data,
+                                            CCTRL_ERROR, NULL);
+        aoStrRelease(bold);
+        CctrlDiagnostic *d = cctrlMakeDiag(cc, CCTRL_ERROR, buf, NULL);
+        d->line = d->end_line = fname->line;
+        d->col = fname->col;
+        d->end_col = fname->col + fname->len;
+        cctrlDiagPush(cc, d);
+        /* A `)` (or `[`) belongs to the declarator */
+        if (fname->tk_type == TK_PUNCT) {
+            cctrlTokenRewind(cc);
+        }
+        *fnptr_name = "";
+        *fnptr_name_len = 0;
+    } else {
+        *fnptr_name = fname->start;
+        *fnptr_name_len = fname->len;
     }
-    *fnptr_name = fname->start;
-    *fnptr_name_len = fname->len;
     /* An array of function pointers `T (*name[N])(params)`: the element
      * type is filled in with the parameters once they are parsed. */
     AstType *fn_type = astMakeFunctionType(rettype, NULL);
@@ -197,7 +219,9 @@ Vec *parseParams(Cctrl *cc, s64 terminator, int *has_var_args, int store) {
                     var->type = astMakePointerType(var->type->ptr);
                 }
                 AoStr *var_name = is_array ? var->lname : var->fname;
-                if (!mapAddOrErr(cc->localenv,var_name->data,var)) {
+                /* A nameless one was reported by parseFunctionPointerType */
+                if (var_name->len &&
+                    !mapAddOrErr(cc->localenv,var_name->data,var)) {
                     cctrlRaiseException(cc,"variable %s already declared",
                             astLValueToString(var,0));
                 }
