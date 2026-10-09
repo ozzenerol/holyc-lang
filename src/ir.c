@@ -2172,6 +2172,15 @@ void irLowerTry(IrCtx *ctx, Ast *ast) {
  * so the lowering driver doesn't append a fall-through edge. */
 void irLowerThrow(IrCtx *ctx, Ast *ast) {
     IrValue *v = irExpr(ctx, ast->throw_value);
+    /* HCC_Throw takes a U64: convert the value like an argument to a
+     * U64 parameter, so a float is truncated to an integer (not passed
+     * in a float register) and a narrow integer is extended. */
+    AstType *vt = ast->throw_value->type;
+    if (vt && astIsFloatType(vt)) {
+        v = irLowerCast(ctx, v, vt, ast_uint_type);
+    } else if (vt && (vt->kind == AST_TYPE_INT || vt->kind == AST_TYPE_CHAR)) {
+        v = irWidenToTargetWidth(ctx, v, vt, ast_uint_type);
+    }
     irEmitRuntimeCall1(ctx, "HCC_Throw", IR_TYPE_VOID, 8, v);
     ctx->cur_block->sealed = 1;
 }
