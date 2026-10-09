@@ -1786,7 +1786,7 @@ static LexPos lexDirectivePos(Lexer *l) {
     return pos;
 }
 
-/* Drop a malformed #include/#link/#undef/#error whose operand `next`
+/* Drop a malformed #include/#link/#undef whose operand `next`
  * was lexed with newlines skipped, and return where to report it. If
  * `next` is on the directive's line the error is at `next` and the rest
  * of that line goes; if the operand was missing and `next` is the first
@@ -1805,6 +1805,47 @@ static LexPos lexDropDirective(Lexer *l, const LexPos *dir, Lexeme *next) {
         l->ptr = l->line_start_ptr + l->tok_start_col - 1;
     }
     return *dir;
+}
+
+/* `#error`: the message is the rest of the line as written, up to a
+ * comment and trimmed, as in C; a lone string literal is shown without
+ * its quotes. Reported at the directive, spanning the whole line. */
+static void lexErrorDirective(Lexer *l) {
+    LexPos dir = lexDirectivePos(l);
+    char *msg = l->ptr;
+    char *end = msg;
+    char quote = 0;
+
+    for (; *end && *end != '\n'; ++end) {
+        if (quote) {
+            if (*end == '\\' && end[1] && end[1] != '\n') end++;
+            else if (*end == quote) quote = 0;
+        } else if (*end == '"' || *end == '\'') {
+            quote = *end;
+        } else if (*end == '/' && (end[1] == '/' || end[1] == '*')) {
+            break;
+        }
+    }
+    /* Lexing resumes at the newline, or at a comment, which the lexer
+     * steps over as usual (a block comment may run on past the line) */
+    l->ptr = end;
+
+    while (msg < end && isspace((unsigned char)*msg)) msg++;
+    while (end > msg && isspace((unsigned char)end[-1])) end--;
+    if (end > msg) dir.len = end - (l->line_start_ptr + dir.col - 1);
+
+    int len = (int)(end - msg);
+    if (len >= 2 && *msg == '"' && end[-1] == '"' &&
+        !memchr(msg + 1, '"', len - 2))
+    {
+        msg++;
+        len -= 2;
+    }
+    if (len == 0) {
+        lexReportAt(l, dir.line, dir.col, dir.len, "#error");
+    } else {
+        lexReportAt(l, dir.line, dir.col, dir.len, "%.*s", len, msg);
+    }
 }
 
 /* Errors in #include, #link and #undef are reported with lexReport and
@@ -2607,7 +2648,7 @@ void lexUnSetAsmFlags(Lexer *l) {
 }
 
 Lexeme *lexToken(Map *macro_defs, Lexer *l) {
-    Lexeme le,next,*copy;
+    Lexeme le,*copy;
 
     macro_proccessor->macro_defs = macro_defs;
 
@@ -2690,19 +2731,11 @@ Lexeme *lexToken(Map *macro_defs, Lexer *l) {
                     }
                     continue;
 
-                case KW_PP_ERROR: {
+                case KW_PP_ERROR:
                     /* Reported like any other error; the rest of the
                      * line goes and lexing carries on. */
-                    LexPos dir = lexDirectivePos(l);
-                    if (!lex(l,&next)) {
-                        lexReportAt(l, dir.line, dir.col, dir.len, "#error");
-                        return NULL;
-                    }
-                    LexPos at = lexDropDirective(l, &dir, &next);
-                    lexReportAt(l, at.line, at.col, at.len,
-                                "%.*s", next.len, next.start);
+                    lexErrorDirective(l);
                     continue;
-                }
 
                 default:
                     copy = lexemeCopy(&le);

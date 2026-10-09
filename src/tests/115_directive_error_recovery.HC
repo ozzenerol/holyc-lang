@@ -161,7 +161,7 @@ Bool TestUndefNothing(U0)
 Bool TestError(U0)
 {
   return ErrorOnlyEverywhere("#error", "#error \"stop here\" and more\n",
-                             "error: stop here");
+                             "error: \"stop here\" and more\n");
 }
 
 Bool TestUnterminatedIf(U0)
