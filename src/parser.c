@@ -67,24 +67,30 @@ static AoStr *getRangeLoopIdx(void) {
 /* Kinda cheating converting it to a string and calling printf */
 Ast *parseFloatingCharConst(Cctrl *cc, Lexeme *tok) {
     u64 ch = (unsigned long)tok->i64;
-    char str[16];
+    /* Up to 8 bytes of up to 4 characters each: `\ooo` */
+    char str[40];
     Vec *argv = astVecNew();
     int len = 0;
     int real_len = 0;
 
+    /* Escaped as lexString does, as this goes into the assembly */
     while (ch) {
-        switch (ch & 0xFF) {
-            case '\'': str[len++] = '\\'; str[len++] = '\''; break;
-            case '\\': str[len++] = '\\'; str[len++] = '\\'; break;
-            case '\"': str[len++] = '\''; str[len++] = '\"'; break;
-            case '\b': str[len++] = '\\';  str[len++] = 'b'; break;
-            case '\n': str[len++] = '\\';  str[len++] = 'n'; break;
-            case '\t': str[len++] = '\\';  str[len++] = 't'; break;
-            case '\v': str[len++] = '\\';  str[len++] = 'v'; break;
-            case '\f': str[len++] = '\\';  str[len++] = 'f'; break;
-            case '\r': str[len++] = '\\';  str[len++] = 'r'; break;
-
-            default: str[len++] = ch & 0xFF; break;
+        unsigned int c = ch & 0xFF;
+        if (c == '\\' || c == '"') {
+            str[len++] = '\\';
+            str[len++] = c;
+        } else if (c == '%') {
+            /* It is printf's format */
+            str[len++] = '%';
+            str[len++] = '%';
+            real_len++;
+        } else if (c < ' ' || c >= 0x7F) {
+            str[len++] = '\\';
+            str[len++] = '0' + (c >> 6);
+            str[len++] = '0' + ((c >> 3) & 7);
+            str[len++] = '0' + (c & 7);
+        } else {
+            str[len++] = c;
         }
         real_len++;
         ch = ch >> 8;

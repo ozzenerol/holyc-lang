@@ -1239,24 +1239,35 @@ u64 lexCharConst(Lexer *l) {
         idx = len * 8;
         if (ch == '\\') {
             ch = lexNextChar(l);
+            u64 v;
+            /* The same escapes as a string (see lexString) */
             switch (ch) {
-                case '0':  char_const |= (unsigned long)'\0' << ((unsigned long)idx); break;
-                case '\'': char_const |= (unsigned long)'\'' << ((unsigned long)idx); break;
-                case '`':  char_const |= (unsigned long)'`'  << ((unsigned long)idx); break;
-                case '\"': char_const |= (unsigned long)'\"' << ((unsigned long)idx); break;
-                case 'd':  char_const |= (unsigned long)'$'  << ((unsigned long)idx); break;
-                case 'n':  {
-                    char_const |= (unsigned long)'\n' << ((unsigned long)idx);
+                case '\'': v = '\''; break;
+                case '`':  v = '`';  break;
+                case '\"': v = '\"'; break;
+                case '\\': v = '\\'; break;
+                case 'd':  v = '$';  break;
+                case 'a':  v = '\a'; break;
+                case 'b':  v = '\b'; break;
+                case 'n':  v = '\n'; break;
+                case 'r':  v = '\r'; break;
+                case 't':  v = '\t'; break;
+                case 'v':  v = '\v'; break;
+                case 'f':  v = '\f'; break;
+                case '0': case '1': case '2': case '3':
+                case '4': case '5': case '6': case '7':
+                    v = ch - '0';
+                    for (int i = 1; i < 3 && lexPeek(l) >= '0' &&
+                                    lexPeek(l) <= '7'; ++i) {
+                        v = v * 8 + (lexNextChar(l) - '0');
+                    }
+                    v &= 0xFF;
                     break;
-                }
-                case 'r':  char_const |= (unsigned long)'\r' << ((unsigned long)idx); break;
-                case 't':  char_const |= (unsigned long)'\t' << ((unsigned long)idx); break;
-                case 'v':  char_const |= (unsigned long)'\v' << ((unsigned long)idx); break;
-                case 'f':  char_const |= (unsigned long)'\f' << ((unsigned long)idx); break;
                 case 'x':
                 case 'X':
                     hex_num = 0;
-                    for (int i = 0; i < 2; ++i) {
+                    int i;
+                    for (i = 0; i < 2; ++i) {
                         ch = toupper(lexPeek(l));
                         if (!isHex(ch)) {
                             break;
@@ -1268,12 +1279,24 @@ u64 lexCharConst(Lexer *l) {
                             hex_num = (hex_num<<4)+ch-'A'+10;
                         }
                     }
-                    char_const |= (unsigned long)hex_num << (unsigned long)(idx);
+                    if (!i && !(l->flags & CCF_PERMISSIVE)) {
+                        lexReport(l, "\\x used with no following hex digits");
+                    }
+                    v = hex_num;
                     break;
                 default:
-                    char_const |= (unsigned long)'\\' << (unsigned long)(idx);
+                    /* Report it and keep the character as written, as
+                     * lexString does. `!ch` is reported below. */
+                    if (ch && !(l->flags & CCF_PERMISSIVE)) {
+                        lexReport(l, "Invalid escape character: '\\%c'",
+                                  (char)ch);
+                    }
+                    v = (unsigned char)ch;
                     break;
             }
+            char_const |= v << (unsigned long)idx;
+            /* `'\`: the input ended */
+            if (!ch) break;
         } else {
             char_const |= (unsigned long)(((unsigned long)ch) << ((unsigned long)(idx)));
         }
