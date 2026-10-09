@@ -170,7 +170,15 @@ static void x86_64Lea(IrCgCtx *ctx, IrInstr *lea, const char *reg) {
             name = asmNormaliseFunctionName(ctx->cc,
                     lea->r1->as.global.name);
         }
-        x86_64GlobalAddr(ctx, name, reg);
+        if (lea->r1->flags & IR_VAL_FLAG_EXTERN) {
+            /* Possibly in a shared library: through the GOT (ELF and
+             * Mach-O spell it the same; the linker relaxes it back to
+             * a lea when the symbol turns out to be local) */
+            aoStrCatFmt(ctx->buf, "movq    %s@GOTPCREL(%%rip), %%%s\n\t",
+                        name, reg);
+        } else {
+            x86_64GlobalAddr(ctx, name, reg);
+        }
     } else {
         int loff = irCgGetLoff(&ctx->fn->ra, lea->r1);
         x86_64FrameAddr(ctx->buf, loff, reg);

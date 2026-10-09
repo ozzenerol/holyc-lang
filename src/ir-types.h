@@ -189,6 +189,10 @@ typedef struct IrVar {
 } IrVar;
 
 #define IR_VAL_FLAG_FUNC 0x1
+/* A function this object doesn't define (`extern "c"`, or only
+ * prototyped): its address comes from the GOT, as it may live in a
+ * shared library and a PIE can't reach it with a PC-relative lea. */
+#define IR_VAL_FLAG_EXTERN 0x2
 
 /* Where an IrValue physically lives after register allocation.
  * Filled in by the regalloc pass; consumed by codegen so it never
