@@ -386,7 +386,9 @@ Ast *astString(char *str, int len, s64 real_len) {
         ast->sval = aoStrDupRaw(str,len);
         ast->real_len = real_len;
     }
-    ast->type = astMakeArrayType(ast_u8_type, ast->sval->len + 1);
+    /* The bytes it holds: escapes decoded, plus the NUL. `sval` keeps
+     * the escapes in their textual form so is longer. */
+    ast->type = astMakeArrayType(ast_u8_type, ast->real_len);
     ast->slabel = astMakeLabel();
     return ast;
 }
@@ -1560,10 +1562,19 @@ static AoStr *astTypeToAoStrInternal(AstType *type) {
     }
 
     case AST_TYPE_ARRAY: {
-        if (type->size == -1 && type->ptr->clsname != NULL) {
-            aoStrCatPrintf(str, "%s[%s]", astTypeToString(type->ptr), type->ptr->clsname->data);
-        } else {
-            aoStrCatPrintf(str, "%s[%d]", astTypeToString(type->ptr), type->size);
+        /* Element counts, outermost first, as declared: `I64 g[2][3]` is
+         * an array of 2 arrays of 3 and reads `I64[2][3]`. */
+        AstType *elem = type;
+        while (elem->kind == AST_TYPE_ARRAY) elem = elem->ptr;
+        aoStrCatPrintf(str, "%s", astTypeToString(elem));
+        for (AstType *dim = type; dim->kind == AST_TYPE_ARRAY; dim = dim->ptr) {
+            if (dim->size == -1 && dim->ptr->clsname != NULL) {
+                aoStrCatPrintf(str, "[%s]", dim->ptr->clsname->data);
+            } else if (dim->len < 0) {
+                aoStrCatPrintf(str, "[]");
+            } else {
+                aoStrCatPrintf(str, "[%d]", dim->len);
+            }
         }
         return str;
     }

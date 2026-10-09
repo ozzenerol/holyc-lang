@@ -36,9 +36,6 @@ there works as shown.</p>
     <tr><td>Carets are misplaced after non-ASCII text</td>
         <td><code>I64 x = 1 €é;</code>: the caret for <code>é</code> is two columns too far right (columns count bytes)</td>
         <td>Use the reported column</td></tr>
-    <tr><td>Array types show their size in bytes</td>
-        <td>A diagnostic about <code>I64 arr[2]</code> calls it <code>I64[16]</code></td>
-        <td>Divide by the element size</td></tr>
   </tbody>
 </table>
 
