@@ -40,7 +40,6 @@ MODULES = [
     ("threads.HC",   "Threads",           "pthreads bindings and helpers."),
     ("net.HC",       "Networking",        "Sockets and address resolution."),
     ("sqllite.HC",   "SQLite",            "SQLite bindings, available when hcc is built with sqlite."),
-    ("builtins.HC",  "Builtins",          "Small helpers available everywhere."),
     (None,           "Other declarations","Declared in tos.HH but not defined in a library .HC file."),
 ]
 
