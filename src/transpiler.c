@@ -227,7 +227,7 @@ static TranspilationMapping transpile_function_substitutions_table[] = {
     {str_lit("_MEMCPY"), str_lit("memcpy")},
     {str_lit("_MEMSET"), str_lit("memset")},
     {str_lit("_FREE"), str_lit("free")},
-    {str_lit("_STRLEN_FAST"), str_lit("strlen")},
+    {str_lit("StrLen"), str_lit("strlen")},
     {str_lit("_STRNCMP"), str_lit("strncmp")},
     {str_lit("_STRNICMP"), str_lit("strncasecmp")},
     {str_lit("_STRCMP"), str_lit("strcmp")},
@@ -746,7 +746,12 @@ void transpileAstInternal(Ast *ast, TranspileCtx *ctx, s64 *indent) {
         /* FALLTHROUGH */
     case AST_FUNPTR:
     case AST_FUNCALL: {
-        AoStr *formatted = transpileFormatFunction(ast->fname);
+        /* A library function with a C equivalent (`StrLen` -> strlen) */
+        char *substitution = transpileGetFunctionSub(ast->fname->data,
+                                                     ast->fname->len);
+        AoStr *formatted = substitution ? aoStrDupRaw(substitution,
+                                                      strlen(substitution))
+                                        : transpileFormatFunction(ast->fname);
         // this is not a function call!
         if (!ast->args) {
             aoStrCatFmt(buf, "%S", formatted);

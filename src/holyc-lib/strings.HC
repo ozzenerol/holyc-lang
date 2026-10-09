@@ -148,16 +148,6 @@ _STRCMP::
     LEAVE
     RET
 
-_STRLEN_FAST::
-    MOVQ  RSI, RDI
-    XOR   RAX, RAX
-    MOVQ  RCX, -1
-    REPNZ SCASB   // decrements RCX
-    NOT   RCX     // Reverse RCX
-    DEC   RCX
-    MOVQ  RAX, RCX
-    RET
-
 // @TempleOS - only slight tweaks
 _STRCPY:: 
     PUSH  RBP
@@ -262,17 +252,6 @@ public _extern _STRHASH U64 StrHash(U8 *str);
 
 #ifdef __aarch64__
 asm {
-_STRLEN_FAST::
-    MOV   X1, X0
-    EOR   X0, X0, X0
-@@1:
-    LDRB   W2, [X1], 1
-    CBZ    W2, @@2
-    ADD    X0, x0, 1
-    B      @@1
-@@2:
-    RET
-
 // strncmp(x0=str1, x1=str2, x2=len)
 _STRNCMP::
     CBZ     X2, @@2
@@ -379,7 +358,13 @@ public I64 Atoi(U8 *str)
   return atol(str);
 }
 
-public _extern _STRLEN_FAST U64 StrLen(U8 *buf);
+/* The length of `buf` before its '\0', 0 for NULL. libc's strlen, which
+ * reads a word at a time: about 5x the old byte loop. */
+public U64 StrLen(U8 *buf)
+{
+  if (!buf) return 0;
+  return strlen(buf);
+}
 public _extern _STRNCMP I64 StrNCmp(U8 *s1, U8 *s2, I64 len);
 public _extern _STRNICMP I64 StrNICmp(U8 *s1, U8 *s2, I64 len);
 public _extern _STRCMP I64 StrCmp(U8 *s1, U8 *s2);
@@ -490,8 +475,8 @@ public U0 OutStr(U8 *instr,U8 **_buf,U8 **_dst,I64 len,I64 flags,
     dst_len = dst-buf;
     size = MSize(buf);
 
-    if (i >= (size - dst_len)) {
-      buf = ReAlloc(buf,((size*10)+i)*sizeof(U8));
+    if (i >= (size - dst_len)) { /* double, as CatPrint does */
+      buf = ReAlloc(buf,((size*2)+i)*sizeof(U8));
       *_buf = buf;
       *_dst = buf + dst_len;
       dst = *_dst;
@@ -1284,7 +1269,10 @@ U8 *MPrintTimestampNow()
  * StrPrint(NULL, ...) or a previous CatPrint; NULL starts a new one),
  * growing it when it is full, and return it. The block may move and the
  * old pointer is then freed, so always write `s = CatPrint(s, ...)` and
- * never pass a string literal or a stack buffer. */
+ * never pass a string literal or a stack buffer. Each call measures the
+ * whole of `_dst` to find its end, so n appends cost O(n^2) for a long
+ * string: in a loop keep the length yourself with CatLenPrint, or
+ * collect the pieces and StrPrint them once. */
 U8 *CatPrint(U8 *_dst,U8 *fmt,...)
 {// @TempleOS
   U8 *s2 = StrPrintJoin(NULL,fmt,argc,argv);

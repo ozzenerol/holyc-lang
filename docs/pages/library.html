@@ -53,7 +53,9 @@ and returns it, so write <code>s = CatPrint(s, fmt, ...)</code>: when <code>s</c
 is grown, which may move it and frees the old block. <code>s</code> must come from
 <code>MAlloc</code>, <code>StrNew</code>, <code>StrPrint(NULL, ...)</code> or an earlier
 <code>CatPrint</code>, or be <code>NULL</code> to start a new string; never pass a string
-literal or a stack buffer. Unlike print statements, their <code>%d</code> is a
+literal or a stack buffer. Each <code>CatPrint</code> measures the whole of <code>s</code> to
+find its end, so thousands of appends to a long string get slow; <code>CatLenPrint(s, &amp;len,
+fmt, ...)</code> keeps the length in <code>len</code> instead. Unlike print statements, their <code>%d</code> is a
 full 64-bit integer. <code>%f</code>, <code>%e</code> and <code>%g</code> print a float the
 way C's <code>printf</code> does, with the same rounding.</p>
 <pre data-run><code>
