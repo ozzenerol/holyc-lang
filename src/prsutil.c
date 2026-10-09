@@ -637,6 +637,32 @@ void typeCheckWarn(Cctrl *cc, int op_line, int op_col, Ast *expected,
     }
 }
 
+/* An array can't be assigned to, incremented or decremented, as in C:
+ * `arr = p`, `arr += 1`, `arr++`. Reported at the operator without
+ * unwinding (the error stops the compile once parsing ends). Returns 1
+ * if `lhs` is an array. */
+int assertNotArrayAssign(Cctrl *cc, Ast *lhs, int op_line, int op_col,
+                         int op_len)
+{
+    if (!lhs || !lhs->type || lhs->type->kind != AST_TYPE_ARRAY) {
+        return 0;
+    }
+    char *name = astLValueToString(lhs,0);
+    char *msg = mprintf("Cannot assign to array `%s`, assign to its elements or use a pointer",
+                        name);
+    AoStr *bold = aoStrNew();
+    aoStrCatColoured(bold, ESC_BOLD, msg);
+    AoStr *buf = cctrlCreateErrorLineAt(cc, op_line, op_col, op_len, bold->data,
+                                        CCTRL_ERROR, NULL);
+    aoStrRelease(bold);
+    CctrlDiagnostic *d = cctrlMakeDiag(cc, CCTRL_ERROR, buf, NULL);
+    d->line = d->end_line = op_line;
+    d->col = op_col;
+    d->end_col = op_col + op_len;
+    cctrlDiagPush(cc, d);
+    return 1;
+}
+
 void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func, 
                              AstType *check, Ast *retval)
 {
