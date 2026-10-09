@@ -37,7 +37,23 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>A definition drops the default arguments of its prototype</td>
+        <td><code>I64 F(I64 *v, I64 n=2);</code> then <code>I64 F(I64 *v, I64 n) { ... }</code>: <code>F(a)</code> fails with "Unexpected number of arguments 1 in call to F(), expected 2 args"</td>
+        <td>Repeat the default in the definition</td></tr>
+    <tr><td>A function pointer can't be called as <code>(*fp)()</code></td>
+        <td><code>U0 (*fp)() = &amp;G; (*fp)();</code> is an error ("The `*` operator cannot be applied to a function pointer"); C accepts it</td>
+        <td>Call it as <code>fp()</code></td></tr>
+    <tr><td>The C transpiler gets array members wrong</td>
+        <td>With <code>class Leaf { I64 a, b; };</code>, <code>Leaf leaves[2];</code> is written as <code>Leaf leaves[32];</code> (bytes, not elements), and <code>b.leaves[1].a</code> as <code>*(b.leaves[1]).a</code>, which doesn't compile</td>
+        <td>The transpiler is experimental; fix the C output by hand</td></tr>
+    <tr><td>Cross-compiling to macOS from Linux fails to assemble</td>
+        <td><code>--target=*-apple-darwin</code> on Linux still emits <code>.section .note.GNU-stack</code>, which the Mach-O assembler rejects</td>
+        <td>Build on the Mac</td></tr>
+  </tbody>
+</table>
 
 <h3>Diagnostics</h3>
 <table>
@@ -58,6 +74,9 @@ there works as shown.</p>
     <tr><td>The warning for a value returned from a <code>U0</code> function misprints the expression</td>
         <td><code>return g++;</code> is shown as <code>++g</code>; <code>return Twice(Twice(1));</code> as <code>Twice(Twice(1););</code></td>
         <td>Read the line number in the warning</td></tr>
+    <tr><td>A missing name after a comma is reported on the next line</td>
+        <td><code>I64 a, ;</code> reports "Identifier expected: got TK_PUNCT ;" with the caret on the start of the following line</td>
+        <td>Look at the end of the previous line</td></tr>
   </tbody>
 </table>
 
@@ -68,10 +87,10 @@ there works as shown.</p>
     <tr><td>The legacy x86 backend has several wrong-code bugs</td>
         <td>Only with <code>--use-legacy-x86</code>: <code>F64 R(I64 n) { return n; }</code> returns 0.0; narrow loads read 8 bytes (<code>I32 a[3] = {1,2,3}; a[0]</code> is 8589934593); some global class initialisers panic with "Global variables unimplemented"; the exit status of <code>U0 Main</code> is garbage</td>
         <td>Use the default backend</td></tr>
-  </tbody>
     <tr><td>A class-typed item in a local initialiser list is garbage</td>
         <td>With <code>class L { I64 a; P p; I64 b; };</code>, a local <code>L l = {1, p0, 4};</code> leaves <code>l.p</code> holding pointer-like garbage; so does a local <code>P ps[2] = {p0, p0};</code>. The same initialisers on globals work</td>
         <td>Assign the class fields after the declaration (<code>l.p = p0;</code>), or make the variable global</td></tr>
+  </tbody>
 </table>
 
 <h2>Standard library</h2>
