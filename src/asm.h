@@ -25,4 +25,18 @@ int asmEmitBlockBytes(Cctrl *cc, AoStr *buf, AoStr *text, int src_line);
 
 void asmEmitAsmInfo(Cctrl *cc, AoStr *buf);
 
+/* Lay out the global initialiser `init` as the `type` object it sits in
+ * memory as: class fields at their offsets, array elements at the
+ * element stride and zeros everywhere else. `bytes` (type->size long)
+ * receives the scalar values and `items` (type->size entries) the
+ * literal or string that starts at each offset; a string stands for its
+ * 8-byte address. Both must be zeroed by the caller. Shared by the AOT
+ * data emitters and the JIT. */
+void asmInitImage(Ast *init, AstType *type, u8 *bytes, Ast **items);
+/* Bytes asmInitImage gives a literal or string item. */
+int asmInitItemWidth(Ast *item);
+
+/* Append `init`, laid out by asmInitImage, to `buf` as data directives. */
+void asmEmitInitData(AoStr *buf, Ast *init, AstType *type);
+
 #endif

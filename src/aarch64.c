@@ -2109,16 +2109,6 @@ void aarch64InitialiseEmptyGlobal(Cctrl *cc, AoStr *buf, Ast *global,
 }
 
 static void aarch64DataInternal(AoStr *buf, Ast *data) {
-    if (data->kind == AST_STRING) {
-        aoStrCatFmt(buf, ".quad   %S\n\t", data->slabel);
-        return;
-    }
-    if (data->kind == AST_ARRAY_INIT) {
-        listForEach(data->arrayinit) {
-            aarch64DataInternal(buf, (Ast *)it->value);
-        }
-        return;
-    }
     if (data->type->kind == AST_TYPE_FLOAT) {
         /* aoStrCatFmt has no hex specifier; use aoStrCatPrintf so the IEEE
          * bit pattern is emitted as a real hex literal. F32 lands in 4 bytes
@@ -2191,7 +2181,12 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
             }
         }
         aoStrCatFmt(buf, "%S:\n\t", label);
-        aarch64DataInternal(buf, declinit);
+        if (declinit->kind == AST_ARRAY_INIT) {
+            /* Fields at their offsets, padded to the full object. */
+            asmEmitInitData(buf, declinit, declvar->type);
+        } else {
+            aarch64DataInternal(buf, declinit);
+        }
     } else {
         if (declvar->is_static) {
             aoStrCatFmt(buf, ".lcomm %S, %i\n\t", label,

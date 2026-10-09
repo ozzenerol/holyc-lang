@@ -1,5 +1,6 @@
 #include <strings.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "aarch64.h"
@@ -310,4 +311,121 @@ void asmEmitAsmInfo(Cctrl *cc, AoStr *buf) {
                 cliTargetToString(cc->target),
                 cctrlGetVersion(),
                 HCC_GIT_HASH);
+}
+
+/* ---- Global initialisers ---- */
+
+/* Write `init` as a `type` object at `off` into the image. Returns the
+ * offset just past it, where a following item goes when there is no
+ * type to place it by. */
+static int asmInitImageAt(Ast *init, AstType *type, u8 *bytes, Ast **items,
+                          int off, int size)
+{
+    if (!init) return off;
+
+    if (init->kind == AST_ARRAY_INIT) {
+        int is_class = type && !astIsIntrinsicClass(type) &&
+                       (type->kind == AST_TYPE_CLASS ||
+                        type->kind == AST_TYPE_UNION);
+        AstType *elem_ty = (type && type->kind == AST_TYPE_ARRAY)
+                           ? type->ptr : NULL;
+        int next = off;
+        int idx = 0;
+        listForEach(init->arrayinit) {
+            Ast *item = (Ast *)it->value;
+            AstType *item_ty = NULL;
+            int item_off = next;
+            if (is_class) {
+                item_ty = astClassFieldAt(type, idx);
+                if (item_ty) item_off = off + item_ty->offset;
+            } else if (elem_ty) {
+                item_ty = elem_ty;
+                item_off = off + idx * elem_ty->size;
+            }
+            next = asmInitImageAt(item, item_ty, bytes, items, item_off, size);
+            idx++;
+        }
+        return (type && type->size > 0) ? off + type->size : next;
+    }
+
+    if (init->kind == AST_STRING) {
+        if (off >= 0 && off + 8 <= size) items[off] = init;
+        return off + 8;
+    }
+
+    if (init->kind == AST_LITERAL) {
+        int w = asmInitItemWidth(init);
+        u64 bits;
+        if (init->type && init->type->kind == AST_TYPE_FLOAT) {
+            bits = w == 4 ? (u64)ieee754_32((f32)init->f64)
+                          : ieee754_64(init->f64);
+        } else {
+            bits = (u64)init->i64;
+        }
+        if (off >= 0 && off + w <= size) {
+            items[off] = init;
+            for (int i = 0; i < w; ++i) {
+                bytes[off + i] = (u8)(bits >> (i * 8));
+            }
+        }
+        return off + w;
+    }
+
+    /* Not a constant: nothing to store, the slot stays zero. */
+    return off + ((type && type->size > 0) ? type->size : 8);
+}
+
+int asmInitItemWidth(Ast *item) {
+    if (item->kind == AST_STRING || !item->type) return 8;
+    int w = item->type->size;
+    return (w == 1 || w == 2 || w == 4) ? w : 8;
+}
+
+void asmInitImage(Ast *init, AstType *type, u8 *bytes, Ast **items) {
+    asmInitImageAt(init, type, bytes, items, 0, type->size);
+}
+
+void asmEmitInitData(AoStr *buf, Ast *init, AstType *type) {
+    int size = type->size;
+    if (size <= 0) return;
+    u8 *bytes = (u8 *)calloc((size_t)size, 1);
+    Ast **items = (Ast **)calloc((size_t)size, sizeof(Ast *));
+    asmInitImage(init, type, bytes, items);
+
+    /* Each item at its natural width, the gaps between them as `.zero`. */
+    int zeros = 0;
+    int pos = 0;
+    while (pos < size) {
+        Ast *item = items[pos];
+        if (!item && bytes[pos] == 0) {
+            zeros++;
+            pos++;
+            continue;
+        }
+        if (zeros) aoStrCatPrintf(buf, ".zero %d\n\t", zeros);
+        zeros = 0;
+        if (item && item->kind == AST_STRING) {
+            aoStrCatFmt(buf, ".quad %S\n\t", item->slabel);
+            pos += 8;
+            continue;
+        }
+        /* An item, or a byte a later overlapping item left behind. */
+        int w = item ? asmInitItemWidth(item) : 1;
+        u64 v = 0;
+        for (int i = 0; i < w; ++i) {
+            v |= (u64)bytes[pos + i] << (i * 8);
+        }
+        switch (w) {
+            case 1: aoStrCatPrintf(buf, ".byte %u\n\t", (unsigned)v); break;
+            case 2: aoStrCatPrintf(buf, ".short %u\n\t", (unsigned)v); break;
+            case 4: aoStrCatPrintf(buf, ".long %u\n\t", (unsigned)v); break;
+            default:
+                aoStrCatPrintf(buf, ".quad %llu\n\t", (unsigned long long)v);
+                break;
+        }
+        pos += w;
+    }
+    if (zeros) aoStrCatPrintf(buf, ".zero %d\n\t", zeros);
+    free(bytes);
+    free(items);
 }
