@@ -107,7 +107,7 @@ FzFPattern *FzFParsePattern(I32 case_mode,U8 *pattern, Bool fuzzy=TRUE);
 
 U0 FzFPatternRelease(FzFPattern *pattern);
 
-I32 FzFGetScore(U8 *text, FzFPattern *pattern, FzFSlab *slab);
+I64 FzFGetScore(U8 *text, FzFPattern *pattern, FzFSlab *slab);
 
 FzFPosition *FzFPosArray(I64 len);
 FzFPosition *FzFGetPositions(U8 *text, FzFPattern *pattern,FzFSlab *slab);

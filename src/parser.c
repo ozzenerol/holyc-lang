@@ -2767,6 +2767,99 @@ Ast *parseExternFunctionProto(Cctrl *cc, AstType *rettype, char *fname, int len)
     return func;
 }
 
+/* Do two declarations of a function agree on a type? Integers match
+ * by size and signedness (an `I64 class` like CDate is its integer),
+ * classes and unions by name, an array parameter is its pointer and
+ * `auto` matches anything. */
+static int parseFnTypesMatch(AstType *a, AstType *b) {
+    if (a == b) return 1;
+    if (!a || !b) return 0;
+    if (a->kind == AST_TYPE_AUTO || b->kind == AST_TYPE_AUTO) return 1;
+    if (a->kind == AST_TYPE_ARRAY) a = astMakePointerType(a->ptr);
+    if (b->kind == AST_TYPE_ARRAY) b = astMakePointerType(b->ptr);
+
+    int a_int = a->kind == AST_TYPE_INT || a->kind == AST_TYPE_CHAR;
+    int b_int = b->kind == AST_TYPE_INT || b->kind == AST_TYPE_CHAR;
+    if ((a_int || astIsIntrinsicClass(a)) && (b_int || astIsIntrinsicClass(b))) {
+        if (a->size != b->size) return 0;
+        return !a_int || !b_int || a->issigned == b->issigned;
+    }
+    if (a->kind != b->kind) return 0;
+
+    switch (a->kind) {
+        case AST_TYPE_FLOAT:
+            return a->size == b->size;
+        case AST_TYPE_POINTER:
+            return parseFnTypesMatch(a->ptr, b->ptr);
+        case AST_TYPE_CLASS:
+        case AST_TYPE_UNION:
+            if (!a->clsname || !b->clsname) return 0;
+            return aoStrCmp(a->clsname, b->clsname);
+        case AST_TYPE_FUNC: {
+            if (!parseFnTypesMatch(a->rettype, b->rettype)) return 0;
+            u64 na = a->params ? a->params->size : 0;
+            u64 nb = b->params ? b->params->size : 0;
+            if (na != nb) return 0;
+            for (u64 i = 0; i < na; ++i) {
+                Ast *pa = a->params->entries[i];
+                Ast *pb = b->params->entries[i];
+                if (!pa || !pb) return pa == pb;
+                if ((pa->kind == AST_VAR_ARGS) != (pb->kind == AST_VAR_ARGS)) {
+                    return 0;
+                }
+                if (pa->kind == AST_VAR_ARGS) continue;
+                if (!parseFnTypesMatch(pa->type, pb->type)) return 0;
+            }
+            return 1;
+        }
+        default:
+            return 1;
+    }
+}
+
+/* `fname` is being declared or defined again with `rettype`/`params`:
+ * a different signature from the earlier prototype or definition (the
+ * standard library's prototypes in tos.HH included) is an error at the
+ * name. Reported without unwinding, so the body still parses. The
+ * REPL redefines on purpose. */
+static void parseCheckFunctionRedeclaration(Cctrl *cc, AstType *rettype,
+                                            char *fname, int len,
+                                            Vec *params, int has_var_args,
+                                            int line, int col)
+{
+    if (cc->flags & CCTRL_REPL) return;
+    Ast *prev = mapGetLen(cc->global_env, fname, len);
+    if (!prev || (prev->kind != AST_FUN_PROTO && prev->kind != AST_FUNC)) {
+        return;
+    }
+    AstType *type = astMakeFunctionType(rettype, params);
+    if (parseFnTypesMatch(type, prev->type) &&
+        !has_var_args == !prev->has_var_args) {
+        return;
+    }
+
+    Ast *now = astFunction(type, fname, len, params, NULL, NULL, has_var_args);
+    AoStr *where = cctrlLookUpFile(cc, prev->file_id);
+    char *msg = mprintf("conflicting types for `%.*s`: `%s` does not match "
+                        "the earlier declaration `%s`%s%s%s",
+                        len, fname, astFunctionToString(now),
+                        astFunctionToString(prev),
+                        where && prev->line > 0 ? " at " : "",
+                        where && prev->line > 0 ? where->data : "",
+                        where && prev->line > 0
+                            ? mprintf(":%d", prev->line) : "");
+    AoStr *bold = aoStrNew();
+    aoStrCatColoured(bold, ESC_BOLD, msg);
+    AoStr *buf = cctrlCreateErrorLineAt(cc, line, col, len, bold->data,
+                                        CCTRL_ERROR, NULL);
+    aoStrRelease(bold);
+    CctrlDiagnostic *d = cctrlMakeDiag(cc, CCTRL_ERROR, buf, NULL);
+    d->line = d->end_line = line;
+    d->col = col;
+    d->end_col = col + len;
+    cctrlDiagPush(cc, d);
+}
+
 Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int is_inline) {
     /* Anchor: the name token was just consumed, so the cursor still
      * sits on its line - stamp the function Ast with the NAME's
@@ -2775,6 +2868,15 @@ Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int i
     int name_line = cc->lineno;
     int name_col  = ast_col_hint; /* last consumed token = the name */
     u32 name_file = ast_file_hint;
+    /* The hint can be on a `(` that was taken and given back; the name
+     * itself is the token before the `(` when nothing else is (PeekBy
+     * counts from one past the tail, so -2 is the one before it). */
+    int name_tok_line = name_line, name_tok_col = name_col;
+    Lexeme *name_tok = tokenRingBufferPeekBy(cc->token_buffer, -2);
+    if (name_tok && name_tok->start == fname) {
+        name_tok_line = name_tok->line;
+        name_tok_col = name_tok->col;
+    }
     int has_var_args = 0;
     cctrlTokenExpect(cc,'(');
     cc->localenv = cctrlCreateAstMap(cc->localenv);
@@ -2785,6 +2887,11 @@ Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int i
 
     Vec *params = parseParams(cc,')',&has_var_args,1);
     Lexeme *tok = cctrlTokenGet(cc);
+    if (tokenPunctIs(tok, '{') || tokenPunctIs(tok, ';')) {
+        parseCheckFunctionRedeclaration(cc, rettype, fname, len, params,
+                                        has_var_args, name_tok_line,
+                                        name_tok_col);
+    }
     if (tokenPunctIs(tok, '{')) {
         Ast *fn = parseFunctionDef(cc,rettype,fname,len,params,
                                    has_var_args,is_inline);

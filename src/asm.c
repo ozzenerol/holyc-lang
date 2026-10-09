@@ -58,6 +58,27 @@ AoStr *asmNormaliseGlobalLabel(Cctrl *cc, AoStr *name) {
 
 /* This is a hacky, but seemingly functional way of me being able
  * to run this on Macos and Linux */
+/* `.globl` for a function's label. In a library (`-lib`, how libtos is
+ * built) it is also a weak definition: a program's own (strong)
+ * definition of the same name then wins at link time instead of
+ * "multiple definition", matching the JIT, where the program's
+ * function shadows the library's. With the static libtos.a every call
+ * to it, the library's own included, goes to the program's version. */
+void asmEmitFunctionGlobal(Cctrl *cc, AoStr *buf, char *label) {
+    aoStrCatPrintf(buf, ".globl %s\n", label);
+    if (!cc->is_library) return;
+    switch (cc->target) {
+        case TARGET_AARCH64_APPLE_DARWIN:
+        case TARGET_X86_64_APPLE_DARWIN:
+            aoStrCatPrintf(buf, ".weak_definition %s\n", label);
+            break;
+        case TARGET_AARCH64_UNKNOWN_LINUX_GNU:
+        case TARGET_X86_64_UNKNOWN_LINUX_GNU:
+            aoStrCatPrintf(buf, ".weak %s\n", label);
+            break;
+    }
+}
+
 char *asmNormaliseFunctionName(Cctrl *cc, AoStr *fname) {
     AoStr *newfn = aoStrNew();
     switch(cc->target) {

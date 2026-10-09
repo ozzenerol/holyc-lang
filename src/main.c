@@ -487,6 +487,7 @@ int main(int argc, char **argv) {
 
     cc->install_dir = args.install_dir;
     cc->is_pic = args.fPIC;
+    cc->is_library = args.emit_dylib;
 
     cc->object_files = args.object_files;
     cc->shared_object_files = args.shared_object_files;
