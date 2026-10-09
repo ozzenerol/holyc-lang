@@ -508,7 +508,11 @@ int main(int argc, char **argv) {
         cc->CC = mprintf("cc");
     }
 
-    if (args.use_legacy_x86) cc->flags |= CCTRL_USE_LEGACY_X86;
+    if (args.use_legacy_x86) {
+        fprintf(stderr, "hcc: --use-legacy-x86 was removed in v0.4.0, the "
+                        "default x86_64 backend is the only one\n");
+        exit(EXIT_FAILURE);
+    }
     if (args.werror)         cc->flags |= CCTRL_WERROR;
     if (args.memsafe)        cc->flags |= CCTRL_MEMSAFE;
 
