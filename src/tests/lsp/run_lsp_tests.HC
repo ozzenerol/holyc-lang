@@ -399,6 +399,8 @@ Bool LspWaitPublishes(LspClient *l, I64 target, I64 timeout_ms)
   while (l->publishes < target) {
     Json *stray = LspTake(l);
     if (stray != NULL) continue;
+    /* LspTake may just have counted the publish we're waiting for. */
+    if (l->publishes >= target) break;
     I64 remain = deadline - NowMs();
     if (remain <= 0) return FALSE;
     LspPump(l, remain);
