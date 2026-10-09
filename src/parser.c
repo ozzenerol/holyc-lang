@@ -154,6 +154,32 @@ static Ast *parseFoldInitElement(Ast *init, AstType *dst) {
     return init;
 }
 
+/* An initialiser for an inner array (an element of a multi-dimensional
+ * array or an array field of a class) must fit it: the extra items would be
+ * written over the elements or fields that follow. Fewer items is fine. A
+ * string must fit with its NUL, as for a top-level `U8 buf[N] = "..."`.
+ * Called right after the list or string has been consumed. */
+static void parseCheckInnerArrayInit(Cctrl *cc, AstType *sub_type, Ast *init) {
+    if (sub_type->kind != AST_TYPE_ARRAY || sub_type->len < 0) {
+        return;
+    }
+    s64 count;
+    if (init->kind == AST_STRING) {
+        count = init->real_len;
+    } else if (init->kind == AST_ARRAY_INIT) {
+        count = listCount(init->arrayinit);
+    } else {
+        return;
+    }
+    if (count > sub_type->len) {
+        /* Point at the list's `}` or at the string. */
+        cctrlTokenRewind(cc);
+        cctrlRaiseException(cc,
+                "Invalid array initializer: expected %d items but got %d",
+                sub_type->len, (int)count);
+    }
+}
+
 Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
     Lexeme *tok = cctrlTokenGetRequired(cc);
     List *initlist;
@@ -232,16 +258,7 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
                         astTypeToString(type));
             }
             init = parseDeclArrayInitInt(cc,sub_type);
-            /* Extra items for an array field would be written over the
-             * fields that follow it. */
-            if (type->kind == AST_TYPE_CLASS &&
-                sub_type->kind == AST_TYPE_ARRAY && sub_type->len >= 0 &&
-                listCount(init->arrayinit) > sub_type->len)
-            {
-                cctrlRaiseException(cc,
-                        "Invalid array initializer: expected %d items but got %d",
-                        sub_type->len, listCount(init->arrayinit));
-            }
+            parseCheckInnerArrayInit(cc,sub_type,init);
             tok = cctrlTokenGetRequired(cc);
             listAppend(initlist,init);
             if (tokenPunctIs(tok,'}')) {
@@ -259,6 +276,7 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
                           astTypeToString(init->type),
                           astTypeToString(type->ptr));
               }
+              parseCheckInnerArrayInit(cc,type->ptr,init);
               init = parseFoldInitElement(init, type->ptr);
             } else if (type->kind == AST_TYPE_CLASS) {
                 if (i >= cls_fields->indexes->size) {
