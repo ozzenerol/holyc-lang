@@ -50,9 +50,9 @@ I32 Main()
   if (Is(Shlurp("echo %s %d", "two", 2), "two 2")) correct++;
   else "Failed - Shlurp with arguments\n";
 
-  /* A % in a command without arguments is passed through untouched */
-  if (Is(Shlurp("printf '%%s\\n' 50%"), "%s")) correct++;
-  else "Failed - Shlurp keeps a literal %%\n";
+  /* The command is formatted even without arguments: %% is one % */
+  if (Is(Shlurp("printf '%%s\\n' 50%%"), "50%")) correct++;
+  else "Failed - Shlurp formats without arguments\n";
 
   /* Multi-line output keeps inner newlines, loses only the last one */
   if (Is(Shlurp("printf 'a\\nb\\nc\\n'"), "a\nb\nc")) correct++;
@@ -69,7 +69,7 @@ I32 Main()
   /* Empty output is an empty string */
   if (Is(Shlurp("true"), "")) correct++;
   else "Failed - Shlurp empty output\n";
-  if (Is(Shlurp("printf '%s' ''"), "")) correct++;
+  if (Is(Shlurp("printf '%%s' ''"), "")) correct++;
   else "Failed - Shlurp empty output with arguments\n";
 
   /* A failing command: what it printed to stdout, stderr isn't captured */
