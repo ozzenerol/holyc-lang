@@ -217,6 +217,20 @@ static void aarch64GlobalAddr(Cctrl *cc, AoStr *buf, const char *sym,
     }
 }
 
+/* `reg = &sym` for a symbol that may be in a shared library: loaded from
+ * its GOT entry, as a PIE can't reach it PC-relatively */
+static void aarch64GotAddr(Cctrl *cc, AoStr *buf, const char *sym,
+                           const char *reg)
+{
+    if (cc->target == TARGET_AARCH64_APPLE_DARWIN) {
+        aoStrCatFmt(buf, "adrp    %s, %s@GOTPAGE\n\t", reg, sym);
+        aoStrCatFmt(buf, "ldr %s, [%s, %s@GOTPAGEOFF]\n\t", reg, reg, sym);
+    } else {
+        aoStrCatFmt(buf, "adrp    %s, :got:%s\n\t", reg, sym);
+        aoStrCatFmt(buf, "ldr %s, [%s, :got_lo12:%s]\n\t", reg, reg, sym);
+    }
+}
+
 /* Pick the addressing form for a frame access. AArch64 ldr/str
  * scaled-imm wants non-negative offsets in size-multiples; ldur/stur
  * supports signed -256..255; anything else needs the offset
@@ -1560,7 +1574,11 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                     name = asmNormaliseFunctionName(ctx->cc,
                             instr->r1->as.global.name);
                 }
-                aarch64GlobalAddr(ctx->cc, ctx->buf, name, "x0");
+                if (instr->r1->flags & IR_VAL_FLAG_EXTERN) {
+                    aarch64GotAddr(ctx->cc, ctx->buf, name, "x0");
+                } else {
+                    aarch64GlobalAddr(ctx->cc, ctx->buf, name, "x0");
+                }
             } else if (instr->r1) {
                 int loff = irCgGetLoff(&ctx->fn->ra, instr->r1);
                 aarch64EmitFrameAddr(ctx->buf, "x0", loff);

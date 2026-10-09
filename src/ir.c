@@ -1775,6 +1775,9 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
             src->as.global.name = operand->fname;
             src->as.global.value = NULL;
             src->flags |= IR_VAL_FLAG_FUNC;
+            if (operand->kind != AST_FUNC) {
+                src->flags |= IR_VAL_FLAG_EXTERN;
+            }
         } else if (operand->kind == AST_ASM_FUNCDEF ||
                 operand->kind == AST_ASM_FUNC_BIND) {
             /* Asm-bound function - use the raw asm name */
