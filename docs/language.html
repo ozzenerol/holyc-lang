@@ -37,7 +37,8 @@ will look familiar. The differences are where HolyC gets interesting.</p>
 
 <h2>Program structure</h2>
 <p>A program is one or more <code>.HC</code> files. Code at the top level runs in order,
-then <code>Main</code> runs if you defined one. A program can be a single line:</p>
+then <code>Main</code> runs if you defined one (top-level code can't <code>return</code>: that is a
+compile error). A program can be a single line:</p>
 <pre data-run><code>"Hello\n";
 </code></pre>
 <pre class="output">Hello
