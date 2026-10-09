@@ -643,7 +643,7 @@ class ThreadWorker
 
 public class ThreadWorkerJob;
 public class ThreadWorkerJob {
-  U0 *(*callback)(U0 *priv_data, U0 *argv);
+  U0 (*callback)(U0 *priv_data, U0 *argv);
   U0 *argv;
   ThreadWorkerJob *next;
 };
@@ -676,12 +676,19 @@ public extern "c" I32 pthread_detach(pthread_t *th);
 public extern "c" I32 pthread_attr_setstacksize(pthread_attr_t *attr, U64 stacksize);
 public extern "c" I32 pthread_attr_init(pthread_attr_t *attr);
 
-ThreadPool *ThreadPoolNew(I64 worker_count);
+/* Start a pool of `worker_count` threads. NULL if worker_count <= 0 or a
+ * thread can't be created (the ones already started are stopped first). */
+public ThreadPool *ThreadPoolNew(I64 worker_count);
+/* Queue `callback(pool->priv_data, argv)` to run on one of the workers.
+ * `priv_data` is the pool's field (NULL unless you set it), the same for
+ * every job; `argv` is this job's. A job queued after ThreadPoolStop never
+ * runs: ThreadPoolRelease frees it. */
 public U0 ThreadPoolEnqueue(ThreadPool *pool, U0 *argv,
            U0 (*callback)(U0 *priv_data, U0 *argv));
-/* Block until the queue is empty and no job is running. */
+/* Block until the queue is empty and no job is running. Called from inside
+ * a job it never returns (that job counts as running), nor after
+ * ThreadPoolStop with a job still queued. */
 public U0 ThreadPoolWait(ThreadPool *pool);
-public ThreadPool *ThreadPoolNew(I64 worker_count);
 /* Run every job still queued, then stop and join the workers. */
 public U0 ThreadPoolStop(ThreadPool *pool);
 /* ThreadPoolStop (queued jobs still run), then free the pool. NULL is ignored. */
