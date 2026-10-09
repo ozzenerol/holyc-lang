@@ -168,6 +168,7 @@ static U0 RBInsertFixUp(RBTree *tree, RBNode *z)
 
 U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value)
 {
+  if (!tree) return;
   RBNode *x = tree->root;
   RBNode *y = NULL;
   RBNode *z = NULL;
@@ -237,6 +238,7 @@ static RBNode *RBNodeFind(RBTree *tree, RBNode *n, U0 *key)
 
 U0 *RBTreeGet(RBTree *tree, U0 *key)
 {
+  if (!tree) return NULL;
   RBNode *n = RBNodeFind(tree,tree->root,key);
   if (n) return n->value;
   return n;
@@ -244,6 +246,7 @@ U0 *RBTreeGet(RBTree *tree, U0 *key)
 
 Bool RBTreeHas(RBTree *tree, U0 *key)
 {
+  if (!tree) return FALSE;
   RBNode *n = RBNodeFind(tree, tree->root, key);
   return n != NULL;
 }
@@ -325,6 +328,7 @@ static U0 RBTreeFixDelete(RBTree *tree, RBNode *x)
 
 U0 RBTreeDelete(RBTree *tree, U0 *key)
 {
+  if (!tree) return;
   RBNode *z = RBNodeFind(tree, tree->root, key);
   RBNode *y = NULL;
   RBNode *x = NULL;
@@ -374,6 +378,7 @@ U0 RBTreeForEach(RBTree *tree,
                                 U0 *key, 
                                 U0 *value))
 {
+  if (!tree) return;
   RBNode **stack = MAlloc(sizeof(RBNode*)*tree->size);
   I64 sp = 0;
   RBNode *cur = tree->root;
@@ -404,6 +409,11 @@ RBIter *RBIterNew(RBTree *tree)
 {
   RBIter *it = MAlloc(sizeof(RBIter));
   it->sp = 0;
+  it->cur = NULL;
+  if (!tree) {
+    it->stack = NULL;
+    return it; /* yields nothing */
+  }
   it->stack = MAlloc(sizeof(RBNode*)*tree->size);
   RBNode *node = tree->root;
   while (!RBIsNil(node)) {
@@ -416,13 +426,14 @@ RBIter *RBIterNew(RBTree *tree)
 
 U0 RBIterRelease(RBIter *it)
 {
+  if (!it) return;
   Free(it->stack);
   Free(it);
 }
 
 RBNode *RBIterNext(RBIter *it)
 {
-  if (it->sp == 0) {
+  if (!it || it->sp == 0) {
     return NULL;
   }
 
