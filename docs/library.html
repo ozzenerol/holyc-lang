@@ -330,20 +330,74 @@ pears = 5
 not found
 deleted 200: 1, deleted 500: 0
 </pre>
-<p>Iteration follows insertion order. <code>StrMapSetFreeValue</code> and
-<code>StrMapSetFreeKey</code> register destructors that run on replace and release.
-<code>StrMapNew</code> and <code>IntMapNew</code> take an optional starting capacity
-(default 32), rounded up to a power of two; the table grows as you add keys.
-Setting an existing key keeps the key already stored. With destructors registered the map
-owns what you give it: an update frees the value it replaces and the duplicate key you
-passed (never the stored key, and nothing when you pass the stored pointers again).
-<code>StrMapDelete</code> and <code>IntMapDelete</code> remove a key, running the
-destructors on it, and return <code>FALSE</code> if the key wasn't there; iteration skips
-deleted keys and keeps the order of the rest, and a deleted key can be set again (it then
-comes last).</p>
+<p><code>StrMapGet</code> and <code>IntMapGet</code> return <code>NULL</code> for a missing
+key, which is also what a stored <code>NULL</code> or <code>0</code> gives. Pass a
+<code>Bool</code> as the optional last argument to tell them apart: it is set to
+<code>TRUE</code> when the key is there (<code>StrMapHas</code> and <code>IntMapHas</code> answer
+the same question). <code>StrMapGetLen</code> and <code>StrMapHasLen</code> look up the first
+<code>key_len</code> bytes at a pointer, so a word inside a larger buffer can be looked up
+without copying it out. <code>StrMapClear</code> and <code>IntMapClear</code> remove every
+entry and keep the capacity.</p>
+<pre data-run><code>U0 Main()
+{
+  IntMap *seen = IntMapNew();
+  IntMapSet(seen, 7, 0(U0 *));
+  Bool ok;
+  I64 v = IntMapGet(seen, 7, &amp;ok);
+  "7: %d (there: %d)\n", v, ok;
+  v = IntMapGet(seen, 8, &amp;ok);
+  "8: %d (there: %d)\n", v, ok;
+
+  StrMap *words = StrMapNew();
+  StrMapSet(words, "let", 1(U0 *));
+  StrMapSet(words, "for", 2(U0 *));
+  U8 *line = "for x in xs";
+  "first word: %d\n", StrMapGetLen(words, line, 3);
+
+  StrMapClear(words);
+  "after clear: %d keys, %d slots\n", words-&gt;size, words-&gt;capacity;
+  StrMapRelease(words);
+  IntMapRelease(seen);
+}
+</code></pre>
+<pre class="output">7: 0 (there: 1)
+8: 0 (there: 0)
+first word: 2
+after clear: 0 keys, 32 slots
+</pre>
+<p>Iteration (<code>StrMapIter</code>, <code>StrMapKeyIter</code>, <code>StrMapValueIter</code>
+and the <code>IntMap</code> ones) follows insertion order. Start the cursor at 0 and call
+until it returns <code>FALSE</code>; the cursor is opaque, so don't compute with it.
+Deleting entries while iterating is safe (the loop above could delete
+<code>node->key</code>); adding entries is not, as an added entry can be skipped or the
+table rebuilt under the loop. A deleted key can be set again and then comes last.
+<code>StrMapToString</code>, <code>IntMapToString</code> and the <code>KeysToString</code>
+versions print a map, in insertion order, into a new string you free.</p>
+<p><code>StrMapNew</code> and <code>IntMapNew</code> take an optional starting capacity
+(default 32): the number of slots, rounded up to a power of two, at least 8 (a negative
+request gets 8 and one above 2<sup>28</sup> gets 2<sup>28</sup>). The table is rebuilt,
+doubling, when its entries and deleted holes fill 60% of the slots, so a capacity of 1024
+holds about 600 entries before it grows. It never shrinks, not on delete and not on clear;
+release it and make a new one to give the memory back. <code>StrMapResize</code> and
+<code>IntMapResize</code> double it ahead of time. They and the <code>New</code> functions
+return <code>FALSE</code> or <code>NULL</code> when out of memory, as does a
+<code>Set</code> that needed to grow the table.</p>
+<p><code>StrMapSetFreeKey</code>, <code>StrMapSetFreeValue</code> and
+<code>IntMapSetFreeValue</code> register destructors. With them the map owns what you give
+it: they run on <code>Delete</code>, <code>Clear</code> and <code>Release</code>, and when
+<code>Set</code> replaces a value. Setting a key that is already there keeps the key the map
+stores and frees the old value and the key you passed (nothing is freed when you pass the
+stored pointers again). A pointer used as both the key and the value
+(<code>StrMapSet(m, s, s)</code>) is freed once. <code>Set</code> returns <code>TRUE</code>
+for a new key and an update alike; check <code>Has</code> first to know which. A
+<code>NULL</code> map or key is safe everywhere: <code>Get</code> and <code>Has</code> give
+<code>NULL</code> and <code>FALSE</code>, <code>Set</code> and <code>Delete</code>
+<code>FALSE</code>, and <code>Release</code> and <code>Clear</code> do nothing.</p>
 <div class="warn"><p>The map keeps the key pointer you pass the first time a key is set,
 instead of copying it. Use keys that live as long as the map, such as
-<code>StrNew</code> copies; updating an existing key from a reused buffer is fine.</p></div>
+<code>StrNew</code> copies; updating an existing key from a reused buffer is fine. With a
+key destructor registered, an update frees the key you passed: don't use it after
+<code>StrMapSet</code> returns.</p></div>
 
 <h2 id="json">JSON</h2>
 <p><code>JsonParse</code> parses text into a tree of <code>Json</code> nodes; the text can

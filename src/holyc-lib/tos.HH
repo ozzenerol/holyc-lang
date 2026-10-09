@@ -137,10 +137,8 @@ public I64 LastDayOfYear(I64 i);
 public CDate Now();
 public U0 IsoFromTimespec(cTimespec *ts, U8 *buf);
 
-#define HT_LOAD  0.60
+/* The `order` of a deleted hash table node (a tombstone) */
 #define HT_DELETED 0x7fffffffffffffff
-#define HT_PROBE_1 1
-#define HT_PROBE_3 3
 
 public class IntVec
 {
@@ -191,6 +189,8 @@ public U0 PtrVecRelease(PtrVec *vec, U0 (*_free_value)(U0 *_val) = NULL);
 public U0 PtrVecSort(PtrVec *vec,
                      I64 (*_compare_fn)(U0 *_arg1, U0 *_arg2));
 
+/* An IntMap entry, as IntMapIter hands it out: `key` and `value` are the
+ * caller's; `order` is the map's bookkeeping. */
 public class IntMapNode
 {
   I64 key;
@@ -198,6 +198,8 @@ public class IntMapNode
   I64 order; /* Position in the map's `indexes`; HT_DELETED once deleted */
 };
 
+/* A StrMap entry, as StrMapIter hands it out: `key` is the pointer the map
+ * stores (not a copy), `key_len` its StrLen. */
 public class StrMapNode
 {
   U8 *key;
@@ -206,66 +208,133 @@ public class StrMapNode
   I64 order; /* Position in the map's `indexes`; HT_DELETED once deleted */
 };
 
+/* A hash table from I64 keys to U0 * values. `size` is the number of
+ * entries; `capacity` the number of slots (a power of two), which grows
+ * when the entries and deleted holes reach 60% of it and never shrinks.
+ * The other fields are internal. */
 public class IntMap
 {
   U64 size;     /* How many entries are in the hashtable */
-  U64 capacity; /* How much capacity we have in the entries array */
-  U64 mask;     /* Used for hashing, as the capacity is always a power of 2
-                 * we can use fast modulo of `<int> & capacity-1`. */
-  IntVec *indexes; /* Where all of the values are in the entries array, in 
-                 * insertion order. Means we can iterate over the HashTable 
-                 * quickly at the cost of memory */
-  U64 threashold; /* rebuild threashold */
+  U64 capacity; /* How many slots the entries array has, a power of 2 */
+  U64 mask;     /* capacity - 1: `hash & mask` is the home slot */
+  IntVec *indexes; /* The slot of every entry, in insertion order, with
+                    * HT_DELETED for deleted ones: iteration walks this */
+  U64 threashold; /* Rebuild when `indexes` reaches this (60% of capacity) */
   U0 (*_free_value)(U0 *value); /* User defined callback for freeing values */
-  IntMapNode **entries; /* All of the entries, XXX: could this be IntMapNode *entries? */
+  IntMapNode **entries; /* The slots */
 };
 
-
+/* A hash table from NUL-terminated strings to U0 * values; see IntMap for
+ * the fields. The map stores the key pointers it is given, it does not
+ * copy them. */
 public class StrMap
 {
   U64 size;     /* How many entries are in the hashtable */
-  U64 capacity; /* How much capacity we have in the entries array */
-  U64 mask;     /* Used for hashing, as the capacity is always a power of 2
-                 * we can use fast modulo of `<int> & capacity-1`. */
-  IntVec *indexes; /* Where all of the values are in the entries array, in 
-                 * insertion order. Means we can iterate over the HashTable 
-                 * quickly at the cost of memory */
-  U64 threashold; /* rebuild threashold */
+  U64 capacity; /* How many slots the entries array has, a power of 2 */
+  U64 mask;     /* capacity - 1: `hash & mask` is the home slot */
+  IntVec *indexes; /* The slot of every entry, in insertion order, with
+                    * HT_DELETED for deleted ones: iteration walks this */
+  U64 threashold; /* Rebuild when `indexes` reaches this (60% of capacity) */
   U0 (*_free_value)(U0 *_value); /* User defined callback for freeing values */
-U0 (*_free_key)(U0 *_key); /* User defined callback for freeing keys */
-  StrMapNode **entries; /* All of the entries, XXX: could this be IntMapNode *entries? */
+  U0 (*_free_key)(U0 *_key); /* User defined callback for freeing keys */
+  StrMapNode **entries; /* The slots */
 };
 
+/* A new, empty map with room for `capacity` slots: rounded up to a power
+ * of two, at least 8; a negative request gets 8 and one above 2^28 slots
+ * gets 2^28 (the map still grows past it). NULL when out of memory. */
 public StrMap *StrMapNew(U64 capacity = 32);
+/* Map `key` to `value`; TRUE, or FALSE when out of memory or `map` or
+ * `key` is NULL. A new key's pointer is stored, not copied, so it must
+ * live as long as the map. Setting a key that is there replaces the
+ * value and keeps the stored key: with destructors registered, the
+ * replaced value is freed and so is the key you passed (unless it is the
+ * stored key or the new value). */
 public Bool StrMapSet(StrMap *map, U8 *key, U0 *value);
+/* TRUE when the `key_len` bytes at `key` are a key of the map (`key` need
+ * not be NUL-terminated there) */
 public Bool StrMapHasLen(StrMap *map, U8 *key, I64 key_len);
+/* TRUE when `key` is in the map; FALSE also for a NULL map or key */
 public Bool StrMapHas(StrMap *map, U8 *key);
-public U0 *StrMapGetLen(StrMap *map, U8 *key, I64 key_len);
-public U0 *StrMapGet(StrMap *map, U8 *key);
+/* StrMapGet for the `key_len` bytes at `key` */
+public U0 *StrMapGetLen(StrMap *map, U8 *key, I64 key_len, Bool *_ok = NULL);
+/* The value of `key`, or NULL when it is missing. A stored NULL also gives
+ * NULL: pass `_ok`, set to TRUE when the key is there, to tell them
+ * apart. */
+public U0 *StrMapGet(StrMap *map, U8 *key, Bool *_ok = NULL);
+/* Register a destructor for values, run when a value is replaced, deleted,
+ * cleared or released */
 public U0 StrMapSetFreeValue(StrMap *map, U0 (*_free_value)(U0 *value));
+/* Register a destructor for keys, run when a key is deleted, cleared or
+ * released, and on a duplicate key passed to StrMapSet. A pointer that is
+ * both a key and its value is freed once. */
 public U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key));
+/* Free the map, running the destructors on every entry. NULL is a no-op. */
 public U0 StrMapRelease(StrMap *map);
+/* Double the capacity; FALSE when out of memory. The map grows by itself;
+ * this is for presizing. */
 public Bool StrMapResize(StrMap *map);
+/* Remove `key`, running the destructors on its key and value; FALSE when
+ * it was not there. Safe while iterating. */
 public Bool StrMapDelete(StrMap *map, U8 *key);
+/* Remove every entry, running the destructors; the capacity is kept */
+public U0 StrMapClear(StrMap *map);
+/* The next entry in insertion order: start with `*_idx = 0` and call until
+ * FALSE; `*_idx` is an opaque cursor. Deleting entries while iterating is
+ * fine; adding them is not (an added entry may be skipped or the table
+ * rebuilt). */
 public Bool StrMapIter(StrMap *map, I64 *_idx, StrMapNode **_node);
+/* StrMapIter giving only the values */
 public Bool StrMapValueIter(StrMap *map, I64 *_idx, U0 **_value);
+/* StrMapIter giving only the keys */
 public Bool StrMapKeyIter(StrMap *map, I64 *_idx, U8 **_key);
+/* `{[key] => value, ...}` in insertion order, each value turned into a
+ * string by `stringify_value` (whose result is freed); free the result */
 public U8 *StrMapToString(StrMap *map, U8 *(*stringify_value)(U0 *));
+/* `{key, ...}` in insertion order; free the result */
 public U8 *StrMapKeysToString(StrMap *map);
 
 
+/* Map `key` to `value`; TRUE, or FALSE when out of memory or `map` is
+ * NULL. Setting a key that is there replaces the value, freeing the old
+ * one if a destructor is registered. */
 public Bool IntMapSet(IntMap *map, I64 key, U0 *value);
+/* TRUE when `key` is in the map; FALSE also for a NULL map */
 public Bool IntMapHas(IntMap *map, I64 key);
-public U0 *IntMapGet(IntMap *map, I64 key);
+/* The value of `key`, or NULL when it is missing. A stored NULL or 0 also
+ * gives NULL: pass `_ok`, set to TRUE when the key is there, to tell them
+ * apart. */
+public U0 *IntMapGet(IntMap *map, I64 key, Bool *_ok = NULL);
+/* A new, empty map; the capacity as for StrMapNew. NULL when out of
+ * memory. */
 public IntMap *IntMapNew(U64 capacity = 32);
+/* Register a destructor for values, run when a value is replaced, deleted,
+ * cleared or released */
 public U0 IntMapSetFreeValue(IntMap *map, U0 (*_free_value)(U0 *value));
+/* Free the map, running the value destructor on every entry. NULL is a
+ * no-op. */
 public U0 IntMapRelease(IntMap *map);
+/* Double the capacity; FALSE when out of memory. The map grows by itself;
+ * this is for presizing. */
 public Bool IntMapResize(IntMap *map);
+/* Remove `key`, running the value destructor; FALSE when it was not
+ * there. Safe while iterating. */
 public Bool IntMapDelete(IntMap *map, I64 key);
+/* Remove every entry, running the value destructor; the capacity is
+ * kept */
+public U0 IntMapClear(IntMap *map);
+/* The next entry in insertion order: start with `*_idx = 0` and call until
+ * FALSE; `*_idx` is an opaque cursor. Deleting entries while iterating is
+ * fine; adding them is not. */
 public Bool IntMapIter(IntMap *map, I64 *_idx, IntMapNode **_node);
+/* IntMapIter giving only the values */
 public Bool IntMapValueIter(IntMap *map, I64 *_idx, U0 **_value);
+/* IntMapIter giving only the keys */
 public Bool IntMapKeyIter(IntMap *map, I64 *_idx, I64 *_key);
+/* `{[key] => value, ...}` in insertion order, each value turned into a
+ * string by `stringify_value` (whose result is freed); free the result */
 public U8 *IntMapToString(IntMap *map, U8 *(*stringify_value)(U0 *));
+/* `{key, ...}` in insertion order; free the result */
 public U8 *IntMapKeysToString(IntMap *map);
 
 /* THREADS ==========*/

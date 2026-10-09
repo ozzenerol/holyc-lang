@@ -6,9 +6,8 @@
 
 #define HT_LOAD 60
 #define HT_DELETED 0x7fffffffffffffff
-#define HT_PROBE_1 1
-#define HT_PROBE_3 3
 #define HT_MIN_CAPACITY 8
+#define HT_MAX_CAPACITY (1 << 28)
 
 /* Deletion leaves a tombstone: the node stays in its slot with `order` set
  * to HT_DELETED so probe chains running through it are not cut short. For a
@@ -43,7 +42,7 @@ public class IntMap
                     * quickly at the cost of memory */
   U64 threashold; /* rebuild threashold */
   U0 (*_free_value)(U0 *value); /* User defined callback for freeing values */
-  IntMapNode **entries; /* All of the entries, XXX: could this be IntMapNode *entries? */
+  IntMapNode **entries; /* The slots */
 };
 
 public class StrMap
@@ -58,7 +57,7 @@ public class StrMap
   U64 threashold; /* rebuild threashold */
   U0 (*_free_value)(U0 *_value); /* User defined callback for freeing values */
   U0 (*_free_key)(U0 *_key); /* User defined callback for freeing keys */
-  StrMapNode **entries; /* All of the entries, XXX: could this be StrMapNode *entries? */
+  StrMapNode **entries; /* The slots */
 };
 
 U64 RoundUpToNextPowerOf2(U64 v)
@@ -78,11 +77,29 @@ static U64 HtCapacity(U64 capacity)
 {/* The probe loops use `idx & mask`, so the capacity, the mask and the size
   * of the entries array must all be the same power of two. Round any
   * requested size up to one (and to at least HT_MIN_CAPACITY, which also
-  * keeps 0 and 1 from producing a zero mask or a zero threshold). */
-  if (capacity < HT_MIN_CAPACITY) {
+  * keeps 0 and 1 from producing a zero mask or a zero threshold).
+  * The request is only a starting size: one that is negative (`-1` passed
+  * for the U64) gets HT_MIN_CAPACITY, and one above HT_MAX_CAPACITY gets
+  * HT_MAX_CAPACITY; past 2^63 the rounding would wrap to 0. The map still
+  * grows past HT_MAX_CAPACITY as entries are added. */
+  if (capacity(I64) < HT_MIN_CAPACITY) {
     capacity = HT_MIN_CAPACITY;
+  } else if (capacity > HT_MAX_CAPACITY) {
+    capacity = HT_MAX_CAPACITY;
   }
   return RoundUpToNextPowerOf2(capacity);
+}
+
+static U64 HtFmix64(U64 h)
+{/* murmur3's 64-bit finaliser: every bit of `h` affects every bit of the
+  * result, so keys that differ only in bits above the mask still land in
+  * different slots. */
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccd;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53;
+  h ^= h >> 33;
+  return h;
 }
 
 public Bool IntMapSet(IntMap *map, I64 key, U0 *value);
@@ -93,13 +110,18 @@ public U0 IntMapRelease(IntMap *map);
 public Bool IntMapResize(IntMap *map);
 
 U64 IntMapHashFunction(I64 key, U64 mask)
-{
-  return key & mask;
+{/* Mixed first: `key & mask` alone sent keys sharing their low bits
+  * (multiples of a power of two, aligned pointers, `id << 20`) to the
+  * same slots. */
+  return HtFmix64(key) & mask;
 }
 
 IntMap *IntMapNew(U64 capacity)
-{
+{// NULL when out of memory
   IntMap *map = MAlloc(sizeof(IntMap));
+  if (!map) {
+    return NULL;
+  }
   capacity = HtCapacity(capacity);
   map->capacity = capacity;
   map->mask = capacity-1;
@@ -108,12 +130,19 @@ IntMap *IntMapNew(U64 capacity)
   map->threashold = (capacity * HT_LOAD)/100;
   map->_free_value = NULL;
   map->entries = CAlloc(capacity * sizeof(IntMapNode *));
+  if (!map->entries) {
+    IntVecRelease(map->indexes);
+    Free(map);
+    return NULL;
+  }
   return map;
 }
 
 U0 IntMapSetFreeValue(IntMap *map, U0 (*_free_value)(U0 *value))
 {
-  map->_free_value = _free_value;
+  if (map) {
+    map->_free_value = _free_value;
+  }
 }
 
 IntMapNode *IntMapNodeNew(I64 key, U0 *value)
@@ -252,13 +281,20 @@ static Bool IntMapRehash(IntMap *map, U64 new_capacity)
 }
 
 public Bool IntMapResize(IntMap *map)
-{// Double the hashtable, will return false if OMM
+{// Double the hashtable, will return false if OOM
+  if (!map) {
+    return FALSE;
+  }
   return IntMapRehash(map,map->capacity << 1);
 }
 
 auto IntMapSet(IntMap *map, I64 key, U0 *value)
 {
   Bool is_free;
+
+  if (!map) {
+    return FALSE;
+  }
 
   /* `indexes->size` is the live entries plus the holes deletes left, so this
    * also bounds the tombstones. A table that is mostly tombstones is rebuilt
@@ -303,6 +339,9 @@ auto IntMapSet(IntMap *map, I64 key, U0 *value)
 public Bool IntMapDelete(IntMap *map, I64 key)
 {// Remove `key`, freeing its value if a destructor is registered. Returns
  // FALSE if the key was not in the map.
+  if (!map) {
+    return FALSE;
+  }
   auto idx = IntMapGetIdx(map,key);
   if (idx != HT_DELETED) {
     auto n = map->entries[idx];
@@ -320,21 +359,53 @@ public Bool IntMapDelete(IntMap *map, I64 key)
 
 public Bool IntMapHas(IntMap *map, I64 key)
 {
+  if (!map) {
+    return FALSE;
+  }
   auto idx = IntMapGetIdx(map,key);
   return idx != HT_DELETED;
 }
 
-public U0 *IntMapGet(IntMap *map, I64 key)
-{
-  auto idx = IntMapGetIdx(map,key);
-  if (idx != HT_DELETED) {
-    return map->entries[idx]->value;
+public U0 *IntMapGet(IntMap *map, I64 key, Bool *_ok=NULL)
+{// The value stored for `key`, or NULL. `*_ok` (when given) tells a
+ // missing key (FALSE) from a stored NULL or 0 (TRUE).
+  if (map) {
+    auto idx = IntMapGetIdx(map,key);
+    if (idx != HT_DELETED) {
+      if (_ok) *_ok = TRUE;
+      return map->entries[idx]->value;
+    }
   }
+  if (_ok) *_ok = FALSE;
   return NULL;
+}
+
+public U0 IntMapClear(IntMap *map)
+{// Remove every entry, freeing the values if a destructor is registered.
+ // The capacity is kept.
+  if (!map) {
+    return;
+  }
+  for (I64 i = 0; i < map->capacity; ++i) {
+    auto n = map->entries[i];
+    if (n) {
+      /* A tombstone's value was freed by IntMapDelete. */
+      if (map->_free_value && n->order != HT_DELETED) {
+        map->_free_value(n->value);
+      }
+      Free(n);
+      map->entries[i] = NULL;
+    }
+  }
+  map->indexes->size = 0;
+  map->size = 0;
 }
 
 public Bool IntMapIter(IntMap *map, I64 *_idx, IntMapNode **_node)
 {
+  if (!map) {
+    return FALSE;
+  }
   I64 idx = *_idx;
   auto indexes = map->indexes->entries;
 
@@ -372,6 +443,9 @@ public Bool IntMapKeyIter(IntMap *map, I64 *_idx, I64 *_key)
 
 public U8 *IntMapToString(IntMap *map, U8 *(*stringify_value)(U0 *))
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
   if (map_size == 0) {
     return StrPrint(NULL,"{}");
@@ -394,6 +468,9 @@ public U8 *IntMapToString(IntMap *map, U8 *(*stringify_value)(U0 *))
 
 public U8 *IntMapKeysToString(IntMap *map)
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
   if (map_size == 0) {
     return StrPrint(NULL,"{}");
@@ -421,8 +498,11 @@ public U0 StrMapRelease(StrMap *map);
 public Bool StrMapResize(StrMap *map);
 
 StrMap *StrMapNew(U64 capacity)
-{
+{// NULL when out of memory
   StrMap *map = MAlloc(sizeof(StrMap));
+  if (!map) {
+    return NULL;
+  }
   capacity = HtCapacity(capacity);
   map->capacity = capacity;
   map->mask = capacity-1;
@@ -432,17 +512,51 @@ StrMap *StrMapNew(U64 capacity)
   map->_free_value = NULL;
   map->_free_key = NULL;
   map->entries = CAlloc(capacity * sizeof(StrMapNode *));
+  if (!map->entries) {
+    IntVecRelease(map->indexes);
+    Free(map);
+    return NULL;
+  }
   return map;
 }
 
 U0 StrMapSetFreeValue(StrMap *map, U0 (*_free_value)(U0 *value))
 {
-  map->_free_value = _free_value;
+  if (map) {
+    map->_free_value = _free_value;
+  }
 }
 
 U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key))
 {
-  map->_free_key = _free_key;
+  if (map) {
+    map->_free_key = _free_key;
+  }
+}
+
+static U0 StrMapFreeEntry(StrMap *map, StrMapNode *n)
+{/* Free a live entry's value and key with the registered destructors. A
+  * key that is also the value (`StrMapSet(m,s,s)`) is freed once, as the
+  * value. */
+  if (map->_free_value) {
+    map->_free_value(n->value);
+  }
+  if (map->_free_key && !(n->key == n->value && map->_free_value)) {
+    map->_free_key(n->key);
+  }
+}
+
+static U64 StrMapHash(U8 *key, I64 key_len)
+{/* FNV-1a over exactly the `key_len` bytes the lookup compares, then
+  * mixed. Set, Get, Has and Delete hash a NUL-terminated key's StrLen bytes
+  * and GetLen/HasLen their `key_len`, so `("hello world", 5)` finds
+  * "hello". */
+  U64 h = 0xcbf29ce484222325;
+  for (I64 i = 0; i < key_len; i++) {
+    h ^= key[i];
+    h *= 0x100000001b3;
+  }
+  return HtFmix64(h);
 }
 
 StrMapNode *StrMapNodeNew(U8 *key, I64 key_len, U0 *value)
@@ -460,7 +574,7 @@ static U64 StrMapGetNextIdx(StrMap *map, U8 *key, I64 key_len, Bool *_is_free)
  // into (*_is_free = TRUE): the first tombstone on the probe chain, or the
  // empty slot that ends it.
   U64 mask = map->mask;
-  U64 idx = StrHash(key) & mask;
+  U64 idx = StrMapHash(key, key_len) & mask;
   U64 tombstone = HT_DELETED;
   StrMapNode *cur;
 
@@ -485,7 +599,7 @@ static U64 StrMapGetNextIdx(StrMap *map, U8 *key, I64 key_len, Bool *_is_free)
 static I64 StrMapGetIdx(StrMap *map, U8 *key, I64 key_len)
 {// Slot holding `key`, or HT_DELETED. Tombstones are skipped, not stopped at.
   U64 mask = map->mask;
-  U64 idx = StrHash(key) & mask;
+  U64 idx = StrMapHash(key, key_len) & mask;
   StrMapNode **entries = map->entries;
   StrMapNode *cur;
 
@@ -502,15 +616,12 @@ static I64 StrMapGetIdx(StrMap *map, U8 *key, I64 key_len)
 U0 StrMapRelease(StrMap *map)
 {// free the entire hashtable
   if (map) {
-    U0 (*free_value)(U0 *_val) = map->_free_value;
-    U0 (*free_key)(U0 *_key) = map->_free_key;
     for (auto i = 0; i < map->capacity; ++i) {
       auto n = map->entries[i];
       if (n) {
         /* A tombstone's key and value were freed by StrMapDelete. */
         if (n->order != HT_DELETED) {
-          if (free_value) free_value(n->value);
-          if (free_key)   free_key(n->key);
+          StrMapFreeEntry(map,n);
         }
         Free(n);
       }
@@ -585,13 +696,20 @@ static Bool StrMapRehash(StrMap *map, U64 new_capacity)
 }
 
 public Bool StrMapResize(StrMap *map)
-{// Double the hashtable, will return false if OMM
+{// Double the hashtable, will return false if OOM
+  if (!map) {
+    return FALSE;
+  }
   return StrMapRehash(map,map->capacity << 1);
 }
 
 Bool StrMapSet(StrMap *map, U8 *key, U0 *value)
 {
   Bool is_free;
+
+  if (!map || !key) {
+    return FALSE;
+  }
 
   /* `indexes->size` is the live entries plus the holes deletes left, so this
    * also bounds the tombstones. A table that is mostly tombstones is rebuilt
@@ -632,12 +750,25 @@ Bool StrMapSet(StrMap *map, U8 *key, U0 *value)
      * registered the map owns every key it is given, so the duplicate is
      * freed here instead of leaking (unless it is the stored key itself).
      * Likewise the replaced value is freed when a value destructor is
-     * registered, unless the same pointer is being set again. */
-    if (map->_free_key && n->key != key) {
-      map->_free_key(key);
+     * registered, unless the same pointer is being set again.
+     * A pointer that is both a key and a value is freed once:
+     *   - the stored key was also the old value, which is freed now: the
+     *     passed key becomes the stored key instead;
+     *   - the passed key is also the new value: it is kept, not freed. */
+    U8 *old_key = n->key;
+    U0 *old_value = n->value;
+    Bool free_old_value = map->_free_value && old_value != value;
+    U8 *dropped = key;
+    if (free_old_value && old_key == old_value) {
+      n->key = key;
+      dropped = old_key;
     }
-    if (map->_free_value && n->value != value) {
-      map->_free_value(n->value);
+    if (free_old_value) {
+      map->_free_value(old_value);
+    }
+    if (map->_free_key && dropped != n->key && dropped != value &&
+        dropped != old_value) {
+      map->_free_key(dropped);
     }
     n->value = value;
     return TRUE;
@@ -647,13 +778,15 @@ Bool StrMapSet(StrMap *map, U8 *key, U0 *value)
 public Bool StrMapDelete(StrMap *map, U8 *key)
 {// Remove `key`, freeing the stored key and value if destructors are
  // registered. Returns FALSE if the key was not in the map.
+  if (!map || !key) {
+    return FALSE;
+  }
   I64 idx = StrMapGetIdx(map,key,StrLen(key));
   if (idx == HT_DELETED) {
     return FALSE;
   }
   auto n = map->entries[idx];
-  if (map->_free_key)   map->_free_key(n->key);
-  if (map->_free_value) map->_free_value(n->value);
+  StrMapFreeEntry(map,n);
   map->indexes->entries[n->order] = HT_DELETED;
   n->order = HT_DELETED;
   n->key = NULL;
@@ -663,23 +796,56 @@ public Bool StrMapDelete(StrMap *map, U8 *key)
   return TRUE;
 }
 
-public U0 *StrMapGetLen(StrMap *map, U8 *key, I64 key_len)
-{
-  auto idx = StrMapGetIdx(map,key,key_len);
-  if (idx != HT_DELETED) {
-    return map->entries[idx]->value;
+public U0 *StrMapGetLen(StrMap *map, U8 *key, I64 key_len, Bool *_ok=NULL)
+{// The value stored for the `key_len` bytes at `key`, or NULL. `*_ok`
+ // (when given) tells a missing key (FALSE) from a stored NULL (TRUE).
+  if (map && key) {
+    auto idx = StrMapGetIdx(map,key,key_len);
+    if (idx != HT_DELETED) {
+      if (_ok) *_ok = TRUE;
+      return map->entries[idx]->value;
+    }
   }
+  if (_ok) *_ok = FALSE;
   return NULL;
 }
 
-public U0 *StrMapGet(StrMap *map, U8 *key)
-{
+public U0 *StrMapGet(StrMap *map, U8 *key, Bool *_ok=NULL)
+{// See StrMapGetLen
+  if (!map || !key) {
+    if (_ok) *_ok = FALSE;
+    return NULL;
+  }
   I64 key_len = StrLen(key);
-  return StrMapGetLen(map,key,key_len);
+  return StrMapGetLen(map,key,key_len,_ok);
+}
+
+public U0 StrMapClear(StrMap *map)
+{// Remove every entry, freeing keys and values if destructors are
+ // registered. The capacity is kept.
+  if (!map) {
+    return;
+  }
+  for (I64 i = 0; i < map->capacity; ++i) {
+    auto n = map->entries[i];
+    if (n) {
+      /* A tombstone's key and value were freed by StrMapDelete. */
+      if (n->order != HT_DELETED) {
+        StrMapFreeEntry(map,n);
+      }
+      Free(n);
+      map->entries[i] = NULL;
+    }
+  }
+  map->indexes->size = 0;
+  map->size = 0;
 }
 
 public Bool StrMapHasLen(StrMap *map, U8 *key, I64 key_len)
 {
+  if (!map || !key) {
+    return FALSE;
+  }
   I64 idx = StrMapGetIdx(map,key,key_len);
   if (idx != HT_DELETED) {
     return TRUE;
@@ -689,12 +855,18 @@ public Bool StrMapHasLen(StrMap *map, U8 *key, I64 key_len)
 
 public Bool StrMapHas(StrMap *map, U8 *key)
 {
+  if (!map || !key) {
+    return FALSE;
+  }
   I64 key_len = StrLen(key);
   return StrMapHasLen(map,key,key_len);
 }
 
 public Bool StrMapIter(StrMap *map, I64 *_idx, StrMapNode **_node)
 {
+  if (!map) {
+    return FALSE;
+  }
   I64 idx = *_idx;
   auto indexes = map->indexes->entries;
   auto size = map->indexes->size;
@@ -733,6 +905,9 @@ public Bool StrMapKeyIter(StrMap *map, I64 *_idx, U8 **_key)
 
 public U8 *StrMapToString(StrMap *map, U8 *(*stringify_value)(U0 *))
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
 
   if (map_size == 0) {
@@ -757,6 +932,9 @@ public U8 *StrMapToString(StrMap *map, U8 *(*stringify_value)(U0 *))
 
 public U8 *StrMapKeysToString(StrMap *map)
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
   if (map_size == 0) {
     return StrPrint(NULL,"{}");
