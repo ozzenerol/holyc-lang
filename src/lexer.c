@@ -849,6 +849,9 @@ static void lexSkipCodeComment(Lexer *l) {
         int start_line = l->lineno;
         /* `l->ptr` is on the `*`; the opener's `/` is one before it. */
         int start_col = (int)(l->ptr - l->line_start_ptr);
+        /* Step past the opening `*`: in `/` `*` `/` it does not start
+         * the closing delimiter. */
+        l->ptr++;
         while (*l->ptr != '\0') {
             if (*l->ptr == '*' && *(l->ptr + 1) == '/') {
                 l->ptr += 2;
