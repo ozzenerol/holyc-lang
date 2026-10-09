@@ -86,9 +86,6 @@ there works as shown.</p>
     <tr><td>An error on a folded macro shows an empty value</td>
         <td><code>#define T (N + 1)</code> then <code>I64 x = 2 T;</code>: "Unexpected integer ``"</td>
         <td>The "expanded from macro" note names the macro</td></tr>
-    <tr><td>The "perhaps a missing <code>;</code>" hint can point at the wrong line</td>
-        <td><code>U0 Main() {</code> / <code>I64 x = 2 3;</code>: the hint points at <code>U0 Main() {</code></td>
-        <td>Ignore the hint when that line can't take a <code>;</code></td></tr>
     <tr><td>Carets are misplaced after non-ASCII text</td>
         <td><code>I64 x = 1 €é;</code>: the caret for <code>é</code> is two columns too far right (columns count bytes)</td>
         <td>Use the reported column</td></tr>
