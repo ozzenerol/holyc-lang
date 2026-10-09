@@ -36,6 +36,12 @@ public I32 RmDir(U8 *path, Bool flags=0)
     return result;
   }
 
+  /* Never follow a symlink: opendir() would empty the directory it
+   * points to. Rm removes the link itself. */
+  if (lstat(path,&st) != 0 || (st.st_mode & S_IFMT) == S_IFLNK) {
+    return result;
+  }
+
   if ((dir = opendir(path)) == NULL) {
     return result;
   }
@@ -58,7 +64,7 @@ public I32 RmDir(U8 *path, Bool flags=0)
         } else {
           "Error Rm: %s\n",buf;
         }
-      } else if (!stat(buf,&st)) {
+      } else if (!lstat(buf,&st)) {
           if ((st.st_mode & S_IFMT) == S_IFDIR) {
             r2 = RmDir(path,flags);
           } else {
@@ -101,8 +107,19 @@ public I32 Rm(U8 *path, Bool flags=0)
   I32 result;
   cStat st;
 
-  if (stat(path,&st) == -1) {
+  if (lstat(path,&st) == -1) {
     return -1;
+  }
+
+  /* A symlink is removed itself, never what it points to (like rm -r) */
+  if ((st.st_mode & S_IFMT) == S_IFLNK) {
+    result = unlink(path);
+    if (flags & RM_VERBOSE) {
+      "Rm '%s'",path;
+      if (result != 0) " failed\n";
+      else             "\n";
+    }
+    return result;
   }
 
   if ((st.st_mode & S_IFMT) == S_IFDIR) {
