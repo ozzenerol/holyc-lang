@@ -182,6 +182,11 @@ typedef struct AstType {
     Map *fields;
     int offset;
     int is_intrinsic;
+    /* On a class field: a union member after the first one (directly or
+     * through an anonymous class/union flattened into the class). A
+     * union takes one initialiser item, for its first member, so
+     * positional initialisers skip it. */
+    int init_skip;
 
     /* Function */
     AstType *rettype;
@@ -577,6 +582,9 @@ int astTypeAlign(AstType *type);
  * fields Map's index vector by hand at every call site. */
 typedef int (*AstClassFieldCb)(AoStr *field_name, AstType *field, void *ud);
 int astForEachClassField(AstType *cls, AstClassFieldCb cb, void *ud);
+/* The field the `idx`-th positional initialiser item sets (union
+ * members after the first are skipped), or NULL past the last one. */
+MapNode *astClassInitFieldAt(AstType *cls, int idx);
 AstType *astClassFieldAt(AstType *cls, int idx);
 
 /* Platform C-ABI classification of an aggregate passed/returned by value:

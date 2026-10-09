@@ -208,10 +208,10 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
 
     initlist = listNew();
     u64 i = 0;
-    Map *cls_fields = NULL;
-    if (type->kind == AST_TYPE_CLASS) {
-        cls_fields = type->fields;
-    }
+    /* A class or union: the items set its fields in order (see
+     * astClassInitFieldAt). */
+    int is_class = type->kind == AST_TYPE_CLASS ||
+                   type->kind == AST_TYPE_UNION;
 
     /* A class that was only forward declared (`class Foo;`) has no
      * fields to match the initialisers against. Checked through any
@@ -221,7 +221,8 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
     while (elem_type->kind == AST_TYPE_ARRAY && elem_type->ptr) {
         elem_type = elem_type->ptr;
     }
-    if (elem_type->kind == AST_TYPE_CLASS && elem_type->fields == NULL) {
+    if ((elem_type->kind == AST_TYPE_CLASS ||
+         elem_type->kind == AST_TYPE_UNION) && elem_type->fields == NULL) {
         cctrlTokenRewind(cc);
         cctrlRaiseException(cc,"Cannot use an initialiser list, %s is incomplete",
                 astTypeToString(elem_type));
@@ -249,17 +250,18 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
              * class, the next field, which must then be an array or a
              * class itself. */
             AstType *sub_type = type->ptr;
-            if (type->kind == AST_TYPE_CLASS) {
-                if (i >= cls_fields->indexes->size) {
+            if (is_class) {
+                MapNode *entry = astClassInitFieldAt(type, i);
+                if (!entry) {
                     cctrlRaiseException(cc,
                             "More initialisers than class fields for class: %s",
                             astTypeToString(type));
                 }
-                u64 cls_field_idx = (unsigned long)cls_fields->indexes->entries[i];
-                MapNode *entry = &cls_fields->entries[cls_field_idx];
                 sub_type = entry->value;
                 if (sub_type->kind != AST_TYPE_ARRAY &&
-                    (sub_type->kind != AST_TYPE_CLASS || sub_type->is_intrinsic))
+                    ((sub_type->kind != AST_TYPE_CLASS &&
+                      sub_type->kind != AST_TYPE_UNION) ||
+                     sub_type->is_intrinsic))
                 {
                     cctrlRaiseException(cc,
                             "Cannot use an initialiser list for field %s of type %s",
@@ -308,15 +310,13 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
               }
               parseCheckInnerArrayInit(cc,type->ptr,init,depth);
               init = parseFoldInitElement(init, type->ptr);
-            } else if (type->kind == AST_TYPE_CLASS) {
-                if (i >= cls_fields->indexes->size) {
+            } else if (is_class) {
+                MapNode *entry = astClassInitFieldAt(type, i);
+                if (!entry) {
                     cctrlRaiseException(cc, 
                             "More initialisers than class fields for class: %s",
                             astTypeToString(type));
                 }
-
-                u64 cls_field_idx = (unsigned long)cls_fields->indexes->entries[i];
-                MapNode *entry = &cls_fields->entries[cls_field_idx];
                 AstType *cls_field_type = entry->value;
                 if (init->kind == AST_STRING &&
                     cls_field_type->kind == AST_TYPE_ARRAY &&
@@ -711,6 +711,7 @@ Map *parseUnionOffsets(Cctrl *cc, int *real_size, int *out_align, List *fields) 
     int max_size = 0, max_align = 1;
     AstType *field;
     Map *fields_dict = astTypeMapNew();
+    int is_first = 1;
 
     listForEach(fields) {
         ClsField *cls_field = (ClsField *)it->value;
@@ -725,11 +726,23 @@ Map *parseUnionOffsets(Cctrl *cc, int *real_size, int *out_align, List *fields) 
             if (cc->flags & CCTRL_SAVE_ANONYMOUS) {
                 mapAdd(fields_dict,astAnnonymousLabel(),field);
             }
+            /* Only the first member takes an initialiser item; for an
+             * anonymous class or union that is all of its fields. */
+            if (!is_first && field->fields) {
+                MapIter mi;
+                mapIterInit(field->fields, &mi);
+                while (mapIterNext(&mi)) {
+                    ((AstType *)mi.node->value)->init_skip = 1;
+                }
+            }
+            is_first = 0;
             parseFlattenAnnonymous(field,fields_dict,0,0);
             continue;
         }
 
         field->offset = 0;
+        field->init_skip = !is_first;
+        is_first = 0;
         if (field_name) {
             mapAdd(fields_dict,field_name->data,field);
         }
@@ -900,7 +913,8 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags,
         Lexeme *tok = cctrlTokenGet(cc);
         assertTokenIsTerminator(cc,tok,terminator_flags);
         return astDecl(var,init);
-    } else if (var->type->kind == AST_TYPE_CLASS && 
+    } else if ((var->type->kind == AST_TYPE_CLASS ||
+                var->type->kind == AST_TYPE_UNION) &&
                !var->type->is_intrinsic && tokenPunctIs(peek,'{')) {
         init = parseDeclArrayInitInt(cc,var->type);
         Lexeme *tok = cctrlTokenGet(cc);
@@ -3007,7 +3021,8 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
          * below parses the RHS with parseExpr, which can't handle `{`.
          * (peek(1) is the token after `=`, i.e. the `{`.) */
         if (tokenPunctIs(tok,'=') &&
-            type->kind == AST_TYPE_CLASS && !type->is_intrinsic &&
+            (type->kind == AST_TYPE_CLASS || type->kind == AST_TYPE_UNION) &&
+            !type->is_intrinsic &&
             tokenPunctIs(cctrlTokenPeekBy(cc,1),'{'))
         {
             variable = astGVar(type,name->start,name->len,0);

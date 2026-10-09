@@ -783,6 +783,27 @@ U0 Main()
 <pre class="output">
 A 8
 </pre>
+<p>An initialiser list gives a union one item, for its first field. A union can also be
+anonymous inside a class: its fields are used as the class's own, and it still takes one
+item:</p>
+<pre data-run><code>
+union Num { I32 i; F32 f; };
+class Token { U8 kind; union { I32 ival; F32 fval; }; I64 line; };
+
+Num n = {7};
+Token t = {1, 42, 3};
+
+U0 Main()
+{
+  Token u = {2, 5, 9};
+  "%d %d %d %d\n", n.i, t.kind, t.ival, t.line;
+  "%d %d %d\n", u.kind, u.ival, u.line;
+}
+</code></pre>
+<pre class="output">
+7 1 42 3
+2 5 9
+</pre>
 
 <h2 id="preprocessor">The preprocessor</h2>
 <h3>#define</h3>
