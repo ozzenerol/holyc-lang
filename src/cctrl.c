@@ -452,11 +452,16 @@ int tokenRingBufferRewind(TokenRingBuffer *ring_buffer) {
     return 1;
 }
 
+static Lexeme *cctrlMaybeExpandToken(Cctrl *cc, Lexeme *token);
+
 void cctrLoadNextTokens(Cctrl *cc, s64 token_count) {
     for (s64 i = 0; i < token_count; ++i) {
         Lexeme *token = lexToken(cc->macro_defs,cc->lexer_);
         if (!token) break;
-        tokenRingBufferPush(cc->token_buffer, token);
+        /* Expand here, not when the parser takes the token: the lexer
+         * runs ahead of the parser and has already applied any later
+         * #undef or #define by then. */
+        tokenRingBufferPush(cc->token_buffer, cctrlMaybeExpandToken(cc, token));
     }
 }
 
@@ -491,7 +496,9 @@ void cctrlInitMacroProcessor(Cctrl *cc) {
     cc->tmp_func = NULL;
 }
 
-Lexeme *cctrlMaybeExpandToken(Cctrl *cc, Lexeme *token) {
+/* A macro use becomes the macro's value as it is defined at this point
+ * of the source; any other token is handed back as is. */
+static Lexeme *cctrlMaybeExpandToken(Cctrl *cc, Lexeme *token) {
     if (token->tk_type != TK_IDENT) {
         return token;
     }
@@ -504,12 +511,6 @@ Lexeme *cctrlMaybeExpandToken(Cctrl *cc, Lexeme *token) {
         /* The macro's value, at the line and column the macro is used:
          * the stored lexeme carries the #define's position, which put
          * an error on the use on the #define line. */
-        for (int i = 0; i < CCTRL_MACRO_USE_CACHE_SIZE; ++i) {
-            CctrlMacroUse *mu = &cc->macro_uses[i];
-            if (mu->use == token && mu->macro == maybe_define) {
-                return mu->expansion;
-            }
-        }
         CctrlMacroUse *mu = &cc->macro_uses[cc->macro_use_next];
         cc->macro_use_next = (cc->macro_use_next + 1) % CCTRL_MACRO_USE_CACHE_SIZE;
         mu->use = token;
@@ -558,7 +559,7 @@ Lexeme *cctrlTokenPeek(Cctrl *cc) {
             continue;
         }
         cc->lineno = token->line;
-        return cctrlMaybeExpandToken(cc,token);
+        return token;
     }
     return NULL;
 }
@@ -623,7 +624,7 @@ Lexeme *cctrlTokenGet(Cctrl *cc) {
                 f->file_id = cctrlRegisterFile(cc, f->filename);
             ast_file_hint = f->file_id;
         }
-        return cctrlMaybeExpandToken(cc, token);
+        return token;
     }
     cc->token_buffer->got_eof = 1;
     return NULL;
