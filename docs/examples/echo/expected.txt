@@ -1,0 +1,5 @@
+client 0: 3/3 echoes ok
+client 1: 3/3 echoes ok
+client 2: 3/3 echoes ok
+client 3: 3/3 echoes ok
+served 4 connections, 228 bytes
