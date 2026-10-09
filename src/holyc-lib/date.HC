@@ -2,8 +2,8 @@
 #include "./defs.HH"
 #include "./memory.HC"
 
-#define CDATE_YEAR_DAYS		365.24225
-#define CDATE_YEAR_DAYS_INT	36524225
+#define CDATE_YEAR_DAYS		365.2425
+#define CDATE_YEAR_DAYS_INT	36524250
 #define CDATE_BASE_DAY_OF_WEEK	0
 
 U64 ModU64(U64 *k, U64 m);
@@ -94,8 +94,16 @@ U0 NowDateTimeStruct(CDateStruct *_ds)
 
 I64 YearStartDate(I64 year)
 {//32-bit day since AD 0, given year number.
-  I64 y1=year-1,yd4000=y1/4000,yd400=y1/400,yd100=y1/100,yd4=y1/4;
-  return year*365+yd4-yd100+yd400-yd4000;
+  /* Proleptic Gregorian, year 0 a leap year. Day 0 is Jan 2 of year 0,
+   * so years 1 to 3999 keep the day numbers of TempleOS's calendar
+   * (which had no Feb 29 in years 0 and 4000). Years before 1 are moved
+   * up by whole 400-year cycles of 97 leap days, so the divisions floor. */
+  I64 y1=year-1,n=0;
+  if (y1<0) {
+    n=(399-y1)/400;
+    y1+=400*n;
+  }
+  return year*365+y1/4-y1/100+y1/400-97*n;
 }
 
 I64 DayOfWeek(I64 i)
