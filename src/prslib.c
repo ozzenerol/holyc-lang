@@ -75,7 +75,7 @@ AstType *parseFunctionPointerType(Cctrl *cc,
     int has_var_args;
     Lexeme *fname;
     cctrlTokenExpect(cc,'*');
-    fname = cctrlTokenGet(cc);
+    fname = cctrlTokenGetRequired(cc);
     if (fname->tk_type != TK_IDENT) {
         cctrlRaiseException(cc,"Expected function pointer name got: %s",
                 lexemeToString(fname));
@@ -734,6 +734,13 @@ Vec *parseArgv(Cctrl *cc, Ast *decl, s64 terminator, char *fname, int len) {
         }
 
         tok = cctrlTokenPeek(cc);
+    }
+
+    /* Ran out of input right after the `(` or a `,` */
+    if (tok == NULL) {
+        cctrlRaiseException(cc,
+                "Unexpected end of input in call to `%.*s` "
+                "(unterminated `( ... )`?)", len, fname);
     }
 
     if (var_args) {
@@ -1702,7 +1709,11 @@ Ast *parseTypeof(Cctrl *cc) {
     Lexeme *peek = cctrlTokenPeek(cc);
     AstType *type = NULL;
 
-    if (tokenPunctIs(tok,'(') && cctrlIsKeyword(cc,peek->start,peek->len)) {
+    if (tok == NULL) {
+        cctrlRaiseException(cc, "Unexpected end of input after `typeof`");
+    }
+    if (tokenPunctIs(tok,'(') && peek &&
+        cctrlIsKeyword(cc,peek->start,peek->len)) {
         type = parseFullType(cc);
         cctrlTokenExpect(cc,')');
     } else {
@@ -1813,7 +1824,7 @@ Ast *parseUnaryExpr(Cctrl *cc) {
             case KW_TYPEOF: return parseTypeof(cc);
             case KW_DEFINED: {
                 cctrlTokenExpect(cc,'(');
-                tok = cctrlTokenGet(cc);
+                tok = cctrlTokenGetRequired(cc);
 
                 if (tok->i64 != ')') {
                     ast = astI64Type(1);

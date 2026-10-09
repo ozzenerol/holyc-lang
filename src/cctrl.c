@@ -355,6 +355,7 @@ TokenRingBuffer *tokenRingBufferStaticNew(void) {
     ring_buffer->tail = 0;
     ring_buffer->head = 0;
     ring_buffer->size = 0;
+    ring_buffer->got_eof = 0;
     ring_buffer->entries = token_ring_buffer;
     ring_buffer->capacity = CCTRL_TOKEN_BUFFER_SIZE;
     for (s64 i = 0; i < CCTRL_TOKEN_BUFFER_SIZE; ++i) {
@@ -368,6 +369,7 @@ TokenRingBuffer *tokenRingBufferNew(void) {
     ring_buffer->tail = 0;
     ring_buffer->head = 0;
     ring_buffer->size = 0;
+    ring_buffer->got_eof = 0;
     return ring_buffer;
 }
 
@@ -464,6 +466,7 @@ void cctrlInitParse(Cctrl *cc, Lexer *lexer_) {
     if (cc->token_buffer == NULL) {
         cc->token_buffer = tokenRingBufferStaticNew();
     }
+    cc->token_buffer->got_eof = 0;
     cctrLoadNextTokens(cc, cc->token_buffer->capacity);
 }
 
@@ -474,6 +477,7 @@ void cctrlInitMacroProcessor(Cctrl *cc) {
     ring_buffer->tail = 0;
     ring_buffer->head = 0;
     ring_buffer->size = 0;
+    ring_buffer->got_eof = 0;
     cc->token_buffer = ring_buffer;
     cc->ast_list = NULL;
     cc->tmp_locals = NULL;
@@ -519,6 +523,13 @@ Lexeme *cctrlTokenPeek(Cctrl *cc) {
 
 void cctrlTokenRewind(Cctrl *cc) {
     TokenRingBuffer *ring_buffer = cc->token_buffer;
+    /* Undoing a get that hit the end of input: nothing was consumed.
+     * Stepping back here would hand the previous token out twice, and
+     * the usual `get; if (no match) rewind;` loops then never end. */
+    if (ring_buffer->got_eof) {
+        ring_buffer->got_eof = 0;
+        return;
+    }
     if (!tokenRingBufferRewind(ring_buffer)) {
         return;
     }
@@ -547,6 +558,7 @@ AoStr *cctrlLookUpFile(Cctrl *cc, u32 file_id) {
 
 Lexeme *cctrlTokenGet(Cctrl *cc) {
     Lexeme *token = tokenRingBufferPeek(cc->token_buffer);
+    cc->token_buffer->got_eof = 0;
     while (token) {
         tokenRingBufferPop(cc->token_buffer);
         if (token->tk_type == TK_COMMENT) {
@@ -571,7 +583,18 @@ Lexeme *cctrlTokenGet(Cctrl *cc) {
         }
         return cctrlMaybeExpandToken(cc, token);
     }
+    cc->token_buffer->got_eof = 1;
     return NULL;
+}
+
+/* cctrlTokenGet where the input cannot end: the end of input is
+ * reported instead of handed back as NULL. */
+Lexeme *cctrlTokenGetRequired(Cctrl *cc) {
+    Lexeme *tok = cctrlTokenGet(cc);
+    if (!tok) {
+        cctrlRaiseException(cc, "Unexpected end of input");
+    }
+    return tok;
 }
 
 /* Should this be at the lexer level? */   

@@ -675,6 +675,12 @@ static char lexNextChar(Lexer *l) {
         l->lineno = lex_file->lineno;
         l->line_start_ptr = lex_file->line_start_ptr;
         ch = *l->ptr;
+        /* The file we returned to has nothing left either (an empty
+         * file, or one that ends with its `#include`): don't step past
+         * its terminator. */
+        if (ch == '\0') {
+            return lexNextChar(l);
+        }
         l->cur_ch = ch;
         l->start = l->ptr;
         l->ptr++;
@@ -1104,8 +1110,12 @@ char *lexString(Lexer *l, char terminator, s64 *_real_len, int *_buffer_len) {
     }
 
 done:
-    /* XXX: Should raise exception if we run out of tokens as it is 
-     * an unterminated string. */
+    /* The input ended inside the string: reported, and the text up to
+     * there is kept so lexing carries on. */
+    l->str_unterminated = ch != terminator;
+    if (l->str_unterminated && !(l->flags & CCF_PERMISSIVE)) {
+        lexReport(l, "Unterminated string");
+    }
     if (!is_bytes) {
         real_len++;
     }
@@ -1767,6 +1777,10 @@ void lexInclude(Lexer *l) {
                 l->builtin_root, ident->data);
         aoStrRelease(ident);
     } else if (next.tk_type == TK_STR) {
+        /* Already reported; the path is cut short. */
+        if (l->str_unterminated) {
+            return;
+        }
         include_path = aoStrDupRaw(next.start, next.len);
         /* Resolve a relative include against the INCLUDING file's
          * directory, not the process cwd - and record the joined path

@@ -96,7 +96,7 @@ char *assertionTerminatorMessage(Cctrl *cc, Lexeme *tok,
  * terminate */
 void assertTokenIsTerminator(Cctrl *cc, Lexeme *tok, s64 terminator_flags) {
     if (tok == NULL) {
-        cctrlRaiseException(cc,"NULL token passed to assertTokenIsTerminator");
+        cctrlRaiseException(cc,"Unexpected end of input");
     }
 
     if ((tok->i64 == ';' && (terminator_flags & PUNCT_TERM_SEMI)) ||
@@ -141,6 +141,9 @@ void assertTokenIsTerminatorWithMsg(Cctrl *cc, Lexeme *tok,
                                     s64 terminator_flags,
                                     const char *fmt, ...)
 {
+    if (tok == NULL) {
+        cctrlRaiseException(cc,"Unexpected end of input");
+    }
     if ((tok->i64 == ';' && (terminator_flags & PUNCT_TERM_SEMI)) ||
         (tok->i64 == ')' && (terminator_flags & PUNCT_TERM_RPAREN)) ||
         (tok->i64 == ',' && (terminator_flags & PUNCT_TERM_COMMA))) {
@@ -151,10 +154,6 @@ void assertTokenIsTerminatorWithMsg(Cctrl *cc, Lexeme *tok,
     va_start(ap,fmt);
     char *msg = mprintVa(fmt, ap, NULL);
     va_end(ap);
-
-    if (tok == NULL) {
-        cctrlRaiseException(cc,"NULL token passed to assertTokenIsTerminator");
-    }
 
     cctrlRewindUntilPunctMatch(cc,tok->i64,NULL);
     char *token_msg = assertionTerminatorMessage(cc,tok,terminator_flags);

@@ -242,6 +242,8 @@ typedef struct Lexer {
     int flags;
     int ishex;
     int isu64;
+    /* The last string lexed ran into the end of the input */
+    int str_unterminated;
     /* The open conditionals, innermost last */
     LexCond *conds;
     int cond_depth;
