@@ -240,7 +240,7 @@ __noreturn void cliPrintUsage(void) {
     } else {
         aoStrCatFmt(buffer,"hcc - HolyC Compiler %s\n", cctrlGetVersion());
     }
-    aoStrCatFmt(buffer, "Compile .HC files. Documentation: https://github.com/ozzenerol/holyc-lang/tree/main/docs\n\n");
+    aoStrCatFmt(buffer, "Compile .HC files. Documentation: https://ozzenerol.github.io/holyc-lang/\n\n");
 
     if (is_terminal) {
         aoStrCatFmt(buffer, "\033[1;1mUSAGE:\033[0m\n");
