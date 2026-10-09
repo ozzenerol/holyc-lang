@@ -8,7 +8,7 @@
   #define SO_DONTROUTE    5   /* just use interface addresses */
   #define SO_BROADCAST    6   /* permit sending of broadcast msgs */
   #define SO_LINGER       13  /* linger on close if data present (in seconds) */
-  #define SO_OOBINLINE    9   /* leave received OOB data in line */
+  #define SO_OOBINLINE    10  /* leave received OOB data in line */
   #define SO_REUSEPORT    15  /* allow local address & port reuse */
   #define SO_TIMESTAMP    29  /* timestamp received dgram traffic */
 #else
@@ -56,38 +56,56 @@
 #define IPPROTO_ICMPV6          58              /* ICMP6 */
 #define IPPROTO_RAW             255             /* raw IP packet */
 
-#define TCP_NODELAY             0x01    /* don't delay send to coalesce packets */
-#define TCP_MAXSEG              0x02    /* set maximum segment size */
-#define TCP_NOPUSH              0x04    /* don't push last block of write */
-#define TCP_NOOPT               0x08    /* don't use TCP options */
-#define TCP_KEEPALIVE           0x10    /* idle time used when SO_KEEPALIVE is enabled */
-#define TCP_CONNECTIONTIMEOUT   0x20    /* connection timeout */
-#define PERSIST_TIMEOUT         0x40    /* time after which a connection in
+#ifdef IS_LINUX
+  #define TCP_NODELAY             1       /* don't delay send to coalesce packets */
+  #define TCP_MAXSEG              2       /* set maximum segment size */
+  #define TCP_CORK                3       /* don't send out partial frames */
+  #define TCP_KEEPIDLE            4       /* idle time used when SO_KEEPALIVE is enabled */
+  #define TCP_KEEPALIVE           4       /* the macOS name of TCP_KEEPIDLE */
+  #define TCP_KEEPINTVL           5       /* interval between keepalives */
+  #define TCP_KEEPCNT             6       /* number of keepalives before close */
+  #define TCP_INFO                11      /* information about this connection */
+  #define TCP_QUICKACK            12      /* block/reenable quick acks */
+  #define TCP_USER_TIMEOUT        18      /* how long for loss retry before timeout */
+  #define TCP_FASTOPEN            23      /* Enable/Disable TCP Fastopen on this socket */
+#else
+  #define TCP_NODELAY             0x01    /* don't delay send to coalesce packets */
+  #define TCP_MAXSEG              0x02    /* set maximum segment size */
+  #define TCP_NOPUSH              0x04    /* don't push last block of write */
+  #define TCP_NOOPT               0x08    /* don't use TCP options */
+  #define TCP_KEEPALIVE           0x10    /* idle time used when SO_KEEPALIVE is enabled */
+  #define TCP_CONNECTIONTIMEOUT   0x20    /* connection timeout */
+  #define PERSIST_TIMEOUT         0x40    /* time after which a connection in
 	                                 *  persist timeout will terminate.
 	                                 *  see draft-ananth-tcpm-persist-02.txt
 	                                 */
-#define TCP_RXT_CONNDROPTIME    0x80    /* time after which tcp retransmissions will be
+  #define TCP_RXT_CONNDROPTIME    0x80    /* time after which tcp retransmissions will be
 	                                 * stopped and the connection will be dropped
 	                                 */
-#define TCP_RXT_FINDROP         0x100   /* when this option is set, drop a connection
+  #define TCP_RXT_FINDROP         0x100   /* when this option is set, drop a connection
 	                                 * after retransmitting the FIN 3 times. It will
 	                                 * prevent holding too many mbufs in socket
 	                                 * buffer queues.
 	                                 */
-#define TCP_KEEPINTVL           0x101   /* interval between keepalives */
-#define TCP_KEEPCNT             0x102   /* number of keepalives before close */
-#define TCP_SENDMOREACKS        0x103   /* always ack every other packet */
-#define TCP_ENABLE_ECN          0x104   /* Enable ECN on a connection */
-#define TCP_FASTOPEN            0x105   /* Enable/Disable TCP Fastopen on this socket */
-#define TCP_CONNECTION_INFO     0x106   /* State of TCP connection */
+  #define TCP_KEEPINTVL           0x101   /* interval between keepalives */
+  #define TCP_KEEPCNT             0x102   /* number of keepalives before close */
+  #define TCP_SENDMOREACKS        0x103   /* always ack every other packet */
+  #define TCP_ENABLE_ECN          0x104   /* Enable ECN on a connection */
+  #define TCP_FASTOPEN            0x105   /* Enable/Disable TCP Fastopen on this socket */
+  #define TCP_CONNECTION_INFO     0x106   /* State of TCP connection */
+#endif
 
 #define INET6_ADDRSTRLEN        46
 
 #define	AI_PASSIVE	0x00000001 /* get address to use bind() */
 #define	AI_CANONNAME	0x00000002 /* fill ai_canonname */
 #define	AI_NUMERICHOST	0x00000004 /* prevent host name resolution */
-#define	AI_NUMERICSERV	0x00001000 /* prevent service name resolution */
-#define	AI_UNUSABLE	0x10000000 /* return addresses even if unusable (i.e. opposite of AI_DEFAULT) */
+#ifdef IS_LINUX
+  #define	AI_NUMERICSERV	0x00000400 /* prevent service name resolution */
+#else
+  #define	AI_NUMERICSERV	0x00001000 /* prevent service name resolution */
+  #define	AI_UNUSABLE	0x10000000 /* return addresses even if unusable (i.e. opposite of AI_DEFAULT) */
+#endif
 
 public class hostent
 {
@@ -125,10 +143,16 @@ public class protoent
   I32 p_proto;     /* protocol # */
 };
 
+/* Linux has no length byte: the family is a U16 at the start. The BSDs and
+ * macOS start with a U8 length and a U8 family. */
 public class sockaddr
 {
+#ifdef IS_LINUX
+  U16 sa_family;
+#else
   U8 sa_len;
   U8 sa_family;
+#endif
   U8 sa_data[14];
 };
 
@@ -139,8 +163,12 @@ public class in_addr
 
 public class sockaddr_in
 {
+#ifdef IS_LINUX
+  U16 sin_family;
+#else
   U8 sin_len;
   U8 sin_family;
+#endif
   U16 sin_port;
   in_addr sin_addr;
   U8 sin_zero[8];
@@ -158,9 +186,13 @@ public class in6_addr
 
 public class sockaddr_in6
 {
+#ifdef IS_LINUX
+  U16 sin6_family;    /* AF_INET6 (sa_family_t) */
+#else
   U8  sin6_len;        /* length of this struct(sa_family_t) */
   U8  sin6_family;     /* AF_INET6 (sa_family_t) */
-  I64 sin6_port;      /* Transport layer port # (in_port_t) */
+#endif
+  U16 sin6_port;      /* Transport layer port # (in_port_t) */
   U32 sin6_flowinfo;  /* IP6 flow information */
   in6_addr sin6_addr; /* IP6 address */
   U32 sin6_scope_id;  /* scope zone index */
@@ -189,8 +221,12 @@ public class addrinfo
 
 public class sockaddr_storage
 {
+#ifdef IS_LINUX
+  U16 ss_family;      /* address family */
+#else
   U8  ss_len;         /* address length */
   U8  ss_family;      /* [XSI] address family */
+#endif
   U8  __ss_pad1[_SS_PAD1SIZE];
   I64 __ss_align;     /* force structure storage alignment */
   U8  __ss_pad2[_SS_PAD2SIZE];
@@ -209,9 +245,14 @@ public class msghdr
 
 public class sockaddr_un
 {
+#ifdef IS_LINUX
+  U16 sun_family;    /* AF_UNIX */
+  U8 sun_path[108];  /* path name */
+#else
   U8 sun_len;        /* sockaddr len including null */
   U8 sun_family;     /* [XSI] AF_UNIX */
   U8 sun_path[104];  /* [XSI] path name (gag) */
+#endif
 };
 
 public extern "c" I32 setsockopt(I32 __sockfd, I32 __level, I32 __option_name,
@@ -474,22 +515,35 @@ public Bool NetGetIpv4AddressFromAcceptedSocket(I32 sockfd, U8 *ipbuf, I32 outle
   return NetGetIpv4Address(&sa, (&sa)(sockaddr_in *)->sin_family, ipbuf, outlen);
 }
 
-public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog)
+/* Fills `addr` for the socket file `name`; FALSE if the path doesn't fit */
+static Bool NetUnixAddress(sockaddr_un *addr, U8 *name)
 {
-  I32 sockfd, len;
+  I64 len = StrLen(name);
+  if (len >= sizeof(addr->sun_path)) {
+    return FALSE;
+  }
+  MemSet(addr, 0, sizeof(sockaddr_un));
+#ifndef IS_LINUX
+  addr->sun_len = sizeof(sockaddr_un);
+#endif
+  addr->sun_family = AF_UNIX;
+  MemCpy(addr->sun_path, name, len + 1);
+  return TRUE;
+}
+
+public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog)
+{// Listens on the socket file `name`; returns the socket or -1 on failure
+  I32 sockfd = -1;
   sockaddr_un srv;
 
-  srv.sun_family = AF_UNIX;
-  StrCpy(srv.sun_path, name);
-  sockfd = -1;
-
-  len = sizeof(srv);
+  if (!NetUnixAddress(&srv, name))
+    return -1;
 
   if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
     goto error;
 
   unlink(name);
-  if ((bind(sockfd, (&srv)(sockaddr *), len)) == -1)
+  if ((bind(sockfd, (&srv)(sockaddr *), sizeof(sockaddr_un))) == -1)
     goto error;
 
   if (listen(sockfd, backlog) == -1)
@@ -501,24 +555,23 @@ error:
   if (sockfd != -1) {
     close(sockfd);
   }
-  return FALSE;
+  return -1;
 }
 
 public I32 NetCreateUnixClientSocket(U8 *name)
-{
-  I32 sockfd, len;
+{// Connects to the socket file `name`; returns the socket or -1 on failure
+  I32 sockfd;
   sockaddr_un srv;
 
+  if (!NetUnixAddress(&srv, name))
+    return -1;
+
   if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-    return FALSE;
+    return -1;
 
-  srv.sun_family = AF_UNIX;
-  StrCpy(srv.sun_path, name);
-  len = sizeof(srv);
-
-  if (connect(sockfd, (&srv)(sockaddr *), len) == -1) {
+  if (connect(sockfd, (&srv)(sockaddr *), sizeof(sockaddr_un)) == -1) {
     close(sockfd);
-    return FALSE;
+    return -1;
   }
   return sockfd;
 }
