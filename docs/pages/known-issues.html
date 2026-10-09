@@ -1,17 +1,111 @@
 <!-- title: Known issues -->
 <h1>Known issues</h1>
-<p class="lede">Bugs found while writing and testing these docs (hcc v0.0.15-beta), each with
-a way to reproduce it and a workaround. The other pages avoid them, so every example there
-works as shown.</p>
+<p class="lede">Bugs found while writing and testing these docs and while testing the compiler,
+each with a way to reproduce it and a workaround. The other pages avoid them, so every example
+there works as shown.</p>
 
 <h2>Compiler</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>Calling a function without parentheses inside an expression crashes hcc</td>
+        <td><code>I64 F() { return 3; }</code> then <code>if (F == 3)</code> or <code>I64 x = F + 1;</code>: "Expr Unhandled AST kind: AST_FUNC"</td>
+        <td>Write the parentheses: <code>F() == 3</code></td></tr>
+    <tr><td>A tagged class or union defined inside a class body crashes hcc</td>
+        <td><code>class Y { I64 a; union U2 { I32 i; F32 f; }; I64 z; };</code> and any use of <code>Y</code></td>
+        <td>Define the union outside the class, or leave it untagged</td></tr>
+    <tr><td><code>#undef</code> or a redefinition takes effect up to 16 tokens early</td>
+        <td><code>#define N 3</code>, a use of <code>N</code>, then <code>#undef N</code> and <code>#define N 4</code> a few tokens later: the first use already sees 4</td>
+        <td>Use a new macro name instead of redefining one</td></tr>
+    <tr><td>Arrays of function pointers don't parse</td>
+        <td><code>I64 (*fns[2])(I64 x);</code>: "unexpected character `[`"</td>
+        <td>Use a class with function-pointer fields</td></tr>
+    <tr><td>No brace elision for class-typed fields</td>
+        <td><code>class L { I64 t; P a; I64 z; }; L l = {1, 2, 3};</code> warns instead of filling <code>a</code>'s fields</td>
+        <td>Brace the inner class: <code>{1, {2, 3}, 4}</code></td></tr>
+    <tr><td>Assigning to an array is only a warning</td>
+        <td><code>I64 arr[2]; arr = arr + 1;</code> or <code>arr += 1;</code> compiles</td>
+        <td>Use a pointer: <code>I64 *p = arr; p += 1;</code></td></tr>
+    <tr><td>Assigning a <code>U0 *</code> to a function pointer warns</td>
+        <td><code>U0 *v = &amp;F; I64 (*fp)(I64 x) = v;</code>: "'U0 *' is not assignable to type '&lt;fn&gt; I64'"</td>
+        <td>The assignment still works; ignore the warning</td></tr>
+    <tr><td>No line continuation in <code>#define</code></td>
+        <td>A <code>#define</code> ending in <code>\</code> gives confusing errors placed at an earlier line</td>
+        <td>Keep each <code>#define</code> on one line</td></tr>
+    <tr><td><code>-jit</code> with no <code>Main</code> fails silently</td>
+        <td>A file with no <code>Main</code> (or an empty file): <code>hcc -jit</code> prints nothing and exits 255</td>
+        <td>Define <code>Main</code></td></tr>
+    <tr><td>Skipped <code>#if</code> blocks still report some errors</td>
+        <td><code>#if 0</code> / <code>I64 x = 0b12;</code> / <code>#endif</code> reports the malformed number; C ignores skipped code</td>
+        <td>Keep code inside <code>#if 0</code> lexically valid</td></tr>
+  </tbody>
+</table>
+
+<h3>Diagnostics</h3>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>A wrong argument count is underlined at the wrong place</td>
+        <td><code>U0 Main() { I64 x = One(1); I64 y = Two(1); }</code>: the error for <code>Two</code> underlines <code>Main()</code></td>
+        <td>Read the function name in the message</td></tr>
+    <tr><td>Warnings for compound assignments and some pointer/array mismatches point at the nearest <code>=</code></td>
+        <td><code>y = y + q; arr = arr + 1;</code>: the warning for the second statement is placed on the first</td>
+        <td>Read the types in the message</td></tr>
+    <tr><td>An error on a folded macro shows an empty value</td>
+        <td><code>#define T (N + 1)</code> then <code>I64 x = 2 T;</code>: "Unexpected integer ``"</td>
+        <td>The "expanded from macro" note names the macro</td></tr>
+    <tr><td>The "perhaps a missing <code>;</code>" hint can point at the wrong line</td>
+        <td><code>U0 Main() {</code> / <code>I64 x = 2 3;</code>: the hint points at <code>U0 Main() {</code></td>
+        <td>Ignore the hint when that line can't take a <code>;</code></td></tr>
+    <tr><td>Carets are misplaced after non-ASCII text</td>
+        <td><code>I64 x = 1 €é;</code>: the caret for <code>é</code> is two columns too far right (columns count bytes)</td>
+        <td>Use the reported column</td></tr>
+    <tr><td>Array types show their size in bytes</td>
+        <td>A diagnostic about <code>I64 arr[2]</code> calls it <code>I64[16]</code></td>
+        <td>Divide by the element size</td></tr>
+  </tbody>
+</table>
 
 <h2>JIT and code generation</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td><code>argc</code> converted to a float is 0.0</td>
+        <td><code>F64 A(...) { return argc; }</code>: <code>A(1, 2)</code> is 0.0; <code>F64 f = argc;</code> too</td>
+        <td>Copy it first: <code>I64 n = argc; return n;</code></td></tr>
+    <tr><td>The legacy x86 backend lays out global class initialisers without field offsets</td>
+        <td>Only with <code>--use-legacy-x86</code>: <code>class P { I32 a; I64 b; }; P g = {1, 2};</code> gives a wrong <code>g.b</code></td>
+        <td>Use the default backend</td></tr>
+  </tbody>
+</table>
 
 <h2>Standard library</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td><code>IntSet</code> doesn't store anything</td>
+        <td><code>IntSetAdd(s, 5);</code> then <code>IntSetHas(s, 5)</code> is 0 and <code>IntSetSize(s)</code> is 0; unions and differences are empty</td>
+        <td>Use an <code>IntMap</code> with dummy values</td></tr>
+    <tr><td><code>JsonParse</code> rejects every <code>\u</code> escape</td>
+        <td><code>{"e": "A"}</code> is not <code>JsonOk</code></td>
+        <td>Avoid <code>\u</code> escapes in the input</td></tr>
+    <tr><td><code>JsonParse</code> rejects an empty top-level object or array, and top-level scalars</td>
+        <td><code>{}</code>, <code>[]</code>, <code>42</code> and <code>"text"</code> are not <code>JsonOk</code> (empty ones nested inside something are fine)</td>
+        <td>Wrap the value: <code>{"v": []}</code></td></tr>
+    <tr><td><code>JsonToString</code> output can't always be parsed back</td>
+        <td>An empty object prints as <code>{(nil)}</code>, and a tab inside a string is written raw instead of <code>\t</code></td>
+        <td>Avoid empty objects and control characters in strings you serialise</td></tr>
+    <tr><td><code>%d</code> of the smallest <code>I64</code> prints garbage</td>
+        <td><code>"%d\n", 0x8000000000000000;</code> prints punctuation instead of <code>-9223372036854775808</code></td>
+        <td>Special-case that value</td></tr>
+    <tr><td><code>NetAccept</code> returns <code>Bool</code>, and <code>NetCreateServer</code> returns 0 on some failures</td>
+        <td>A socket number over 255 from <code>NetAccept</code> is truncated; 0 from <code>NetCreateServer</code> looks like a valid socket</td>
+        <td>Call <code>accept</code> directly, and treat <code>&lt;= 0</code> from <code>NetCreateServer</code> as failure</td></tr>
+    <tr><td>Unix domain sockets don't work on Linux</td>
+        <td><code>sockaddr_un</code> has the BSD layout (a leading length byte), so <code>NetCreateUnixServerSocket</code> fails and returns 0; a path over 104 bytes also overflows it</td>
+        <td>Use TCP on 127.0.0.1</td></tr>
+  </tbody>
+</table>
 
 <h2>Reporting</h2>
 <p>Please report bugs on <a href="https://github.com/ozzenerol/holyc-lang/issues">GitHub</a>.
