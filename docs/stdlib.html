@@ -286,7 +286,9 @@ tree itself. NULL is ignored.</p></div><div class="decl" id="RBIter"><div class=
 values and the result is never negative: Gcd(0, n) == |n| and
 Gcd(0, 0) == 0. Gcd(I64_MIN, 0) is 2^63, which only fits as a U64.
 The loop runs on non-positive values because -|x| always fits in an
-I64 while |I64_MIN| does not.</p></div><div class="decl" id="Pow"><div class="decl-head"><a class="decl-name" href="#Pow">Pow</a> <span class="kind">function</span></div><pre><code class="language-holyc">F64 Pow(F64 a, I64 b);</code></pre></div></section><section id="date"><h2>Dates and time</h2><p class="lede">TempleOS-style CDate values and conversions. Defined in <code>src/holyc-lib/date.HC</code>.</p><div class="decl" id="timeval"><div class="decl-head"><a class="decl-name" href="#timeval">timeval</a> <span class="kind">class</span></div><pre><code class="language-holyc">class timeval
+I64 while |I64_MIN| does not.</p></div><div class="decl" id="Pow"><div class="decl-head"><a class="decl-name" href="#Pow">Pow</a> <span class="kind">function</span></div><pre><code class="language-holyc">F64 Pow(F64 a, F64 b);</code></pre><p class="doc">`a` to the power `b`. An integral `b` in the I64 range is done by
+repeated squaring, so Pow(2, 10) is exactly 1024.0; any other `b`
+(fractional, NaN, infinite or beyond I64) goes to pow.</p></div></section><section id="date"><h2>Dates and time</h2><p class="lede">TempleOS-style CDate values and conversions. Defined in <code>src/holyc-lib/date.HC</code>.</p><div class="decl" id="timeval"><div class="decl-head"><a class="decl-name" href="#timeval">timeval</a> <span class="kind">class</span></div><pre><code class="language-holyc">class timeval
 {
   I64 tv_sec;
   I32 tv_usec;

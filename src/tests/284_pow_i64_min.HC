@@ -24,11 +24,14 @@ I32 Main()
   tests++; if (Pow(1.0, I64_MIN) == 1.0) correct++;
   tests++; if (Pow(-1.0, I64_MIN) == 1.0) correct++;
 
+  /* The exponent is an F64: I64_MAX and I64_MIN + 1 round to the even
+   * +-2^63, so their sign follows pow(-x, 2^63). */
   tests++; if (Pow(2, I64_MAX) == inf) correct++;
-  tests++; if (Pow(-2, I64_MAX) == -inf) correct++;    /* odd exponent */
-  tests++; if (Pow(-1.0, I64_MAX) == -1.0) correct++;
+  tests++; if (Pow(-2, I64_MAX) == inf) correct++;
+  tests++; if (Pow(-1.0, I64_MAX) == 1.0) correct++;
   tests++; if (Pow(0.5, I64_MAX) == 0.0) correct++;
-  tests++; if (Pow(-1.0, I64_MIN + 1) == -1.0) correct++;
+  tests++; if (Pow(-1.0, I64_MIN + 1) == 1.0) correct++;
+  tests++; if (Pow(-1.0, 4503599627370497) == -1.0) correct++;  /* 2^52+1, odd */
 
   /* Ordinary exponents. */
   tests++; if (Pow(2, 10) == 1024.0) correct++;

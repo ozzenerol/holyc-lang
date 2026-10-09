@@ -753,7 +753,7 @@ public _extern _ABS U64 Abs(I64 num);
 public U64 Abs(I64 num);
 #endif
 public U64 Gcd(I64 a, I64 b);
-public F64 Pow(F64 a, I64 b);
+public F64 Pow(F64 a, F64 b);
 public U64 ModU64(U64 *k, U64 m);
 
 public extern "c" U0 *memchr(U0 *__s, I32 __c, U64 __n);

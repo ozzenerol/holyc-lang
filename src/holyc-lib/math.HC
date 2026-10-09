@@ -78,11 +78,13 @@ _ABS::
     RET
 }
 
-public _extern _ABS U64 Abs(I64 num);
+/* The absolute value of an integer, as an I64. Abs(I64_MIN) is I64_MIN
+ * because 2^63 does not fit, like C's labs. For an F64 use fabs. */
+public _extern _ABS I64 Abs(I64 num);
 #endif
 
 #ifdef IS_ARM_64
-public U64 Abs(I64 num)
+public I64 Abs(I64 num)
 {
   if (num < 0) return -num;
   return num;
@@ -109,12 +111,20 @@ public U64 Gcd(I64 a, I64 b)
   return -a;
 }
 
-F64 Pow(F64 a, I64 b)
+/* `a` to the power `b`. An integral `b` in the I64 range is done by
+ * repeated squaring, so Pow(2, 10) is exactly 1024.0; any other `b`
+ * (fractional, NaN, infinite or beyond I64) goes to pow. */
+F64 Pow(F64 a, F64 b)
 {
+  if (b != trunc(b) || b < -9.223372036854775808e18 ||
+      b >= 9.223372036854775808e18) {
+    return pow(a, b);
+  }
   if (b == 0) return 1.0;
   F64 result = 1.0;
-  U64 n = b; /* unsigned so that -I64_MIN still fits */
-  if (b < 0) {
+  I64 e = b;
+  U64 n = e; /* unsigned so that -I64_MIN still fits */
+  if (e < 0) {
     a = 1 / a;
     n = -n;
   }
