@@ -558,6 +558,17 @@ public I32 NetAccept(I32 socket, Bool non_blocking=FALSE)
   return accepted;
 }
 
+#ifdef IS_LINUX
+#define __NET_MSG_NOSIGNAL 0x4000
+#else
+#define __NET_MSG_NOSIGNAL 0x80000
+#endif
+
+public I64 NetSend(I32 sockfd, U0 *buf, I64 len, I32 flags=0)
+{// send() that never raises SIGPIPE: a closed peer gives -1 (EPIPE)
+  return send(sockfd, buf, len, flags | __NET_MSG_NOSIGNAL);
+}
+
 /**
  * Socket needs to be accepted for this to work, a better function
  * could probably be made as this only accepts IPV4 which doesn't feel

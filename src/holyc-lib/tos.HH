@@ -764,6 +764,21 @@ public I32 Errno();
  * reports errors through errno. */
 public U0 SetErrno(I32 err);
 
+/* Signals (same numbers on Linux and macOS) and signal(3). signal returns
+ * the previous handler, or SIG_ERR. SIG_IGN on SIGPIPE makes a write to a
+ * closed socket or pipe return -1 with Errno() EPIPE instead of ending
+ * the program. */
+#define SIGHUP          1               /* Terminal hung up */
+#define SIGINT          2               /* Ctrl-C */
+#define SIGKILL         9               /* Kill (can't be caught or ignored) */
+#define SIGPIPE         13              /* Write to a closed pipe or socket */
+#define SIGTERM         15              /* Termination request */
+#define SIG_DFL         0               /* The default action */
+#define SIG_IGN         1               /* Ignore the signal */
+#define SIG_ERR         -1              /* signal() failed */
+/* handler is SIG_DFL, SIG_IGN or a U0 F(I32 sig) as (&F)(I64) */
+public extern "c" I64 signal(I32 sig, I64 handler);
+
 /* Call the shell with `printf`-like formatting. fmt is always formatted,
  * also without arguments, so write %% for a literal %. Returns what
  * System returns: the exit code (0-255), or -1 if the command was killed
@@ -2335,8 +2350,9 @@ public extern "c" I64 sendmsg(I32 socket, msghdr *message, I32 flags);
 public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U64 dest_len);
 
 /* Writing to a socket whose peer has closed raises SIGPIPE, which kills the
- * process: pass MSG_NOSIGNAL to send/sendto/sendmsg to get -1 with Errno()
- * EPIPE instead. */
+ * process, as in C. NetSend, or MSG_NOSIGNAL in the flags of send/sendto/
+ * sendmsg, gives -1 with Errno() EPIPE instead; signal(SIGPIPE, SIG_IGN)
+ * does that for every write in the program. */
 
 /* Flags for send/recv and friends */
 #define MSG_OOB         0x1             /* Out-of-band data */
@@ -2418,6 +2434,11 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
  * non_blocking makes the accepted socket non-blocking; to not wait in
  * NetAccept itself, make the listening socket non-blocking. */
 public I32 NetAccept(I32 socket, Bool non_blocking=FALSE);
+/* send() with MSG_NOSIGNAL added to flags: a peer that has closed gives
+ * -1 with Errno() EPIPE (or ECONNRESET) instead of a SIGPIPE that ends
+ * the program. Like send it may write fewer than len bytes (on a
+ * non-blocking socket); returns the number written or -1. */
+public I64 NetSend(I32 sockfd, U0 *buf, I64 len, I32 flags=0);
 /* Write the peer address of a connected socket (IPv4 or IPv6) as text
  * into ipbuf of `outlen` bytes. FALSE for a unix domain socket, a socket
  * that isn't connected or a buffer too small. */
