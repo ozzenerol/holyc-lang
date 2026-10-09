@@ -2212,6 +2212,25 @@ Lexeme *lexDefine(Map *macro_defs, Lexer *l) {
                 vecRelease(tokens);
                 return NULL;
             }
+            /* Spell the folded value: start/len was a span that came
+             * out empty, and errors print a token as `%.*s` of it */
+            char num[64];
+            int num_len;
+            if (tk_type == TK_F64) {
+                num_len = snprintf(num, sizeof(num), "%g", expanded->f64);
+                /* keep it reading as a float: `3.0`, not `3` */
+                if (!strpbrk(num, ".eni") && num_len + 2 < (int)sizeof(num)) {
+                    num_len += snprintf(num + num_len, 3, ".0");
+                }
+            } else if (expanded->isu64) {
+                num_len = snprintf(num, sizeof(num), "%llu",
+                                   (unsigned long long)expanded->i64);
+            } else {
+                num_len = snprintf(num, sizeof(num), "%lld",
+                                   (long long)expanded->i64);
+            }
+            expanded->start = strndup(num, num_len);
+            expanded->len = num_len;
             expanded->line = start->line;
         }
         mapAdd(macro_defs,ident->data,expanded);
