@@ -40,7 +40,7 @@ I32 Main()
   I64 correct = 0;
 
   tests++;
-  if (Has("I64 s = 2 \"abcd\" 3;\n", "Unexpected string `abcd`",
+  if (Has("I64 s = 2 \"abcd\" 3;\n", "Unexpected string `\"abcd\"`",
           "219-stru.HC:1:11\n", "|              ^^^^^^\n"))
     correct++;
   else "Failed - string\n";

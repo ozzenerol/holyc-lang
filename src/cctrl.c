@@ -543,19 +543,8 @@ static CctrlMacroUse *cctrlMacroUseOf(Cctrl *cc, Lexeme *tok) {
 static s64 cctrlTokenSourceLen(Cctrl *cc, Lexeme *tok) {
     CctrlMacroUse *mu = cctrlMacroUseOf(cc, tok);
     if (mu) return mu->use->len;
-    if (tok->tk_type == TK_STR) {
+    if (tok->tk_type == TK_STR || tok->tk_type == TK_CHAR_CONST) {
         return tok->len + 2;
-    }
-    if (tok->tk_type == TK_CHAR_CONST && tok->start) {
-        /* Its `len` counts the decoded characters (`'\n'` is 1): measure
-         * it in the source, from after the opening quote to the closing
-         * one. */
-        s64 i = 0;
-        while (tok->start[i] && tok->start[i] != '\'' &&
-               tok->start[i] != '\n') {
-            i += (tok->start[i] == '\\' && tok->start[i + 1]) ? 2 : 1;
-        }
-        return i + (tok->start[i] == '\'' ? 2 : 1);
     }
     return tok->len;
 }
@@ -1374,9 +1363,9 @@ void cctrlTokenExpect(Cctrl *cc, s64 expected) {
      * once so the diagnostic renderer captures tok's actual line/col. */
     cctrlTokenRewind(cc);
     AoStr *err_msg = cctrlMessagePrintF(cc, CCTRL_ERROR,
-            "Syntax error, got an unexpected %s `%.*s`, perhaps you meant `%c`?",
+            "Syntax error, got an unexpected %s `%s`, perhaps you meant `%c`?",
             lexemeTypeToString(tok->tk_type),
-            tok->len, tok->start,
+            lexemeAsWritten(tok),
             (char)expected);
     /* Positioned on tok too, while still rewound. */
     CctrlDiagnostic *err_d = cctrlMakeDiag(cc, CCTRL_ERROR, err_msg, NULL);

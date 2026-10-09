@@ -291,6 +291,7 @@ char *lexemePunctToString(s64 op);
 char *lexemePunctToStringWithFlags(s64 op, u64 flags);
 char *lexemePunctToEncodedString(s64 op);
 char *lexemeToString(Lexeme *tok);
+char *lexemeAsWritten(Lexeme *tok);
 AoStr *lexemeToAoStr(Lexeme *tok);
 void lexReleaseAllFiles(Lexer *l);
 int tokenPunctIs(Lexeme *tok, s64 ch);

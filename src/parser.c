@@ -421,8 +421,8 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
         /* Back onto the token so the diagnostic points at it */
         cctrlTokenRewind(cc);
         cctrlRaiseException(cc,
-                "Expected initializer list starting with '{', got `%.*s`",
-                tok->len, tok->start);
+                "Expected initializer list starting with '{', got `%s`",
+                lexemeAsWritten(tok));
     }
 
     initlist = listNew();
@@ -1343,8 +1343,8 @@ Ast *parseIfStatement(Cctrl *cc) {
         cctrlRaiseException(cc, "Unexpected end of input");
     }
     if (!parseValidPostControlFlowToken(peek)) {
-        cctrlRaiseException(cc,"Unexpected %s `%.*s` while parsing if body",
-                lexemeTypeToString(peek->tk_type), peek->len, peek->start);
+        cctrlRaiseException(cc,"Unexpected %s `%s` while parsing if body",
+                lexemeTypeToString(peek->tk_type), lexemeAsWritten(peek));
     }
 
     Ast *then = parseStatement(cc);
@@ -1359,8 +1359,8 @@ Ast *parseIfStatement(Cctrl *cc) {
         if (!parseValidPostControlFlowToken(epeek)) {
             cctrlTokenRewind(cc);
             cctrlTokenRewind(cc);
-            cctrlRaiseException(cc,"Unexpected %s `%.*s` while parsing else body",
-                    lexemeTypeToString(epeek->tk_type), epeek->len, epeek->start);
+            cctrlRaiseException(cc,"Unexpected %s `%s` while parsing else body",
+                    lexemeTypeToString(epeek->tk_type), lexemeAsWritten(epeek));
         }
         els = parseStatement(cc);
     } else {
@@ -1666,8 +1666,8 @@ Ast *parseForStatement(Cctrl *cc) {
         cctrlRaiseException(cc, "Unexpected end of input");
     }
     if (!parseValidPostControlFlowToken(peek)) {
-        cctrlRaiseException(cc,"Unexpected %s `%.*s` while parsing for loop body", 
-                lexemeTypeToString(peek->tk_type), peek->len, peek->start);
+        cctrlRaiseException(cc,"Unexpected %s `%s` while parsing for loop body", 
+                lexemeTypeToString(peek->tk_type), lexemeAsWritten(peek));
     }
     forbody = parseStatement(cc);
     /* Go back up */
@@ -1700,8 +1700,8 @@ Ast *parseWhileStatement(Cctrl *cc) {
         cctrlRaiseException(cc, "Unexpected end of input");
     }
     if (!parseValidPostControlFlowToken(peek)) {
-        cctrlRaiseException(cc,"Unexpected %s `%.*s` while parsing while loop body", 
-                lexemeTypeToString(peek->tk_type), peek->len, peek->start);
+        cctrlRaiseException(cc,"Unexpected %s `%s` while parsing while loop body", 
+                lexemeTypeToString(peek->tk_type), lexemeAsWritten(peek));
     }
 
     whilebody = parseStatement(cc);
@@ -1734,8 +1734,8 @@ Ast *parseDoWhileStatement(Cctrl *cc) {
     }
     if (!parseValidPostControlFlowToken(peek)) {
         cctrlRewindUntilStrMatch(cc,peek->start,peek->len,NULL);
-        cctrlRaiseException(cc,"Unexpected %s `%.*s` while parsing do while loop body", 
-                lexemeTypeToString(peek->tk_type), peek->len, peek->start);
+        cctrlRaiseException(cc,"Unexpected %s `%s` while parsing do while loop body", 
+                lexemeTypeToString(peek->tk_type), lexemeAsWritten(peek));
     }
 
 
@@ -1745,8 +1745,8 @@ Ast *parseDoWhileStatement(Cctrl *cc) {
 
     if (tok->tk_type != TK_KEYWORD || tok->i64 != KW_WHILE) {
         cctrlTokenRewind(cc);
-        cctrlRaiseException(cc,"expected `while` after do block, got `%.*s`",
-                tok->len, tok->start);
+        cctrlRaiseException(cc,"expected `while` after do block, got `%s`",
+                lexemeAsWritten(tok));
     }
 
     cctrlTokenExpect(cc, '(');
@@ -1829,8 +1829,8 @@ Ast *parseTryStatement(Cctrl *cc) {
     }
     if (tok->tk_type != TK_KEYWORD || tok->i64 != KW_CATCH) {
         cctrlRaiseException(cc,
-            "Expected `catch` after `try { ... }`, got `%.*s`",
-            tok->len, tok->start);
+            "Expected `catch` after `try { ... }`, got `%s`",
+            lexemeAsWritten(tok));
     }
     cctrlTokenGet(cc);  /* consume `catch` */
     Ast *catch_body = parseStatement(cc);
@@ -2330,8 +2330,8 @@ void parseCompoundStatementInternal(Cctrl *cc, Ast *body) {
                 } else if (tokenPunctIs(tok,';')) {
                     break;
                 } else {
-                    cctrlRaiseException(cc,"Unexpected %s `%.*s` while parsing statement, perhaps you meant to terminate the declaration with `;`?",
-                            lexemeTypeToString(tok->tk_type), tok->len,tok->start);
+                    cctrlRaiseException(cc,"Unexpected %s `%s` while parsing statement, perhaps you meant to terminate the declaration with `;`?",
+                            lexemeTypeToString(tok->tk_type), lexemeAsWritten(tok));
                 }
             }
         } else { 
@@ -3067,8 +3067,8 @@ Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int i
         }
         cctrlRaiseException(cc,
             "Expected `{` to open the body of `%.*s()` or `;` for a "
-            "prototype, got `%.*s`",
-            len, fname, tok->len, tok->start);
+            "prototype, got `%s`",
+            len, fname, lexemeAsWritten(tok));
     }
 }
 
@@ -3220,8 +3220,8 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                     if (name->tk_type != TK_IDENT) {
                         cctrlRaiseException(cc,
                             "`extern <Type>` must be followed by an "
-                            "identifier, got `%.*s`",
-                            name->len, name->start);
+                            "identifier, got `%s`",
+                            lexemeAsWritten(name));
                     }
                     type = parseArrayDimensions(cc, type);
                     cctrlTokenExpect(cc,';');
