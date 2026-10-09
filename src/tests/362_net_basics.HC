@@ -34,7 +34,7 @@ U0 ErrnoValues()
 {
   I32 fd, srv;
   sockaddr_in sa;
-  I64 len = sizeof(sockaddr_in);
+  U32 len = sizeof(sockaddr_in);
 
   SetErrno(0);
   Check(Errno() == 0, "SetErrno(0)");
