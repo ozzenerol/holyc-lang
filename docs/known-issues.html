@@ -43,9 +43,6 @@ there works as shown.</p>
     <tr><td>Redefining a standard-library function works in the JIT but not AOT</td>
         <td>Defining your own <code>Now()</code> runs under <code>-jit</code>, but in AOT the link fails ("multiple definition of `Now'") as soon as the program uses anything else from the library, with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
         <td>Use a different name for your own functions</td></tr>
-    <tr><td>Some pointer conversions are accepted silently</td>
-        <td><code>I64 *q; q -= q;</code> and <code>F64 f; I64 *q = &amp;f;</code> compile with no diagnostic</td>
-        <td>Review pointer arithmetic and pointer types by hand</td></tr>
     <tr><td>A leading <code>0</code> doesn't make a number octal</td>
         <td><code>0644</code> is decimal 644, with no warning (in C it is octal 420)</td>
         <td>Write octal values in hex: <code>0x1A4</code></td></tr>

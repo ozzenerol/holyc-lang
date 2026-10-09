@@ -645,6 +645,12 @@ U0 Main()
 compared with an integer on either side, and <code>n - p</code> is a compile error. An
 array can't be assigned as a whole (<code>a = b;</code> is an error): assign its elements or
 copy it with <code>MemCpy</code>.</p>
+<p>Storing one pointer type in another is a warning, as in C: <code>I64 *q = &amp;f;</code>
+with <code>F64 f</code> (also when assigning, passing or returning it), and
+<code>q -= q</code>, which stores a pointer difference (an integer) back into the pointer.
+<code>U0 *</code> and byte pointers (<code>U8 *</code>, <code>I8 *</code>, <code>Bool *</code>)
+convert to and from any pointer without one; otherwise cast:
+<code>(&amp;f)(I64 *)</code>.</p>
 <p>An initialiser list may be shorter than the array or class it initialises; as in C,
 everything it leaves out is zero, for locals and globals alike:</p>
 <pre data-run><code>
