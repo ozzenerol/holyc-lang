@@ -60,7 +60,7 @@ I32 Main()
   U8 root[64], *cmd;
   "Test - RmDir removes sockets and FIFOs: ";
 
-  MemCpy(root, "/tmp/hcc-test-308-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-308-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, tests);
     "====\n";

@@ -7,12 +7,12 @@
  * hcc is run from a scratch directory: the test runner itself is
  * ./a.out in src/tests. */
 
-#define RUN_TEST_DIR  "/tmp/hcc-73-run-dir"
-#define RUN_TEST_MAIN "/tmp/hcc-73-run-main.HC"
-#define RUN_TEST_TOP  "/tmp/hcc-73-run-top.HC"
-#define RUN_TEST_OUT  "/tmp/hcc-73-run.out"
+#define RUN_TEST_DIR  "hcc-73-run-dir"
+#define RUN_TEST_MAIN "hcc-73-run-main.HC"
+#define RUN_TEST_TOP  "hcc-73-run-top.HC"
+#define RUN_TEST_OUT  "hcc-73-run.out"
 /* A single literal: adjacent strings don't concatenate inside #define */
-#define RUN_HCC "H=$PWD/../../hcc && cd /tmp/hcc-73-run-dir && $H ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -run "
+#define RUN_HCC "H=$PWD/../../hcc && cd hcc-73-run-dir && $H ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -run "
 
 U0 CleanupRunTest(U0)
 {
@@ -60,7 +60,7 @@ I32 Main()
 ");
 
   /* Program output reaches stdout and the exit code is the program's */
-  if (System(RUN_HCC RUN_TEST_MAIN " > " RUN_TEST_OUT " 2>&1") == 0) correct++;
+  if (System("(" RUN_HCC "../" RUN_TEST_MAIN ") > " RUN_TEST_OUT " 2>&1") == 0) correct++;
   else "Failed - -run exit code 0\n";
 
   if (OutputIs("run works argc=1\n")) correct++;
@@ -73,7 +73,7 @@ I32 Main()
   /* Trailing arguments are passed through, Exit(7) becomes hcc's exit
    * code and an existing ./a.out is left alone */
   System("echo keep > " RUN_TEST_DIR "/a.out");
-  if (System(RUN_HCC RUN_TEST_MAIN " foo 'b c' > " RUN_TEST_OUT " 2>&1;"
+  if (System("(" RUN_HCC "../" RUN_TEST_MAIN " foo 'b c') > " RUN_TEST_OUT " 2>&1;"
              " test $? -eq 7 && grep -qx keep " RUN_TEST_DIR "/a.out") == 0) correct++;
   else "Failed - -run exit code 7 / ./a.out kept\n";
 
@@ -81,7 +81,7 @@ I32 Main()
   else "Failed - -run arguments\n";
 
   /* A program with only top-level statements and no Main */
-  if (System(RUN_HCC RUN_TEST_TOP " > " RUN_TEST_OUT " 2>&1") == 0 &&
+  if (System("(" RUN_HCC "../" RUN_TEST_TOP ") > " RUN_TEST_OUT " 2>&1") == 0 &&
       OutputIs("top level 42\n")) correct++;
   else "Failed - -run top-level program\n";
 

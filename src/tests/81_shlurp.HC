@@ -22,10 +22,13 @@ Bool Is(U8 *got, U8 *expected)
   return ok;
 }
 
-/* Number of Shlurp temporary files in /tmp */
+extern "c" U8 *getenv(U8 *name);
+extern "c" I32 setenv(U8 *name, U8 *value, I32 overwrite);
+
+/* Number of Shlurp temporary files in $TMPDIR (the test's own) */
 I64 TempFiles()
 {
-  U8 *out = Shlurp("ls /tmp | grep -c '^hcc-shlurp-'");
+  U8 *out = Shlurp("ls \"${TMPDIR:-/tmp}\" | grep -c '^hcc-shlurp-'");
   I64 n = -1;
   if (out) {
     n = Atoi(out);
@@ -37,7 +40,7 @@ I64 TempFiles()
 I32 Main()
 {
   "Test - Shlurp: ";
-  I64 tests = 14, correct = 0, before, i;
+  I64 tests = 16, correct = 0, before, i;
   U8 *out;
 
   before = TempFiles();
@@ -96,6 +99,21 @@ I32 Main()
   if (before >= 0 && TempFiles() == before) correct++;
   else "Failed - Shlurp left temporary files: %d before, %d after\n",
          before, TempFiles();
+
+  /* The file is in $TMPDIR: TempFiles saw its own one there */
+  if (before == 1) correct++;
+  else "Failed - Shlurp's temporary file is not in $TMPDIR (%d there)\n", before;
+
+  /* A TMPDIR with a space in it is quoted for the shell */
+  U8 *tmpdir = getenv("TMPDIR");
+  if (!tmpdir) tmpdir = "/tmp";
+  tmpdir = StrNew(tmpdir);
+  MkDir("./hcc-81 tmp");
+  setenv("TMPDIR", "./hcc-81 tmp", 1);
+  if (Is(Shlurp("echo spaced"), "spaced")) correct++;
+  else "Failed - Shlurp with a space in TMPDIR\n";
+  setenv("TMPDIR", tmpdir, 1);
+  Free(tmpdir);
 
   PrintResult(correct, tests);
   "====\n";

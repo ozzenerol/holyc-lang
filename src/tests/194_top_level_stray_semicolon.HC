@@ -15,9 +15,9 @@ class SemiC { I64 a; };;
 I64 SemiG();;
 I64 SemiG() { return 5; };
 
-#define SEMI_TEST_SRC "/tmp/hcc-194-semi.HC"
-#define SEMI_TEST_OUT "/tmp/hcc-194-semi.out"
-#define SEMI_TEST_BIN "/tmp/hcc-194-semi.bin"
+#define SEMI_TEST_SRC "./hcc-194-semi.HC"
+#define SEMI_TEST_OUT "./hcc-194-semi.out"
+#define SEMI_TEST_BIN "./hcc-194-semi.bin"
 /* A single literal: adjacent strings don't concatenate inside #define */
 #define SEMI_HCC "$(command -v timeout >/dev/null 2>&1 && echo timeout 60) ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 

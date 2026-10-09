@@ -14,34 +14,34 @@
 I64 correct = 0;
 I64 tests = 3;
 
-System("rm -rf /tmp/hcc-85-prefix /tmp/hcc-85-work /tmp/hcc-85-use.HC /tmp/hcc-85-use");
+System("rm -rf ./hcc-85-prefix ./hcc-85-work ./hcc-85-use.HC ./hcc-85-use");
 
-if (System("D=${HCC_INSTALL_DIR:-/usr/local} && H=$PWD/../../hcc && "
-           "mkdir -p /tmp/hcc-85-prefix/include /tmp/hcc-85-prefix/lib /tmp/hcc-85-work && "
-           "cp $D/include/tos.HH /tmp/hcc-85-prefix/include/ && "
-           "cp -P $D/lib/libtos.* /tmp/hcc-85-prefix/lib/ && "
+if (System("D=${HCC_INSTALL_DIR:-/usr/local} && H=$PWD/../../hcc && P=$PWD && "
+           "mkdir -p ./hcc-85-prefix/include ./hcc-85-prefix/lib ./hcc-85-work && "
+           "cp $D/include/tos.HH ./hcc-85-prefix/include/ && "
+           "cp -P $D/lib/libtos.* ./hcc-85-prefix/lib/ && "
            "printf 'public I64 Hcc85Triple(I64 x) { return x * 3; }\n'"
-           " > /tmp/hcc-85-work/hcc85.HC && "
-           "cd /tmp/hcc-85-work && "
-           "$H -lib hcc85 --install-dir=/tmp/hcc-85-prefix hcc85.HC > /dev/null 2>&1") == 0) {
+           " > ./hcc-85-work/hcc85.HC && "
+           "cd ./hcc-85-work && "
+           "$H -lib hcc85 --install-dir=$P/hcc-85-prefix hcc85.HC > /dev/null 2>&1") == 0) {
   correct++;
 }
 
 System("printf '#link <hcc85>\n"
        "I64 Hcc85Triple(I64 x);\n"
        "I32 Main() { if (Hcc85Triple(14) == 42) return 0; return 1; }\n'"
-       " > /tmp/hcc-85-use.HC");
+       " > ./hcc-85-use.HC");
 
-if (System("../../hcc -jit --install-dir=/tmp/hcc-85-prefix /tmp/hcc-85-use.HC") == 0) {
+if (System("../../hcc -jit --install-dir=./hcc-85-prefix ./hcc-85-use.HC") == 0) {
   correct++;
 }
 
-if (System("../../hcc --install-dir=/tmp/hcc-85-prefix /tmp/hcc-85-use.HC -o /tmp/hcc-85-use && "
-           "/tmp/hcc-85-use") == 0) {
+if (System("../../hcc --install-dir=./hcc-85-prefix ./hcc-85-use.HC -o ./hcc-85-use && "
+           "./hcc-85-use") == 0) {
   correct++;
 }
 
-System("rm -rf /tmp/hcc-85-prefix /tmp/hcc-85-work /tmp/hcc-85-use.HC /tmp/hcc-85-use");
+System("rm -rf ./hcc-85-prefix ./hcc-85-work ./hcc-85-use.HC ./hcc-85-use");
 
 PrintResult(correct, tests);
 '===\n';

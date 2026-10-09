@@ -7,9 +7,9 @@
  * program is compiled both ahead of time and with the JIT and its
  * printed output compared. */
 
-#define PRINT64_TEST_SRC "/tmp/hcc-76-print64.HC"
-#define PRINT64_TEST_BIN "/tmp/hcc-76-print64"
-#define PRINT64_TEST_OUT "/tmp/hcc-76-print64.out"
+#define PRINT64_TEST_SRC "./hcc-76-print64.HC"
+#define PRINT64_TEST_BIN "./hcc-76-print64"
+#define PRINT64_TEST_OUT "./hcc-76-print64.out"
 /* A single literal: adjacent strings don't concatenate inside #define */
 #define PRINT64_HCC "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 

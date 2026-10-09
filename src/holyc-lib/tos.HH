@@ -793,7 +793,8 @@ public I32 Sh(U8 *fmt, ...);
  * formatted: %% for a literal %), and return what it printed to stdout
  * in a heap allocated string (Free it). One trailing newline is removed.
  * The exit status is not returned: a failing command gives whatever it
- * printed, often "". stderr is not captured. Returns NULL if fmt is NULL
+ * printed, often "". stderr is not captured. The output goes through a
+ * temporary file in $TMPDIR (default /tmp). Returns NULL if fmt is NULL
  * or the output can't be read. */
 public U8 *Shlurp(U8 *fmt, ...);
 /* s in single quotes for sh, as a new string to Free: each ' becomes

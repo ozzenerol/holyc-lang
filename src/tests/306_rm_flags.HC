@@ -65,7 +65,7 @@ I32 Main()
   I32 r;
   "Test - Rm flags: ";
 
-  MemCpy(root, "/tmp/hcc-test-306-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-306-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, 1);
     "====\n";

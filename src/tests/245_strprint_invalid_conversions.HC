@@ -9,9 +9,9 @@
  * prints it), its argument is taken, and the diagnostic names it on
  * stderr. */
 
-#define FB_SRC "/tmp/hcc-245-fb.HC"
-#define FB_OUT "/tmp/hcc-245-fb.out"
-#define FB_ERR "/tmp/hcc-245-fb.err"
+#define FB_SRC "./hcc-245-fb.HC"
+#define FB_OUT "./hcc-245-fb.out"
+#define FB_ERR "./hcc-245-fb.err"
 
 Bool Is(U8 *got, U8 *want)
 {

@@ -50,7 +50,7 @@ I32 Main()
                    "02", "B", "a"};
   "Test - Dir sort order: ";
 
-  MemCpy(root, "/tmp/hcc-test-312-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-312-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, tests);
     "====\n";

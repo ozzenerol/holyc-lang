@@ -6,9 +6,9 @@
  * the token where the `]` was expected, like `I64 a[2;` already was.
  * Each source must fail with exit status 1 (not a signal or a hang). */
 
-#define ARRSZ_TEST_SRC "/tmp/hcc-192-arrsize.HC"
-#define ARRSZ_TEST_OUT "/tmp/hcc-192-arrsize.out"
-#define ARRSZ_TEST_BIN "/tmp/hcc-192-arrsize.bin"
+#define ARRSZ_TEST_SRC "./hcc-192-arrsize.HC"
+#define ARRSZ_TEST_OUT "./hcc-192-arrsize.out"
+#define ARRSZ_TEST_BIN "./hcc-192-arrsize.bin"
 /* A single literal: adjacent strings don't concatenate inside #define */
 #define ARRSZ_HCC "$(command -v timeout >/dev/null 2>&1 && echo timeout 60) ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 

@@ -4,8 +4,8 @@
  * the token after it) instead of at the argument. It is now reported at
  * the argument, underlining all of it. */
 
-#define ARGLOC_SRC "/tmp/hcc-216-argloc.HC"
-#define ARGLOC_OUT "/tmp/hcc-216-argloc.out"
+#define ARGLOC_SRC "./hcc-216-argloc.HC"
+#define ARGLOC_OUT "./hcc-216-argloc.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)

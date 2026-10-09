@@ -5,8 +5,8 @@
  * or nowhere at the end of the file. It is now reported at the bad
  * token, and the declarations after it are still checked. */
 
-#define CNM_SRC "/tmp/hcc-221-cnm.HC"
-#define CNM_OUT "/tmp/hcc-221-cnm.out"
+#define CNM_SRC "./hcc-221-cnm.HC"
+#define CNM_OUT "./hcc-221-cnm.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)

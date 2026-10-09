@@ -7,8 +7,8 @@
  * global, a local, a parameter and a class field, and the code after it
  * is still checked. */
 
-#define FPN_SRC "/tmp/hcc-225-fpn.HC"
-#define FPN_OUT "/tmp/hcc-225-fpn.out"
+#define FPN_SRC "./hcc-225-fpn.HC"
+#define FPN_OUT "./hcc-225-fpn.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)
@@ -53,7 +53,7 @@ I32 Main()
   I64 correct = 0;
 
   tests++;
-  if (Prints("I64 (*)(I64 x);\nI64 b = 1;\n", 1, 0, MSG "\n --> /tmp/hcc-225-fpn.HC:1:7\n"))
+  if (Prints("I64 (*)(I64 x);\nI64 b = 1;\n", 1, 0, MSG "\n --> ./hcc-225-fpn.HC:1:7\n"))
     correct++;
   else "Failed - global\n";
 
@@ -65,13 +65,13 @@ I32 Main()
   tests++;
   if (Prints("I64 (*5)(I64 x);\n", 1, 0,
              "Expected function pointer name got: TK_I64        5\n"
-             " --> /tmp/hcc-225-fpn.HC:1:7\n"))
+             " --> ./hcc-225-fpn.HC:1:7\n"))
     correct++;
   else "Failed - a number for the name\n";
 
   tests++;
   if (Prints("U0 F() {\n  I64 (*)(I64 x);\n  I64 y = 2;\n}\n", 1, 0,
-             MSG "\n --> /tmp/hcc-225-fpn.HC:2:9\n"))
+             MSG "\n --> ./hcc-225-fpn.HC:2:9\n"))
     correct++;
   else "Failed - local\n";
 
@@ -83,7 +83,7 @@ I32 Main()
 
   tests++;
   if (Prints("class C {\n  I64 (*)(I64 x);\n  I64 y;\n};\nC c;\n", 1, 0,
-             MSG "\n --> /tmp/hcc-225-fpn.HC:2:9\n"))
+             MSG "\n --> ./hcc-225-fpn.HC:2:9\n"))
     correct++;
   else "Failed - class field\n";
 

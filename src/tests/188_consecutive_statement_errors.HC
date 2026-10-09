@@ -11,8 +11,8 @@
  * fail with exit status 1 (not a signal or a hang) and report every
  * error. */
 
-#define STMTERR_TEST_SRC "/tmp/hcc-188-stmterr.HC"
-#define STMTERR_TEST_OUT "/tmp/hcc-188-stmterr.out"
+#define STMTERR_TEST_SRC "./hcc-188-stmterr.HC"
+#define STMTERR_TEST_OUT "./hcc-188-stmterr.out"
 /* A single literal: adjacent strings don't concatenate inside #define */
 #define STMTERR_HCC "$(command -v timeout >/dev/null 2>&1 && echo timeout 60) ../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} "
 

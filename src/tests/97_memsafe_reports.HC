@@ -10,12 +10,12 @@
  * Correct programs must report nothing; real leaks, double frees and
  * wild frees must be reported exactly. */
 
-#define MS_PROG "/tmp/hcc-97-memsafe.HC"
-#define MS_OUT  "/tmp/hcc-97-memsafe.out"
-#define MS_ERR  "/tmp/hcc-97-memsafe.err"
+#define MS_PROG "./hcc-97-memsafe.HC"
+#define MS_OUT  "./hcc-97-memsafe.out"
+#define MS_ERR  "./hcc-97-memsafe.err"
 /* A single literal: adjacent strings don't concatenate inside #define */
-#define MS_RUN "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit -Memsafe /tmp/hcc-97-memsafe.HC > /tmp/hcc-97-memsafe.out 2> /tmp/hcc-97-memsafe.err"
-#define MS_REPL "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -repl < /tmp/hcc-97-memsafe.HC > /tmp/hcc-97-memsafe.out 2> /tmp/hcc-97-memsafe.err"
+#define MS_RUN "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -jit -Memsafe ./hcc-97-memsafe.HC > ./hcc-97-memsafe.out 2> ./hcc-97-memsafe.err"
+#define MS_REPL "../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} -repl < ./hcc-97-memsafe.HC > ./hcc-97-memsafe.out 2> ./hcc-97-memsafe.err"
 
 U0 CleanupMemsafeTest(U0)
 {

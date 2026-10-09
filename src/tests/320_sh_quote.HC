@@ -63,7 +63,7 @@ I32 Main()
   if (RoundTrip(all)) correct++;
 
   /* A string that would run a command if it weren't quoted */
-  MemCpy(dir, "/tmp/hcc-shquote-XXXXXX", 24);
+  StrCpy(dir, "./hcc-shquote-XXXXXX");
   if (mkdtemp(dir)) {
     StrPrint(path, "%s/pwned", dir);
     U8 *evil = StrPrint(NULL, "x'; touch %s; echo '$(touch %s)`touch %s`",

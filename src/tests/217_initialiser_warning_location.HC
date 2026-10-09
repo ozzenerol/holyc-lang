@@ -5,8 +5,8 @@
  * now reported at the item, underlining all of it: globals, locals,
  * brace-elided nested classes, items on the next line. */
 
-#define IWL_SRC "/tmp/hcc-217-iwl.HC"
-#define IWL_OUT "/tmp/hcc-217-iwl.out"
+#define IWL_SRC "./hcc-217-iwl.HC"
+#define IWL_OUT "./hcc-217-iwl.out"
 
 /* Compile `source` and return what hcc printed */
 U8 *Diagnose(U8 *source)

@@ -44,7 +44,7 @@ I32 Main()
 #endif
 
   /* a real AF_UNIX server and client in one process */
-  StrPrint(path, "/tmp/hcc183-%d.sock", getpid);
+  StrPrint(path, "./hcc183-%d.sock", getpid);
   srv = NetCreateUnixServerSocket(path, 4);
   Check(srv > 0, "unix server");
   cli = NetCreateUnixClientSocket(path);
@@ -62,7 +62,7 @@ I32 Main()
 
   /* the longest path that fits works, one more byte is refused, not copied */
   len = sizeof(sockaddr_un) - 2 - 1;
-  StrPrint(longpath, "/tmp/hcc183-%d-", getpid);
+  StrPrint(longpath, "./hcc183-%d-", getpid);
   for (i = StrLen(longpath); i < len; i++) longpath[i] = 'x';
   longpath[len] = '\0';
   srv = NetCreateUnixServerSocket(longpath, 4);
@@ -78,7 +78,7 @@ I32 Main()
   longpath[200] = '\0';
   Check(NetCreateUnixServerSocket(longpath, 4) == -1 &&
         NetCreateUnixClientSocket(longpath) == -1, "200-byte path");
-  Check(NetCreateUnixClientSocket("/tmp/hcc183-nobody-listens") == -1, "no server");
+  Check(NetCreateUnixClientSocket("./hcc183-nobody-listens") == -1, "no server");
 
   /* IPv4: the family of an accepted socket's peer address */
   srv = NetCreateServer(0, "127.0.0.1", 4);

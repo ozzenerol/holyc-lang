@@ -8,8 +8,8 @@
  * `return;` in a function returning a value keeps its warning, now
  * without printing `'(null)' of type 'U0'`. */
 
-#define EE_SRC "/tmp/hcc-228-ee.HC"
-#define EE_OUT "/tmp/hcc-228-ee.out"
+#define EE_SRC "./hcc-228-ee.HC"
+#define EE_OUT "./hcc-228-ee.out"
 
 U8 *Diagnose(U8 *source, I64 *_status)
 {

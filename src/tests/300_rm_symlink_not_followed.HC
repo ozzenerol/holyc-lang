@@ -34,7 +34,7 @@ I32 Main()
   U8 root[64];
   "Test - Rm does not follow symlinks: ";
 
-  MemCpy(root, "/tmp/hcc-test-300-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-300-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, tests);
     "====\n";

@@ -460,7 +460,8 @@ shell couldn't be run.</p>
 <p><code>Shlurp</code> returns what the command printed to stdout, minus one trailing
 newline, as a string to <code>Free</code>; format arguments are optional. It doesn't
 capture stderr or return the exit status: a failing command gives whatever it printed,
-often <code>""</code>. <code>Exit(code)</code> ends the program.</p>
+often <code>""</code>. The output goes through a temporary file in <code>$TMPDIR</code>
+(<code>/tmp</code> if it is unset). <code>Exit(code)</code> ends the program.</p>
 <p>The command is shell text, so a string from elsewhere (a file name, user input) must
 not be pasted in as it is: a space splits it and <code>$</code>, <code>`</code>,
 <code>;</code> or <code>*</code> run or expand things. <code>ShQuote(s)</code> returns

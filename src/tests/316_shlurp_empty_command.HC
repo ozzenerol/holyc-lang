@@ -48,7 +48,7 @@ I32 Main()
   U8 root[64], *cmd;
   "Test - Shlurp empty command: ";
 
-  MemCpy(root, "/tmp/hcc-test-316-XXXXXX", 25);
+  StrCpy(root, "./hcc-test-316-XXXXXX");
   if (!mkdtemp(root)) {
     PrintResult(0, tests);
     "====\n";
