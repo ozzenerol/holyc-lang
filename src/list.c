@@ -150,6 +150,12 @@ int listCount(List *ll) {
  * l2 = nullptr
  */
 void listMergePrepend(List *l1, List *l2) {
+    /* An empty l2 has no nodes to move: linking its sentinel into l1
+     * and freeing it would leave a dangling node in l1. */
+    if (l2->next == l2) {
+        free(l2);
+        return;
+    }
     List *h1 = l1->next;
 
     List *h2 = l2->next;
@@ -172,6 +178,12 @@ void listMergePrepend(List *l1, List *l2) {
  * l2 = nullptr
  * */
 void listMergeAppend(List *l1, List *l2) {
+    /* An empty l2 has no nodes to move: linking its sentinel into l1
+     * and freeing it would leave a dangling node in l1. */
+    if (l2->next == l2) {
+        free(l2);
+        return;
+    }
     List *h1 = l1->next;
     List *t1 = l1->prev;
 
