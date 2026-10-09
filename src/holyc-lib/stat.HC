@@ -135,7 +135,7 @@ public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
 { /* Make a directory, by default does not recurse folder permissions are: 
    * drwxr-xr-x */
   Bool relative = TRUE;
-  U8 *ptr,tmp[DIR_MAXPATHLEN];
+  U8 *ptr,*tmp;
   I64 i;
   if (path == NULL) return -1;
   if (path[0] == '/') {
@@ -145,6 +145,10 @@ public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
   if (recurse == FALSE) {
     return MkDirIfNotExist(path,mode);
   } else {
+    /* Each prefix of `path` is copied here, so it needs path's length */
+    if ((tmp = MAlloc(StrLen(path)+1)) == NULL) {
+      return FALSE;
+    }
     ptr = path;
     i = 0;
     if (*ptr == '.' && *(ptr + 1) == '/') {
@@ -155,6 +159,7 @@ public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
       if (i > 1 && *ptr == '/') {
         tmp[i] = '\0';
         if (MkDirIfNotExist(tmp,mode) != 0) {
+          Free(tmp);
           return FALSE;
         } 
       }
@@ -164,6 +169,7 @@ public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
       tmp[i] = '\0';
       MkDirIfNotExist(tmp,mode);
     }
+    Free(tmp);
   }
   return TRUE;
 }
