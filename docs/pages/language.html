@@ -547,6 +547,28 @@ U0 Main()
 </pre>
 <p>As in C, <code>n + p</code> is the same as <code>p + n</code>, a pointer can be
 compared with an integer on either side, and <code>n - p</code> is a compile error.</p>
+<p>An initialiser list may be shorter than the array or class it initialises; as in C,
+everything it leaves out is zero, for locals and globals alike:</p>
+<pre data-run><code>
+class Point { I64 x, y, z; };
+
+I64 counts[4] = {1, 2};
+
+U0 Main()
+{
+  I64 grid[2][3] = {{1}, {4, 5}};
+  Point p = {7};
+  "%d %d %d %d\n", counts[0], counts[1], counts[2], counts[3];
+  "%d %d %d | %d %d %d\n", grid[0][0], grid[0][1], grid[0][2],
+                           grid[1][0], grid[1][1], grid[1][2];
+  "%d %d %d\n", p.x, p.y, p.z;
+}
+</code></pre>
+<pre class="output">
+1 2 0 0
+1 0 0 | 4 5 0
+7 0 0
+</pre>
 
 <h3>Heap memory</h3>
 <p><code>MAlloc</code> allocates, <code>CAlloc</code> allocates zeroed memory,
