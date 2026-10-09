@@ -29,7 +29,7 @@ Bool WriteFile(U8 *file, U8 *printf_fmt)
   return res == 0;
 }
 
-/* Run hcc with `flags` on EMPTY_FILE; returns the wait status and
+/* Run hcc with `flags` on EMPTY_FILE; returns the exit code and
  * leaves the output in `*_out` (NULL if it could not be read) */
 I64 RunHcc(U8 *flags, U8 **_out)
 {

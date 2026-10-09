@@ -31,7 +31,7 @@ Bool CompileFailsWith(U8 *source, U8 *expected)
   }
 
   res = System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} " HEX_RANGE_TEST_FILE " -o " HEX_RANGE_TEST_BIN " > " HEX_RANGE_TEST_OUT " 2>&1");
-  if (res != 1 << 8) {
+  if (res != 1) {
     "hcc exit status %d, expected a normal compile failure\n", res;
     ok = FALSE;
   } else {

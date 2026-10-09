@@ -473,16 +473,23 @@ public extern "c" I32 waitpid(I32 pid, I32 *statlock, I32 options);
 public extern "c" I32 fork();
 #ifdef IS_X86_64
 public _extern _EXIT U0 Exit(I64 exit_code = EXIT_FAIL);
-public _extern _SYSTEM I64 System(U8 *command);
 #endif
 
 #ifdef IS_ARM_64
 public U0 Exit(I64 exit_code = EXIT_FAIL);
-public I64 System(U8 *command);
 #endif
+
+/* Run `command` with the shell (`sh -c`). Returns the command's exit
+ * code (0-255), or -1 if it was killed by a signal or the shell could
+ * not be run (also for a NULL command). The shell itself gives 127 for
+ * a command it can't find. */
+public I64 System(U8 *command);
 
 public I64 Write(I64 fd, U8 *buf, I64 len);
 
+/* Call the shell with `printf`-like formatting. Returns what System
+ * returns: the exit code (0-255), or -1 if the command was killed by a
+ * signal, could not be run, or fmt is NULL. */
 public I32 Sh(U8 *fmt, ...);
 public U8 *Shlurp(U8 *fmt, ...);
 

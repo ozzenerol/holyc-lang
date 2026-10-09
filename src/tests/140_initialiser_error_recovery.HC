@@ -52,7 +52,7 @@ Bool CompileFailsTwice(U8 *source, U8 *m1, U8 *loc1, U8 *m2, U8 *loc2)
     return FALSE;
   }
 
-  ok = res == 1 << 8 && CountErrors(out) == 2;
+  ok = res == 1 && CountErrors(out) == 2;
   first = strstr(out, "error: ");
   second = NULL;
   if (first) second = strstr(first + 7, "error: ");

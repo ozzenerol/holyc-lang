@@ -125,7 +125,7 @@ Bool CompileFailsWith(U8 *source, U8 *msg, U8 *loc)
     CleanupUnionInitTest;
     return FALSE;
   }
-  ok = res == 1 << 8;
+  ok = res == 1;
   first = strstr(out, "error: ");
   if (!first || StrNCmp(first + 7, msg, StrLen(msg))) ok = FALSE;
   else if (!strstr(first, loc)) ok = FALSE;

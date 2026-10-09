@@ -165,7 +165,7 @@ Bool TestFieldTooLong(U8 *source, U8 *loc)
   U8 *out, *first;
   I64 res = CompileSource(source, &out);
   U8 *msg = "Invalid array initializer: expected 4 items but got 5";
-  Bool ok = res == 1 << 8 && out;
+  Bool ok = res == 1 && out;
   if (ok) {
     first = strstr(out, "error: ");
     if (!first || StrNCmp(first + 7, msg, StrLen(msg))) ok = FALSE;

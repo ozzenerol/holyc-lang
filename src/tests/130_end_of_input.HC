@@ -43,10 +43,10 @@ Bool CompileFailsAtEnd(U8 *source, U8 *expected)
     return FALSE;
   }
 
-  /* system() gives a wait status: exit code 1 is 1 << 8; a hang is
-   * 124 << 8 and a segfault 139 << 8 (from the shell). */
-  ok = res == 1 << 8 && strstr(out, expected) != NULL;
-  if (!ok) "`%s`: status %d\n%s\n", source, res >> 8, out;
+  /* System gives the exit code: 1 for a compile error; a hang is
+   * 124 and a segfault 139 (from the shell). */
+  ok = res == 1 && strstr(out, expected) != NULL;
+  if (!ok) "`%s`: status %d\n%s\n", source, res, out;
 
   Free(out);
   CleanupEofTest;

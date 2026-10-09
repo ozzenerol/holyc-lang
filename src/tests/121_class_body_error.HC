@@ -51,9 +51,9 @@ Bool CompileFailsExactly(U8 *source, I64 n_expected, U8 *m1, U8 *m2)
     return FALSE;
   }
 
-  /* system() gives a wait status: exit code 1 is 1 << 8; a segfault
-   * would be 139 << 8 (from the shell) or a signal number. */
-  ok = res == 1 << 8;
+  /* System gives the exit code: 1 for a compile error; a segfault
+   * would be 139 (from the shell) or -1 (killed by a signal). */
+  ok = res == 1;
   if (CountErrors(out) != n_expected) ok = FALSE;
   if (m1 && !strstr(out, m1)) ok = FALSE;
   if (m2 && !strstr(out, m2)) ok = FALSE;
