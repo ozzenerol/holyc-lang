@@ -845,7 +845,10 @@ AstType *parseUnionDef(Cctrl *cc) {
     return _union;
 }
 
-Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags) {
+/* `eq_line`:`eq_col` is where the `=` is, for the type check warning. */
+Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags,
+                             int eq_line, int eq_col)
+{
     Ast *init;
     int len;
     Lexeme *peek = cctrlTokenPeek(cc);
@@ -898,7 +901,7 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags) {
     /* Check what we are trying to assign is valid */
     AstType *ok = astTypeCheck(var->type,init,AST_BIN_OP_ASSIGN);
     if (!ok) {
-        typeCheckWarn(cc,'=',var,init);
+        typeCheckWarn(cc,eq_line,eq_col,var,init);
     }
 
     /* This is for when we have parsed a call to an inline function that is 
@@ -917,7 +920,8 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags) {
 Ast *parseVariableInitialiser(Cctrl *cc, Ast *var, s64 terminator_flags) {
     Lexeme *tok = cctrlTokenGet(cc);
     if (tokenPunctIs(tok,'=')) {
-        return parseVariableAssignment(cc,var,terminator_flags);
+        return parseVariableAssignment(cc,var,terminator_flags,
+                                       tok->line,tok->col);
     }
     if (var->type->len == -1) {
         cctrlRaiseException(cc, "Missing array initializer: %s",astToString(var));
@@ -3027,10 +3031,11 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             if (is_fnptr) {
                 /* The token before `=` is the `)` closing the params, not
                  * the name, so build the assignment from the RHS alone. */
-                cctrlTokenGet(cc);                  /* consume '=' */
+                Lexeme *eq = cctrlTokenGet(cc);     /* consume '=' */
+                int eq_line = eq->line, eq_col = eq->col;
                 Ast *rhs = parseExpr(cc,16);
                 if (!astTypeCheck(type,rhs,AST_BIN_OP_ASSIGN)) {
-                    typeCheckWarn(cc,'=',variable,rhs);
+                    typeCheckWarn(cc,eq_line,eq_col,variable,rhs);
                 }
                 int is_err = 0;
                 ast_expr = astBinaryOp(AST_BIN_OP_ASSIGN,variable,rhs,&is_err);

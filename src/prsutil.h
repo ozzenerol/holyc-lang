@@ -43,7 +43,8 @@ void assertIsInt(Ast *ast, s64 lineno);
 void assertIsFloat(Ast *ast, s64 lineno);
 void assertIsPointer(Ast *ast, s64 lineno);
 
-void typeCheckWarn(Cctrl *cc, s64 op, Ast *expected, Ast *actual);
+void typeCheckWarn(Cctrl *cc, int op_line, int op_col, Ast *expected,
+                   Ast *actual);
 void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func, 
                              AstType *check, Ast *retval);
 #endif // PRS_UTIL

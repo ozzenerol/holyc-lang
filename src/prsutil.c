@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <string.h>
 #include "aostr.h"
 #include "ast.h"
@@ -590,23 +591,50 @@ void assertUniqueSwitchCaseLabels(Cctrl *cc, Vec *case_vector, Ast *case_) {
     }
 }
 
-void typeCheckWarn(Cctrl *cc, s64 op, Ast *expected, Ast *actual) {
+/* `expected = actual` (or a compound assignment, or an initialiser) with
+ * types that don't go together. Underlines from the operator at
+ * `op_line`:`op_col` to the end of the statement on that line; the
+ * operator's position is passed in because by the time the right hand side
+ * is parsed it may be far behind the current token. */
+void typeCheckWarn(Cctrl *cc, int op_line, int op_col, Ast *expected,
+                   Ast *actual)
+{
     AoStr *expected_type = astTypeToColorAoStr(expected->type);
     AoStr *actual_type = astTypeToColorAoStr(actual->type);
+    int severity = (cc->flags & CCTRL_WERROR) ? CCTRL_ERROR : CCTRL_WARN;
 
-    int count = 0;
-    cctrlRewindUntilPunctMatch(cc,op,&count);
-    cctrlTokenGet(cc);
-    count--;
-
-    cctrlWarningFromTo(cc, NULL, op, ';', "Incompatible types '%s' is not assignable to type '%s'",
-            actual_type->data,
-            expected_type->data);
-    for (int i = 0; i < count; ++i) {
-        cctrlTokenGet(cc);
+    s64 len = 1;
+    if (cc->lexer_ && op_col > 0) {
+        char *line_buffer = lexerReportLine(cc->lexer_, op_line);
+        s64 start = op_col - 1, end = start;
+        if (start < (s64)strlen(line_buffer)) {
+            while (line_buffer[end] && line_buffer[end] != ';') end++;
+            if (line_buffer[end] == ';') end++;
+            while (end > start + 1 && isspace((unsigned char)line_buffer[end - 1])) {
+                end--;
+            }
+            len = end - start;
+        }
     }
+
+    char *msg = mprintf("Incompatible types '%s' is not assignable to type '%s'",
+                        actual_type->data, expected_type->data);
+    AoStr *bold = aoStrNew();
+    aoStrCatColoured(bold, ESC_BOLD, msg);
+    AoStr *buf = cctrlCreateErrorLineAt(cc, op_line, op_col, len, bold->data,
+                                        severity, NULL);
+    CctrlDiagnostic *d = cctrlMakeDiag(cc, severity, buf, NULL);
+    d->line = d->end_line = op_line;
+    d->col = op_col;
+    d->end_col = op_col + len;
+    cctrlDiagPush(cc, d);
+
+    aoStrRelease(bold);
     aoStrRelease(expected_type);
     aoStrRelease(actual_type);
+    if (severity == CCTRL_ERROR) {
+        cctrlTerminate(cc);
+    }
 }
 
 void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func, 

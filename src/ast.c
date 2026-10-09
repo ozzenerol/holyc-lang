@@ -1174,6 +1174,12 @@ check_type:
          * the lowering inserts an fptosi. */
         ret = e;
         goto out;
+    } else if (astIsIntType(e) && astIsIntrinsicClass(a)) {
+        /* An intrinsic class (`I64 class CDate`) is an integer underneath:
+         * `I64 x = date;` is as fine as `CDate d = 5;` (below), as in
+         * TempleOS. Not into a float: no conversion is emitted for it. */
+        ret = e;
+        goto out;
     } else if (e->kind == a->kind) {
         ret = e;
         goto out;
