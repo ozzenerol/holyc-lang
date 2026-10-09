@@ -207,6 +207,8 @@ public extern "c" I32 pthread_exit(U0 *data=NULL);
 public extern "c" I32 pthread_detach(pthread_t *th);
 public extern "c" I32 pthread_attr_setstacksize(pthread_attr_t *attr, U64 stacksize);
 
+U0 ThreadPoolRelease(ThreadPool *pool);
+
 U0 ThreadPoolEnqueue(ThreadPool *pool, U0 *argv, U0 (*callback)(U0 *priv_data, U0 *argv))
 {// Enqueue a job
   ThreadWorkerJob *job = MAlloc(sizeof(ThreadWorkerJob));
@@ -262,15 +264,20 @@ static U0 *ThreadPoolMain(U0 *argv)
 }
 
 ThreadPool *ThreadPoolNew(I64 worker_count)
-{// Create a new pool
+{// Create a pool of worker_count threads; NULL if worker_count <= 0 or
+ // a thread can't be created (the ones already started are stopped)
+  if (worker_count <= 0) {
+    return NULL;
+  }
   ThreadPool *pool = MAlloc(sizeof(ThreadPool));
   ThreadWorker *workers = MAlloc(sizeof(ThreadWorker) * worker_count);
+  I32 err;
 
   pool->jobs = ListNew();
   pool->run = TRUE;
   pool->active_threads = 0;
   pool->alive_threads = 0;
-  pool->worker_count = worker_count;
+  pool->worker_count = 0; /* counts the started workers, the ones to join */
   pool->workers = workers;
   pool->priv_data = NULL;
 
@@ -279,10 +286,15 @@ ThreadPool *ThreadPoolNew(I64 worker_count)
   pthread_mutex_init(&pool->lock);
 
   /* The workers stay joinable so ThreadPoolStop can wait for them */
-  for (I64 i = 0; i < pool->worker_count; ++i) {
+  for (I64 i = 0; i < worker_count; ++i) {
     ThreadWorker *worker = workers + i;
     worker->id = i;
-    pthread_create(&worker->th,NULL,&ThreadPoolMain,pool);
+    err = pthread_create(&worker->th,NULL,&ThreadPoolMain,pool);
+    if (err != 0) {
+      ThreadPoolRelease(pool);
+      return NULL;
+    }
+    pool->worker_count++;
   }
   return pool;
 }
