@@ -1589,6 +1589,7 @@ Bool Str2CDateStruct(U8 *strdate, U8 *format, CDateStruct *t)
             strdate++;
           }
           if (!_StrDateNum(&strdate, 4, &zone)) return FALSE;
+          if (zone / 100 > 23 || zone % 100 > 59) return FALSE;
           zone *= sign;
           break;
         case '%':
