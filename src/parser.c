@@ -318,7 +318,15 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
                 u64 cls_field_idx = (unsigned long)cls_fields->indexes->entries[i];
                 MapNode *entry = &cls_fields->entries[cls_field_idx];
                 AstType *cls_field_type = entry->value;
-                parseTypeCheckClassFieldInitaliser(cc,cls_field_type,init);
+                if (init->kind == AST_STRING &&
+                    cls_field_type->kind == AST_TYPE_ARRAY &&
+                    cls_field_type->ptr->kind == AST_TYPE_CHAR)
+                {
+                    /* A `U8 name[8]` field takes the string's bytes. */
+                    parseCheckInnerArrayInit(cc,cls_field_type,init,depth);
+                } else {
+                    parseTypeCheckClassFieldInitaliser(cc,cls_field_type,init);
+                }
                 init = parseFoldInitElement(init, cls_field_type);
                 i++;
             }

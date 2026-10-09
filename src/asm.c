@@ -349,6 +349,18 @@ static int asmInitImageAt(Ast *init, AstType *type, u8 *bytes, Ast **items,
     }
 
     if (init->kind == AST_STRING) {
+        /* A string in a char-array slot (`U8 s[2][8] = {"ab",..}`, a
+         * `U8 name[8]` field) is its bytes, zero-filled to the slot;
+         * the parser has checked that it fits. Anywhere else it is a
+         * pointer to the literal. */
+        if (type && type->kind == AST_TYPE_ARRAY && type->size > 0) {
+            char *str = (char *)malloc(init->sval->len + 1);
+            int n = astStringDecode(init, str) + 1;
+            if (n > type->size) n = type->size;
+            if (off >= 0 && off + n <= size) memcpy(bytes + off, str, n);
+            free(str);
+            return off + type->size;
+        }
         if (off >= 0 && off + 8 <= size) items[off] = init;
         return off + 8;
     }

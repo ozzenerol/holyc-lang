@@ -391,6 +391,67 @@ Ast *astString(char *str, int len, s64 real_len) {
     return ast;
 }
 
+/* The lexer keeps a string's escape sequences in their textual form
+ * (`\n` is the two bytes `\` `n`) and the assembler decodes them in
+ * `.asciz`. Code that needs the bytes themselves (the JIT's string
+ * arena, a string copied into a char array) decodes them here. `out`
+ * must have room for sval->len + 1 bytes; it is NUL terminated. Returns
+ * the number of bytes before that NUL. */
+int astStringDecode(Ast *str, char *out) {
+    const char *s = str->sval->data;
+    int len = (int)str->sval->len;
+    int o = 0;
+    for (int i = 0; i < len; ++i) {
+        char c = s[i];
+        if (c != '\\' || i + 1 >= len) {
+            out[o++] = c;
+            continue;
+        }
+        char n = s[++i];
+        if (n >= '0' && n <= '7') {
+            int v = n - '0';
+            int d = 1;
+            while (d < 3 && i + 1 < len &&
+                   s[i+1] >= '0' && s[i+1] <= '7') {
+                v = v * 8 + (s[++i] - '0');
+                d++;
+            }
+            out[o++] = (char)v;
+            continue;
+        }
+        switch (n) {
+            case 'n': out[o++] = '\n'; break;
+            case 't': out[o++] = '\t'; break;
+            case 'r': out[o++] = '\r'; break;
+            case 'b': out[o++] = '\b'; break;
+            case 'f': out[o++] = '\f'; break;
+            case 'v': out[o++] = '\v'; break;
+            case 'a': out[o++] = '\a'; break;
+            case 'e': out[o++] = 0x1B; break;
+            case '\\': out[o++] = '\\'; break;
+            case '"':  out[o++] = '"';  break;
+            case '\'': out[o++] = '\''; break;
+            case '?': out[o++] = '?'; break;
+            case 'x': case 'X': {
+                int v = 0, d = 0;
+                while (d < 2 && i + 1 < len &&
+                       isxdigit((unsigned char)s[i+1])) {
+                    char h = s[++i];
+                    int hv = (h >= '0' && h <= '9') ? h - '0' :
+                             (h | 32) - 'a' + 10;
+                    v = v * 16 + hv;
+                    d++;
+                }
+                out[o++] = (char)v;
+                break;
+            }
+            default: out[o++] = n; break;
+        }
+    }
+    out[o] = '\0';
+    return o;
+}
+
 Ast *astFunctionCall(AstType *type, char *fname, int len, Vec *argv) {
     Ast *ast = astNew();
     ast->type = type;

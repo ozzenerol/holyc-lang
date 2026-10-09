@@ -268,61 +268,9 @@ static int jitAllocateGlobals(HccJit *jit, List *from) {
             if (ast->kind != AST_STRING) continue;
             if (mapGet(jit->host_symbols, (void *)ast->slabel->data)) continue;
             char *addr = (char *)(globals + off);
-            /* The lexer stores escape sequences in their textual form
-             * (`\n` is two bytes `\\` `n`). The asm path lets the
-             * assembler decode them; we have to do it ourselves here
-             * so JIT-emitted code sees the same byte image. */
-            const char *s = ast->sval->data;
-            int len = ast->sval->len;
-            int o = 0;
-            for (int i = 0; i < len; ++i) {
-                char c = s[i];
-                if (c != '\\' || i + 1 >= len) {
-                    addr[o++] = c;
-                    continue;
-                }
-                char n = s[++i];
-                if (n >= '0' && n <= '7') {
-                    int v = n - '0';
-                    int d = 1;
-                    while (d < 3 && i + 1 < len &&
-                           s[i+1] >= '0' && s[i+1] <= '7') {
-                        v = v * 8 + (s[++i] - '0');
-                        d++;
-                    }
-                    addr[o++] = (char)v;
-                    continue;
-                }
-                switch (n) {
-                    case 'n': addr[o++] = '\n'; break;
-                    case 't': addr[o++] = '\t'; break;
-                    case 'r': addr[o++] = '\r'; break;
-                    case 'b': addr[o++] = '\b'; break;
-                    case 'f': addr[o++] = '\f'; break;
-                    case 'v': addr[o++] = '\v'; break;
-                    case 'a': addr[o++] = '\a'; break;
-                    case 'e': addr[o++] = 0x1B; break;
-                    case '\\': addr[o++] = '\\'; break;
-                    case '"':  addr[o++] = '"';  break;
-                    case '\'': addr[o++] = '\''; break;
-                    case '?': addr[o++] = '?'; break;
-                    case 'x': case 'X': {
-                        int v = 0, d = 0;
-                        while (d < 2 && i + 1 < len &&
-                               isxdigit((unsigned char)s[i+1])) {
-                            char h = s[++i];
-                            int hv = (h >= '0' && h <= '9') ? h - '0' :
-                                     (h | 32) - 'a' + 10;
-                            v = v * 16 + hv;
-                            d++;
-                        }
-                        addr[o++] = (char)v;
-                        break;
-                    }
-                    default: addr[o++] = n; break;
-                }
-            }
-            addr[o] = '\0';
+            /* Decoded: the asm path lets the assembler decode the
+             * escapes, so JIT-emitted code sees the same byte image. */
+            int o = astStringDecode(ast, addr);
             mapAdd(jit->host_symbols, strdup(ast->slabel->data), addr);
             /* Allocate based on the *decoded* length plus NUL, 8-aligned. */
             size_t decoded_size = (size_t)(o + 1);
