@@ -109,9 +109,6 @@ there works as shown.</p>
     <tr><td><code>JsonParse</code> ignores its <code>flags</code> argument</td>
         <td><code>JsonParse(text, -1, JSON_STRNUM_FLAG)</code> behaves like flags 0</td>
         <td>None</td></tr>
-    <tr><td><code>RBTreeRelease</code> leaks</td>
-        <td>It frees the nodes but not the tree itself, and never calls the key/value free functions</td>
-        <td>Free keys and values yourself before releasing</td></tr>
   </tbody>
 </table>
 
