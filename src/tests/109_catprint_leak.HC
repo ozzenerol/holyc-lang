@@ -6,35 +6,7 @@
  * ReAlloc (which frees the old block) when it is full. The leak is
  * measured with libc's own count of bytes in use. */
 
-#ifdef IS_MACOS
-class MallocStats
-{
-  U32 blocks_in_use;
-  U32 pad;
-  U64 size_in_use;
-  U64 max_size_in_use;
-  U64 size_allocated;
-};
-extern "c" U0 malloc_zone_statistics(U0 *zone, MallocStats *stats);
-I64 HeapInUse()
-{
-  MallocStats st;
-  malloc_zone_statistics(NULL, &st);
-  return st.size_in_use;
-}
-#else
-class MallInfo2
-{
-  U64 arena, ordblks, smblks, hblks, hblkhd;
-  U64 usmblks, fsmblks, uordblks, fordblks, keepcost;
-};
-extern "c" MallInfo2 mallinfo2();
-I64 HeapInUse()
-{
-  MallInfo2 m = mallinfo2();
-  return m.uordblks + m.hblkhd;
-}
-#endif
+/* HeapInUse() is in testhelper.HC */
 
 U8 *ValueStr(U0 *v)
 {
