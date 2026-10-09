@@ -262,9 +262,17 @@ public I32 Cd(U8 *path)
   return ret_val;
 }
 
+/* The working directory: written into buf if one is given, otherwise a
+ * new string to Free (getcwd's own block is libc malloc'd, which Free
+ * can't take). NULL on error. */
 public U8 *Pwd(U8 *buf=NULL, U64 buf_size=0)
 {
-  return getcwd(buf, buf_size);
+  U8 *cwd, *copy;
+  if (buf) return getcwd(buf, buf_size);
+  if ((cwd = getcwd(NULL, 0)) == NULL) return NULL;
+  copy = StrNew(cwd);
+  free(cwd);
+  return copy;
 }
 
 /* `ls`-style entry colours. */
