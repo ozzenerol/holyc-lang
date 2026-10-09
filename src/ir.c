@@ -2031,6 +2031,10 @@ void irLowerReturn(IrCtx *ctx, Ast *ast) {
             IrInstr *st = irStore(ctx->cur_func->return_value, val);
             irBlockAddInstr(ctx, st);
         }
+    } else if (ast->retval) {
+        /* `return Inc();` in a U0 function: no slot to store into, but
+         * the expression still runs for its side effects. */
+        irExpr(ctx, ast->retval);
     }
     IrInstr *jmp = irJump(ctx->cur_func,
                           ctx->cur_block,
