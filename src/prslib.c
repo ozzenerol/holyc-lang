@@ -2260,7 +2260,15 @@ Ast *parseUnaryExpr(Cctrl *cc) {
                     return operand;
                 }
                 parseCheckDerefOperand(cc, operand, op_line, op_col, op_len);
-                type = operand->type->ptr;
+                type = operand->type ? operand->type->ptr : NULL;
+                /* The transpiler doesn't report type errors (as for a
+                 * binary op): `**pp(I64 *)` dereferences the I64 that
+                 * `*pp(I64 *)` gives. Without a type the node crashed
+                 * it, so write it as an I64 and let the C compiler
+                 * reject it. */
+                if (!type && (cc->flags & CCTRL_TRANSPILING)) {
+                    type = ast_int_type;
+                }
                 break;
             case AST_UN_OP_BIT_NOT:
                 parseCheckArithmeticUnaryOp(cc, unary_op, operand,

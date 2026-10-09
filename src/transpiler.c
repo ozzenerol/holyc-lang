@@ -973,7 +973,14 @@ void transpileAstInternal(Ast *ast, TranspileCtx *ctx, s64 *indent) {
     case AST_CAST: {
         AoStr *type_cast = transpileVarDecl(ctx, ast->type,NULL);
         AoStr *lvalue = transpileLValue(ast->operand, ctx);
-        aoStrCatFmt(buf, "(%S)%S", type_cast, lvalue);
+        /* A HolyC cast is postfix and binds tighter than anything around
+         * it: `p(I64 *)[1]` indexes the cast pointer and `(a + b)(F64)`
+         * casts the sum, so bracket the C cast and a binary operand */
+        if (astIsBinOp(ast->operand)) {
+            aoStrCatFmt(buf, "((%S)(%S))", type_cast, lvalue);
+        } else {
+            aoStrCatFmt(buf, "((%S)%S)", type_cast, lvalue);
+        }
         break;
     }
 

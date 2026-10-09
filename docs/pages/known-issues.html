@@ -5,14 +5,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>The C transpiler crashes on a cast after a double dereference</td>
-        <td><code>I64 v = **pp(I64 *);</code> with <code>Pt **pp</code> makes <code>-transpile</code> print "Unary type is being assigned as NULL" and segfault</td>
-        <td>The transpiler is experimental; split the expression</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h3>Diagnostics</h3>
 <table>
