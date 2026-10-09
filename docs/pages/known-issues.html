@@ -27,9 +27,6 @@ there works as shown.</p>
     <tr><td>Warnings for compound assignments and some pointer/array mismatches point at the nearest <code>=</code></td>
         <td><code>y = y + q; arr = arr + 1;</code>: the warning for the second statement is placed on the first</td>
         <td>Read the types in the message</td></tr>
-    <tr><td>Carets are misplaced after non-ASCII text</td>
-        <td><code>I64 x = 1 €é;</code>: the caret for <code>é</code> is two columns too far right (columns count bytes)</td>
-        <td>Use the reported column</td></tr>
     <tr><td>Array types show their size in bytes</td>
         <td>A diagnostic about <code>I64 arr[2]</code> calls it <code>I64[16]</code></td>
         <td>Divide by the element size</td></tr>

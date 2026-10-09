@@ -847,13 +847,45 @@ AoStr *cctrlCreateErrorLine(Cctrl *cc, s64 lineno, char *msg,
  * one space left the `^` short of the text after it. */
 #define CCTRL_TAB_WIDTH 8
 
+/* How many columns a terminal gives the UTF-8 character starting at
+ * `s` (at most `n` bytes): 2 for the wide East Asian and emoji ranges,
+ * 1 otherwise */
+static s64 cctrlUtf8Width(const unsigned char *s, s64 n) {
+    u32 cp;
+    if (s[0] >= 0xF0 && n >= 4) {
+        cp = ((u32)(s[0] & 0x07) << 18) | ((u32)(s[1] & 0x3F) << 12) |
+             ((u32)(s[2] & 0x3F) << 6) | (u32)(s[3] & 0x3F);
+    } else if (s[0] >= 0xE0 && n >= 3) {
+        cp = ((u32)(s[0] & 0x0F) << 12) | ((u32)(s[1] & 0x3F) << 6) |
+             (u32)(s[2] & 0x3F);
+    } else {
+        return 1;
+    }
+    if ((cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0xA4CF) ||
+        (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) ||
+        (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF60) ||
+        (cp >= 0xFFE0 && cp <= 0xFFE6) || (cp >= 0x1F300 && cp <= 0x1F64F) ||
+        (cp >= 0x1F900 && cp <= 0x1F9FF) || (cp >= 0x20000 && cp <= 0x3FFFD)) {
+        return 2;
+    }
+    return 1;
+}
+
 /* The on-screen column of character `idx` of `line` once its tabs are
- * expanded; a position past the end of the line counts 1 per character. */
+ * expanded; a position past the end of the line counts 1 per character.
+ * Columns count bytes, so a UTF-8 character takes its width at its first
+ * byte and none at the rest (`é` is 2 bytes, 1 column). */
 static s64 cctrlScreenCol(const char *line, s64 line_len, s64 idx) {
     s64 screen_col = 0;
     for (s64 i = 0; i < idx; ++i) {
-        if (i < line_len && line[i] == '\t') {
+        unsigned char ch = i < line_len ? (unsigned char)line[i] : ' ';
+        if (ch == '\t') {
             screen_col += CCTRL_TAB_WIDTH - screen_col % CCTRL_TAB_WIDTH;
+        } else if ((ch & 0xC0) == 0x80) {
+            /* a UTF-8 continuation byte */
+        } else if (ch >= 0xC0) {
+            screen_col += cctrlUtf8Width((const unsigned char *)line + i,
+                                         line_len - i);
         } else {
             screen_col++;
         }
