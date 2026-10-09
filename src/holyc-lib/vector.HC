@@ -45,14 +45,14 @@ U0 FloatVecPush(FloatVec *vec, F64 value)
   vec->entries[vec->size++] = value;
 }
 
-F64 FloatVecPop(FloatVec *vec, Bool *_ok)
+F64 FloatVecPop(FloatVec *vec, Bool *_ok=NULL)
 {
   if (vec->size > 0) {
     auto value = vec->entries[--vec->size];
-    *_ok = TRUE;
+    if (_ok) *_ok = TRUE;
     return value;
   }
-  *_ok = FALSE;
+  if (_ok) *_ok = FALSE;
   return -1.0;
 }
 
@@ -115,14 +115,14 @@ U0 IntVecPush(IntVec *vec, I64 value)
   vec->entries[vec->size++] = value;
 }
 
-I64 IntVecPop(IntVec *vec, Bool *_ok)
+I64 IntVecPop(IntVec *vec, Bool *_ok=NULL)
 {
   if (vec->size > 0) {
     auto value = vec->entries[--vec->size];
-    *_ok = TRUE;
+    if (_ok) *_ok = TRUE;
     return value;
   }
-  *_ok = FALSE;
+  if (_ok) *_ok = FALSE;
   return -1;
 }
 
@@ -185,14 +185,14 @@ U0 PtrVecPush(PtrVec *vec, U0 *value)
   vec->entries[vec->size++] = value;
 }
 
-U0 *PtrVecPop(PtrVec *vec, Bool *_ok)
+U0 *PtrVecPop(PtrVec *vec, Bool *_ok=NULL)
 {
   if (vec->size > 0) {
     auto value = vec->entries[--vec->size];
-    *_ok = TRUE;
+    if (_ok) *_ok = TRUE;
     return value;
   }
-  *_ok = FALSE;
+  if (_ok) *_ok = FALSE;
   return NULL;
 }
 

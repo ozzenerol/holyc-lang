@@ -166,7 +166,9 @@ U0 QSortGeneric(U0 **arr, I64 high, I64 low,
 public FloatVec *FloatVecNew(I64 size = 32);
 public U64 FloatVecCapacity(IntVec *vec);
 public U0 FloatVecPush(FloatVec *vec, F64 value);
-public F64 FloatVecPop(FloatVec *vec, Bool *_ok);
+/* Remove and return the last entry. When empty, returns -1.0 and sets
+ * *_ok to FALSE; `_ok` may be NULL if you don't need to tell. */
+public F64 FloatVecPop(FloatVec *vec, Bool *_ok = NULL);
 public F64 FloatVecGet(FloatVec *vec, I64 idx);
 public U0 FloatVecClear(FloatVec *vec);
 public U0 FloatVecRelease(FloatVec *vec);
@@ -175,7 +177,9 @@ public U0 FloatVecSort(FloatVec *vec);
 public IntVec *IntVecNew(I64 size = 32);
 public U64 IntVecCapacity(IntVec *vec);
 public U0 IntVecPush(IntVec *vec, I64 value);
-public I64 IntVecPop(IntVec *vec, Bool *_ok);
+/* Remove and return the last entry. When empty, returns -1 and sets
+ * *_ok to FALSE; `_ok` may be NULL if you don't need to tell. */
+public I64 IntVecPop(IntVec *vec, Bool *_ok = NULL);
 public I64 IntVecGet(IntVec *vec, I64 idx);
 public U0 IntVecClear(IntVec *vec);
 public U0 IntVecRelease(IntVec *vec);
@@ -184,7 +188,9 @@ public U0 IntVecSort(IntVec *vec);
 public PtrVec *PtrVecNew(I64 size = 32);
 public U64 PtrVecCapacity(IntVec *vec);
 public U0 PtrVecPush(PtrVec *vec, U0 *value);
-public U0 *PtrVecPop(PtrVec *vec, Bool *_ok);
+/* Remove and return the last entry. When empty, returns NULL and sets
+ * *_ok to FALSE; `_ok` may be NULL if you don't need to tell. */
+public U0 *PtrVecPop(PtrVec *vec, Bool *_ok = NULL);
 public U0 *PtrVecGet(PtrVec *vec, I64 idx);
 public U0 PtrVecClear(PtrVec *vec);
 public U0 PtrVecRelease(PtrVec *vec, U0 (*_free_value)(U0 *_val) = NULL);
