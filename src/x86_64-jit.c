@@ -568,6 +568,72 @@ static int jitIsByvalStruct(AstType *t) {
            !t->is_intrinsic;
 }
 
+/* The widest power-of-two access, at most 8 bytes, that fits `n`. */
+static int jitChunkSize(int n) {
+    return n >= 8 ? 8 : n >= 4 ? 4 : n >= 2 ? 2 : 1;
+}
+
+/* Load the `n` (1..8) bytes at disp(base) into `reg`. An eightbyte of 3,
+ * 5, 6 or 7 bytes is read as 4/2/1-byte pieces ORed together through
+ * `scratch`: reading the whole eightbyte could run past the object.
+ * Mirrors x86_64LoadBytes. */
+static void jitLoadBytes(AsmEnc *enc, X86Reg reg, X86Reg base, int disp,
+                         int n, X86Reg scratch)
+{
+    if (jitChunkSize(n) == n) {
+        x86_64_enc_load_mem(enc, n, reg, base, -1, 0, disp);
+        return;
+    }
+    int o = 0;
+    while (o < n) {
+        int c = jitChunkSize(n - o);
+        X86Reg r = o == 0 ? reg : scratch;
+        x86_64_enc_load_mem(enc, c, r, base, -1, 0, disp + o);
+        if (o == 0) {
+            /* The 4-byte load sign-extends; the pieces above need zeros. */
+            if (c == 4) x86_64_enc_mov32_reg_reg(enc, reg, reg);
+        } else {
+            x86_64_enc_shift_imm_reg(enc, 4 /*shl*/, scratch, (uint8_t)(o * 8));
+            x86_64_enc_alu_reg_reg(enc, '|', reg, scratch);
+        }
+        o += c;
+    }
+}
+
+/* Store the low `n` (1..8) bytes of `reg` to disp(base), as 4/2/1-byte
+ * pieces shifted down through `scratch` when `n` is not a power of two;
+ * `reg` is left intact. */
+static void jitStoreBytes(AsmEnc *enc, X86Reg reg, X86Reg base, int disp,
+                          int n, X86Reg scratch)
+{
+    int o = 0;
+    while (o < n) {
+        int c = jitChunkSize(n - o);
+        X86Reg r = reg;
+        if (o != 0) {
+            x86_64_enc_mov_reg_reg(enc, scratch, reg);
+            x86_64_enc_shift_imm_reg(enc, 5 /*shr*/, scratch, (uint8_t)(o * 8));
+            r = scratch;
+        }
+        x86_64_enc_store_mem(enc, c, r, base, -1, 0, disp + o);
+        o += c;
+    }
+}
+
+/* Copy `n` bytes from src(src_base) to dst(dst_base) through rax, in
+ * 8/4/2/1-byte pieces. */
+static void jitCopyBytes(AsmEnc *enc, X86Reg src_base, int src,
+                         X86Reg dst_base, int dst, int n)
+{
+    int o = 0;
+    while (o < n) {
+        int c = jitChunkSize(n - o);
+        x86_64_enc_load_mem(enc, c, R_RAX, src_base, -1, 0, src + o);
+        x86_64_enc_store_mem(enc, c, R_RAX, dst_base, -1, 0, dst + o);
+        o += c;
+    }
+}
+
 static void jitEmitSysvCall(JitFnCtx *ctx, IrInstr *instr, Vec *args,
                             AoStr *fname, int indirect)
 {
@@ -648,15 +714,7 @@ static void jitEmitSysvCall(JitFnCtx *ctx, IrInstr *instr, Vec *args,
             }
             jitLoadToReg(ctx, a, R_R10); /* struct address */
             if (mem || ngp + gp > 6 || nsse + sse > 8) {
-                int words = (t->size + 7) / 8;
-                for (int k = 0; k < words; ++k) {
-                    int off = k * 8;
-                    int rem = t->size - off;
-                    int sz = rem >= 8 ? 8 : rem;
-                    x86_64_enc_load_mem(enc, sz, R_RAX, R_R10, -1, 0, off);
-                    x86_64_enc_store_mem(enc, sz, R_RAX, R_RSP, -1, 0,
-                                         stack_off + off);
-                }
+                jitCopyBytes(enc, R_R10, 0, R_RSP, stack_off, t->size);
                 stack_off += (t->size + 7) & ~7;
                 continue;
             }
@@ -669,8 +727,9 @@ static void jitEmitSysvCall(JitFnCtx *ctx, IrInstr *instr, Vec *args,
                     else         x86_64_enc_movsd_load(enc, nsse, R_R10, -1, 0, off);
                     nsse++;
                 } else {
-                    x86_64_enc_load_mem(enc, sz, kIntArgRegs[ngp], R_R10,
-                                        -1, 0, off);
+                    /* rax is free: r10 holds the struct, r11 the
+                     * indirect call target. */
+                    jitLoadBytes(enc, kIntArgRegs[ngp], R_R10, off, sz, R_RAX);
                     ngp++;
                 }
             }
@@ -719,7 +778,7 @@ static void jitEmitSysvCall(JitFnCtx *ctx, IrInstr *instr, Vec *args,
                 else         x86_64_enc_movsd_store(enc, ssei, R_R10, -1, 0, off);
                 ssei++;
             } else {
-                x86_64_enc_store_mem(enc, sz, gpret[gpi], R_R10, -1, 0, off);
+                jitStoreBytes(enc, gpret[gpi], R_R10, off, sz, R_R11);
                 gpi++;
             }
         }
@@ -789,15 +848,8 @@ static void jitEmitSysvParamPrologue(JitFnCtx *ctx) {
 
         if (mem || ngp + gp > 6 || nsse + sse > 8) {
             if (has_slot) {
-                int words = (t->size + 7) / 8;
-                for (int k = 0; k < words; ++k) {
-                    int off = k * 8;
-                    int rem = t->size - off;
-                    int sz = rem >= 8 ? 8 : rem;
-                    x86_64_enc_load_mem(enc, sz, R_RAX, R_RBP, -1, 0,
-                                        16 + incoming_off + off);
-                    jitFrameStore(enc, R_RAX, sz, loff + off);
-                }
+                jitCopyBytes(enc, R_RBP, 16 + incoming_off, R_RBP, loff,
+                             t->size);
             }
             incoming_off += (t->size + 7) & ~7;
             continue;
@@ -812,7 +864,8 @@ static void jitEmitSysvParamPrologue(JitFnCtx *ctx) {
                 nsse++;
             } else {
                 if (has_slot)
-                    jitFrameStore(enc, kIntArgRegs[ngp], sz, loff + off);
+                    jitStoreBytes(enc, kIntArgRegs[ngp], R_RBP, loff + off,
+                                  sz, R_R11);
                 ngp++;
             }
         }
@@ -1311,7 +1364,8 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
                         else         x86_64_enc_movsd_load(enc, ssei, R_RBP, -1, 0, loff + off);
                         ssei++;
                     } else {
-                        x86_64_enc_load_mem(enc, sz, gpret[gpi], R_RBP, -1, 0, loff + off);
+                        jitLoadBytes(enc, gpret[gpi], R_RBP, loff + off, sz,
+                                     R_R11);
                         gpi++;
                     }
                 }

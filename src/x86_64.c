@@ -1055,6 +1055,76 @@ static int x86_64AggInRegs(const X86SysvAgg *a, int ngp, int nsse) {
     return !a->memory && ngp + a->gp <= 6 && nsse + a->sse <= 8;
 }
 
+/* The widest power-of-two access, at most 8 bytes, that fits `n`. */
+static u32 x86_64ChunkSize(int n) {
+    return n >= 8 ? 8 : n >= 4 ? 4 : n >= 2 ? 2 : 1;
+}
+
+/* Load the `n` (1..8) bytes at `disp(%base)` into %reg. An eightbyte of
+ * 3, 5, 6 or 7 bytes (a class of that size, or the tail of one of
+ * 11, 13..15) is read as 4/2/1-byte pieces ORed together through
+ * %scratch: reading the whole eightbyte could run past the object. */
+static void x86_64LoadBytes(AoStr *buf, const char *reg, const char *base,
+                            s32 disp, int n, const char *scratch)
+{
+    if (x86_64ChunkSize(n) == (u32)n) {
+        x86_64DerefLoadWidth(buf, (u32)n, reg, base, NULL, 0, disp);
+        return;
+    }
+    char r32[8];
+    char mem[48];
+    x86_64RegForWidth(reg, 4, r32, sizeof(r32));
+    /* The first piece is the 4- or 2-byte one, zero-extended. */
+    int o = 0;
+    while (o < n) {
+        u32 c = x86_64ChunkSize(n - o);
+        x86_64FmtMemOperand(mem, sizeof(mem), disp + o, base, NULL, 0);
+        if (o == 0) {
+            if (c == 4) aoStrCatFmt(buf, "movl    %s, %%%s\n\t", mem, r32);
+            else x86_64DerefLoadWidth(buf, c, reg, base, NULL, 0, disp);
+        } else {
+            x86_64DerefLoadWidth(buf, c, scratch, base, NULL, 0, disp + o);
+            aoStrCatFmt(buf, "shlq    $%i, %%%s\n\t", o * 8, scratch);
+            aoStrCatFmt(buf, "orq     %%%s, %%%s\n\t", scratch, reg);
+        }
+        o += (int)c;
+    }
+}
+
+/* Store the low `n` (1..8) bytes of %reg to `disp(%base)`, as 4/2/1-byte
+ * pieces shifted down through %scratch when `n` is not a power of two;
+ * %reg is left intact. */
+static void x86_64StoreBytes(AoStr *buf, const char *reg, const char *base,
+                             s32 disp, int n, const char *scratch)
+{
+    int o = 0;
+    while (o < n) {
+        u32 c = x86_64ChunkSize(n - o);
+        const char *r = reg;
+        if (o != 0) {
+            aoStrCatFmt(buf, "movq    %%%s, %%%s\n\t", reg, scratch);
+            aoStrCatFmt(buf, "shrq    $%i, %%%s\n\t", o * 8, scratch);
+            r = scratch;
+        }
+        x86_64DerefStoreWidth(buf, c, r, base, NULL, 0, disp + o);
+        o += (int)c;
+    }
+}
+
+/* Copy `n` bytes from `src(%src_base)` to `dst(%dst_base)` through %rax,
+ * in 8/4/2/1-byte pieces. */
+static void x86_64CopyBytes(AoStr *buf, const char *src_base, s32 src,
+                            const char *dst_base, s32 dst, int n)
+{
+    int o = 0;
+    while (o < n) {
+        u32 c = x86_64ChunkSize(n - o);
+        x86_64DerefLoadWidth(buf, c, "rax", src_base, NULL, 0, src + o);
+        x86_64DerefStoreWidth(buf, c, "rax", dst_base, NULL, 0, dst + o);
+        o += (int)c;
+    }
+}
+
 static void x86_64EmitSysvCall(IrCgCtx *ctx, IrInstr *instr, Vec *args,
                                AoStr *fname, int indirect)
 {
@@ -1121,15 +1191,7 @@ static void x86_64EmitSysvCall(IrCgCtx *ctx, IrInstr *instr, Vec *args,
             x86_64LoadToReg(ctx, a, "r10");
             if (!x86_64AggInRegs(&ag, ngp, nsse)) {
                 /* On the stack by value. */
-                int words = (t->size + 7) / 8;
-                for (int k = 0; k < words; ++k) {
-                    int off = k * 8;
-                    int rem = t->size - off;
-                    u32 sz = rem >= 8 ? 8 : (u32)rem;
-                    x86_64DerefLoadWidth(buf, sz, "rax", "r10", NULL, 0, off);
-                    x86_64DerefStoreWidth(buf, sz, "rax", "rsp", NULL, 0,
-                                          stack_off + off);
-                }
+                x86_64CopyBytes(buf, "r10", 0, "rsp", stack_off, t->size);
                 stack_off += (t->size + 7) & ~7;
                 continue;
             }
@@ -1145,8 +1207,10 @@ static void x86_64EmitSysvCall(IrCgCtx *ctx, IrInstr *instr, Vec *args,
                                 x86_64FpMov(sz == 4 ? 4 : 8), mem_s, nsse);
                     nsse++;
                 } else {
-                    x86_64DerefLoadWidth(buf, sz, kSysvGpArg[ngp], "r10",
-                                         NULL, 0, off);
+                    /* %rax is free: %r10 holds the struct, %r11 the
+                     * indirect call target. */
+                    x86_64LoadBytes(buf, kSysvGpArg[ngp], "r10", off,
+                                    (int)sz, "rax");
                     ngp++;
                 }
             }
@@ -1198,7 +1262,7 @@ static void x86_64EmitSysvCall(IrCgCtx *ctx, IrInstr *instr, Vec *args,
                             x86_64FpMov(sz == 4 ? 4 : 8), ssei, mem);
                 ssei++;
             } else {
-                x86_64DerefStoreWidth(buf, sz, gpr[gpi], "r10", NULL, 0, off);
+                x86_64StoreBytes(buf, gpr[gpi], "r10", off, (int)sz, "r11");
                 gpi++;
             }
         }
@@ -1265,15 +1329,8 @@ static void x86_64EmitSysvParamPrologue(IrCgCtx *ctx, Ast *ast) {
         if (!x86_64AggInRegs(&ag, ngp, nsse)) {
             /* MEMORY / register overflow: arrived at [rbp+16+incoming_off]. */
             if (has_slot) {
-                int words = (t->size + 7) / 8;
-                for (int k = 0; k < words; ++k) {
-                    int off = k * 8;
-                    int rem = t->size - off;
-                    u32 sz = rem >= 8 ? 8 : (u32)rem;
-                    x86_64DerefLoadWidth(buf, sz, "rax", "rbp", NULL, 0,
-                                         16 + incoming_off + off);
-                    x86_64FrameStoreWidth(buf, loff + off, sz, "rax");
-                }
+                x86_64CopyBytes(buf, "rbp", 16 + incoming_off, "rbp", loff,
+                                t->size);
             }
             incoming_off += (t->size + 7) & ~7;
             continue;
@@ -1294,7 +1351,8 @@ static void x86_64EmitSysvParamPrologue(IrCgCtx *ctx, Ast *ast) {
                 nsse++;
             } else {
                 if (has_slot)
-                    x86_64FrameStoreWidth(buf, loff + off, sz, kSysvGpArg[ngp]);
+                    x86_64StoreBytes(buf, kSysvGpArg[ngp], "rbp", loff + off,
+                                     (int)sz, "r11");
                 ngp++;
             }
         }
@@ -1900,8 +1958,8 @@ static void x86_64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                                     x86_64FpMov(sz == 4 ? 4 : 8), mem, ssei);
                         ssei++;
                     } else {
-                        x86_64DerefLoadWidth(ctx->buf, sz, gpr[gpi], "rbp",
-                                             NULL, 0, loff + off);
+                        x86_64LoadBytes(ctx->buf, gpr[gpi], "rbp", loff + off,
+                                        (int)sz, "r11");
                         gpi++;
                     }
                 }

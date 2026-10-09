@@ -940,13 +940,66 @@ static s32 aarch64PartitionCallArgs(u8 *is_stack, u64 n, Vec *args,
     return (s32)stack_count;
 }
 
+/* The widest power-of-two access, at most 8 bytes, that fits `n`. */
+static int aarch64ChunkSize(int n) {
+    return n >= 8 ? 8 : n >= 4 ? 4 : n >= 2 ? 2 : 1;
+}
+
+/* Load the `n` (1..8) bytes at [base, #off] into x<reg>, zero-extended,
+ * as 4/2/1-byte pieces ORed together through x10 when `n` is not a
+ * power of two: an aggregate of 3, 5, 6, 7 bytes (or the tail of one of
+ * 9..15) travels in an x register, and reading past it could fault. */
+static void aarch64LoadBytes(AoStr *buf, int reg, const char *base,
+                             int off, int n)
+{
+    static const char *ld[] = {"", "ldrb", "ldrh", "", "ldr"};
+    if (n >= 8) {
+        aoStrCatFmt(buf, "ldr x%i, [%s, #%i]\n\t", reg, base, off);
+        return;
+    }
+    int o = 0;
+    while (o < n) {
+        int c = aarch64ChunkSize(n - o);
+        if (o == 0) {
+            aoStrCatFmt(buf, "%s w%i, [%s, #%i]\n\t", ld[c], reg, base, off);
+        } else {
+            aoStrCatFmt(buf, "%s w10, [%s, #%i]\n\t", ld[c], base, off + o);
+            aoStrCatFmt(buf, "orr x%i, x%i, x10, lsl #%i\n\t", reg, reg, o * 8);
+        }
+        o += c;
+    }
+}
+
+/* Store the low `n` (1..8) bytes of x<reg> to [base, #off], as 4/2/1-byte
+ * pieces shifted down through x10 when `n` is not a power of two; x<reg>
+ * is left intact. */
+static void aarch64StoreBytes(AoStr *buf, int reg, const char *base,
+                              int off, int n)
+{
+    static const char *st[] = {"", "strb", "strh", "", "str"};
+    if (n >= 8) {
+        aoStrCatFmt(buf, "str x%i, [%s, #%i]\n\t", reg, base, off);
+        return;
+    }
+    int o = 0;
+    while (o < n) {
+        int c = aarch64ChunkSize(n - o);
+        if (o == 0) {
+            aoStrCatFmt(buf, "%s w%i, [%s, #%i]\n\t", st[c], reg, base, off);
+        } else {
+            aoStrCatFmt(buf, "lsr x10, x%i, #%i\n\t", reg, o * 8);
+            aoStrCatFmt(buf, "%s w10, [%s, #%i]\n\t", st[c], base, off + o);
+        }
+        o += c;
+    }
+}
+
 /* Emit an `extern "c"` call that passes one or more structs by value,
  * following AAPCS64. Scalars and structs are classified together so the
  * GP/FP register counters (NGRN/NSRN) stay in sync with the C ABI.
  * Covers the register cases (HFA -> v regs, aggregate <=16 -> x regs,
- * scalars); register-exhaustion stack spills, >16-byte by-reference
- * args, and odd partial-chunk widths are not handled yet and panic
- * loudly rather than miscompile. */
+ * scalars); register-exhaustion stack spills and >16-byte by-reference
+ * args are not handled yet and panic loudly rather than miscompile. */
 /* Copy `size` bytes from [src_reg, #0..] to [sp, #dst] via x10. */
 static void aarch64CopyToSp(AoStr *buf, const char *src_reg, int size, int dst)
 {
@@ -956,19 +1009,12 @@ static void aarch64CopyToSp(AoStr *buf, const char *src_reg, int size, int dst)
         aoStrCatFmt(buf, "str x10, [sp, #%i]\n\t", dst + o);
         o += 8;
     }
-    int rem = size - o;
-    if (rem == 4) {
-        aoStrCatFmt(buf, "ldr w10, [%s, #%i]\n\t", src_reg, o);
-        aoStrCatFmt(buf, "str w10, [sp, #%i]\n\t", dst + o);
-    } else if (rem == 2) {
-        aoStrCatFmt(buf, "ldrh w10, [%s, #%i]\n\t", src_reg, o);
-        aoStrCatFmt(buf, "strh w10, [sp, #%i]\n\t", dst + o);
-    } else if (rem == 1) {
-        aoStrCatFmt(buf, "ldrb w10, [%s, #%i]\n\t", src_reg, o);
-        aoStrCatFmt(buf, "strb w10, [sp, #%i]\n\t", dst + o);
-    } else if (rem != 0) {
-        loggerPanic("ir-cg-aarch64: %d-byte arg copy chunk not supported\n",
-                    rem);
+    /* The tail of an odd-sized aggregate: 4/2/1-byte pieces. */
+    while (o < size) {
+        int c = aarch64ChunkSize(size - o);
+        aarch64LoadBytes(buf, 10, src_reg, o, c);
+        aarch64StoreBytes(buf, 10, "sp", dst + o, c);
+        o += c;
     }
 }
 
@@ -1000,19 +1046,12 @@ static void aarch64CopyToSlot(AoStr *buf, const char *base_reg, int size,
         aoStrCatFmt(buf, "str x10, [%s, #%i]\n\t", dst_base, dst + o);
         o += 8;
     }
-    int rem = size - o;
-    if (rem == 4) {
-        aoStrCatFmt(buf, "ldr w10, [%s, #%i]\n\t", base_reg, src + o);
-        aoStrCatFmt(buf, "str w10, [%s, #%i]\n\t", dst_base, dst + o);
-    } else if (rem == 2) {
-        aoStrCatFmt(buf, "ldrh w10, [%s, #%i]\n\t", base_reg, src + o);
-        aoStrCatFmt(buf, "strh w10, [%s, #%i]\n\t", dst_base, dst + o);
-    } else if (rem == 1) {
-        aoStrCatFmt(buf, "ldrb w10, [%s, #%i]\n\t", base_reg, src + o);
-        aoStrCatFmt(buf, "strb w10, [%s, #%i]\n\t", dst_base, dst + o);
-    } else if (rem != 0) {
-        loggerPanic("ir-cg-aarch64: %d-byte param copy chunk not "
-                    "supported\n", rem);
+    /* The tail of an odd-sized aggregate: 4/2/1-byte pieces. */
+    while (o < size) {
+        int c = aarch64ChunkSize(size - o);
+        aarch64LoadBytes(buf, 10, base_reg, src + o, c);
+        aarch64StoreBytes(buf, 10, dst_base, dst + o, c);
+        o += c;
     }
 }
 
@@ -1064,11 +1103,7 @@ static void a64TxtAggLoad(void *be, int is_fp, int reg, int src_off, int size) {
     if (is_fp)
         aoStrCatFmt(buf, "ldr %s%i, [x9, #%i]\n\t", size == 4 ? "s" : "d",
                     reg, src_off);
-    else if (size >= 8) aoStrCatFmt(buf, "ldr x%i, [x9, #%i]\n\t", reg, src_off);
-    else if (size == 4) aoStrCatFmt(buf, "ldr w%i, [x9, #%i]\n\t", reg, src_off);
-    else if (size == 2) aoStrCatFmt(buf, "ldrh w%i, [x9, #%i]\n\t", reg, src_off);
-    else if (size == 1) aoStrCatFmt(buf, "ldrb w%i, [x9, #%i]\n\t", reg, src_off);
-    else loggerPanic("ir-cg-aarch64: %d-byte struct chunk not supported\n", size);
+    else aarch64LoadBytes(buf, reg, "x9", src_off, size);
 }
 static void a64TxtPtrInReg(void *be, int reg, int sp_off) {
     aoStrCatFmt(((IrCgCtx *)be)->buf, "add x%i, sp, #%i\n\t", reg, sp_off);
@@ -1113,11 +1148,7 @@ static void a64TxtRetChunkStore(void *be, int is_fp, int reg, int off, int size)
     if (is_fp)
         aoStrCatFmt(buf, "str %s%i, [x9, #%i]\n\t", size == 4 ? "s" : "d",
                     reg, off);
-    else if (size >= 8) aoStrCatFmt(buf, "str x%i, [x9, #%i]\n\t", reg, off);
-    else if (size == 4) aoStrCatFmt(buf, "str w%i, [x9, #%i]\n\t", reg, off);
-    else if (size == 2) aoStrCatFmt(buf, "strh w%i, [x9, #%i]\n\t", reg, off);
-    else if (size == 1) aoStrCatFmt(buf, "strb w%i, [x9, #%i]\n\t", reg, off);
-    else loggerPanic("ir-cg-aarch64: %d-byte ret chunk not supported\n", size);
+    else aarch64StoreBytes(buf, reg, "x9", off, size);
 }
 /* Spill from x0, not x9: a frame slot beyond stur range materialises its
  * offset into x9, which would overwrite the buffer address being stored. */
@@ -1165,12 +1196,7 @@ static void a64TxtAggStore(void *be, int is_fp, int reg, int loff, int size) {
     if (is_fp)
         aoStrCatFmt(buf, "str %s%i, [%s, #%i]\n\t", size == 4 ? "s" : "d",
                     reg, base, loff);
-    else if (size >= 8) aoStrCatFmt(buf, "str x%i, [%s, #%i]\n\t", reg, base, loff);
-    else if (size == 4) aoStrCatFmt(buf, "str w%i, [%s, #%i]\n\t", reg, base, loff);
-    else if (size == 2) aoStrCatFmt(buf, "strh w%i, [%s, #%i]\n\t", reg, base, loff);
-    else if (size == 1) aoStrCatFmt(buf, "strb w%i, [%s, #%i]\n\t", reg, base, loff);
-    else loggerPanic("ir-cg-aarch64: %d-byte struct param chunk not "
-                     "supported\n", size);
+    else aarch64StoreBytes(buf, reg, base, loff, size);
 }
 static void a64TxtCopyStackToSlot(void *be, int size, int incoming_off,
                                   int loff) {
@@ -1740,15 +1766,9 @@ static void aarch64EmitInstr(IrCgCtx *ctx, IrInstr *instr) {
                     int ngp = (t->size + 7) / 8;
                     for (int k = 0; k < ngp; ++k) {
                         int off = k * 8, rem = t->size - off;
-                        int at = loff + off;
-                        if (rem >= 8)
-                            aoStrCatFmt(ctx->buf, "ldr x%i, [%s, #%i]\n\t", k, rbase, at);
-                        else if (rem == 4)
-                            aoStrCatFmt(ctx->buf, "ldr w%i, [%s, #%i]\n\t", k, rbase, at);
-                        else if (rem == 2)
-                            aoStrCatFmt(ctx->buf, "ldrh w%i, [%s, #%i]\n\t", k, rbase, at);
-                        else
-                            aoStrCatFmt(ctx->buf, "ldrb w%i, [%s, #%i]\n\t", k, rbase, at);
+                        /* x10 is dead here too. */
+                        aarch64LoadBytes(ctx->buf, k, rbase, loff + off,
+                                         rem >= 8 ? 8 : rem);
                     }
                 }
             } else if (instr->dst) {

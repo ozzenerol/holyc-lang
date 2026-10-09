@@ -1181,6 +1181,31 @@ static int irIsByValAggregate(AstType *ty) {
            ty->size > 0;
 }
 
+static IrValue *irLowerAssign(IrCtx *ctx, Ast *ast);
+
+/* Copy the by-value aggregate `rhs` (`n_bytes` of it) to `dst_addr`: route
+ * a struct-returning call's hidden out-pointer at it, or memcpy the source
+ * aggregate's bytes into it. Used by `dst = src` and by a class item of an
+ * initialiser list. */
+static void irCopyAggregateTo(IrCtx *ctx, IrValue *dst_addr, Ast *rhs,
+                              int n_bytes)
+{
+    if ((rhs->kind == AST_FUNCALL || rhs->kind == AST_FUNPTR_CALL ||
+         rhs->kind == AST_ASM_FUNCALL) &&
+        rhs->type && irRetTypeIsAggregate(rhs->type))
+    {
+        irFnCallTo(ctx, rhs, dst_addr);
+    } else {
+        /* Chained `c = b = src`: lower the inner assignment first (it
+         * performs its own copy and returns the inner dst's address),
+         * then copy from there. Otherwise the source is a plain lvalue. */
+        IrValue *src_addr = astIsBinOpKind(rhs, AST_BIN_OP_ASSIGN)
+            ? irLowerAssign(ctx, rhs)
+            : irLValueAddr(ctx, rhs);
+        irEmitMemcpy(ctx, dst_addr, src_addr, n_bytes);
+    }
+}
+
 /* Lower `<lhs> op= rhs` (or `<lhs> = rhs` when op is AST_BIN_OP_ASSIGN)
  * and return the value written back. */
 static IrValue *irLowerAssign(IrCtx *ctx, Ast *ast) {
@@ -1197,21 +1222,7 @@ static IrValue *irLowerAssign(IrCtx *ctx, Ast *ast) {
             dst_addr = irTmp(IR_TYPE_PTR, 8);
             irBlockAddInstr(ctx, irInstrNew(IR_LEA, dst_addr, tgt.target, NULL));
         }
-        Ast *rhs = ast->right;
-        if ((rhs->kind == AST_FUNCALL || rhs->kind == AST_FUNPTR_CALL ||
-             rhs->kind == AST_ASM_FUNCALL) &&
-            rhs->type && irRetTypeIsAggregate(rhs->type))
-        {
-            irFnCallTo(ctx, rhs, dst_addr);
-        } else {
-            /* Chained `c = b = src`: lower the inner assignment first (it
-             * performs its own copy and returns the inner dst's address),
-             * then copy from there. Otherwise the source is a plain lvalue. */
-            IrValue *src_addr = astIsBinOpKind(rhs, AST_BIN_OP_ASSIGN)
-                ? irLowerAssign(ctx, rhs)
-                : irLValueAddr(ctx, rhs);
-            irEmitMemcpy(ctx, dst_addr, src_addr, tgt.type->size);
-        }
+        irCopyAggregateTo(ctx, dst_addr, ast->right, tgt.type->size);
         return dst_addr;
     }
 
@@ -1386,6 +1397,15 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
                 /* `U8 name[8]` field: the string's bytes, not its
                  * address. */
                 irStoreConstString(ctx, base, foff, fld->size, item);
+            } else if (irIsByValAggregate(fld)) {
+                /* A class field set from a class value: its bytes, not
+                 * its address. */
+                IrValue *field = irTmp(IR_TYPE_PTR, 8);
+                IrValue *off = irConstInt(IR_TYPE_I64, foff);
+                irBlockAddInstr(ctx, irInstrNew(IR_GEP, field, base, off));
+                IrValue *dst = irTmp(IR_TYPE_PTR, 8);
+                irBlockAddInstr(ctx, irInstrNew(IR_LEA, dst, field, NULL));
+                irCopyAggregateTo(ctx, dst, item, fld->size);
             } else {
                 IrValue *val = irExpr(ctx, item);
                 AstType *cty = fld ? fld : item->type;
@@ -1430,6 +1450,17 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
             int slot_size = elem_ty->size;
             irStoreConstString(ctx, base, offset_bytes, slot_size, item);
             offset_bytes += slot_size;
+            continue;
+        }
+        /* A class element set from a class value: copy its bytes. */
+        if (parent_is_array && irIsByValAggregate(elem_ty)) {
+            IrValue *field = irTmp(IR_TYPE_PTR, 8);
+            IrValue *off = irConstInt(IR_TYPE_I64, offset_bytes);
+            irBlockAddInstr(ctx, irInstrNew(IR_GEP, field, base, off));
+            IrValue *dst = irTmp(IR_TYPE_PTR, 8);
+            irBlockAddInstr(ctx, irInstrNew(IR_LEA, dst, field, NULL));
+            irCopyAggregateTo(ctx, dst, item, elem_ty->size);
+            offset_bytes += elem_ty->size;
             continue;
         }
         IrValue *val = irExpr(ctx, item);
