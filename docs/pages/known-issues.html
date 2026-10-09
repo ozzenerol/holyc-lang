@@ -11,9 +11,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>The underline under a string token leaves out its quotes</td>
-        <td><code>I64 s = 2 "abcd" 3;</code> underlines 4 characters from the opening quote</td>
-        <td>None needed</td></tr>
     <tr><td>The warning for a value returned from a <code>U0</code> function misprints the expression</td>
         <td><code>return g++;</code> is shown as <code>++g</code>; <code>return Twice(Twice(1));</code> as <code>Twice(Twice(1););</code></td>
         <td>Read the line number in the warning</td></tr>
