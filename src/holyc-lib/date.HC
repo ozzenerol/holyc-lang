@@ -65,6 +65,7 @@ U0 NowDateTimeStruct(CDateStruct *_ds)
   timeval _tv;
   tm *ptm;
   U64 milliseconds,seconds;
+  I64 gmtoff;
 
   gettimeofday(&_tv,NULL);
   milliseconds = (_tv.tv_sec*1000) +
@@ -72,7 +73,9 @@ U0 NowDateTimeStruct(CDateStruct *_ds)
   seconds = milliseconds / 1000;
   ptm = localtime(&seconds);
 
-  _ds->sec10000 = _tv.tv_usec/100;
+  /* sec100 is the hundredths, sec10000 the ten-thousandths below them
+   * (0-99 each), as Struct2Date and Date2Struct use them */
+  _ds->sec10000 = (_tv.tv_usec/100) % 100;
   _ds->sec100 = _tv.tv_usec/10000;
   _ds->sec  = ptm->tm_sec(U64);
   _ds->min  = ptm->tm_min(U64);
@@ -83,6 +86,10 @@ U0 NowDateTimeStruct(CDateStruct *_ds)
   _ds->day_of_week = ptm->tm_wday(U64);
   _ds->day_of_mon = ptm->tm_mday(U64);
   _ds->year += 1900;
+  /* Offset from UTC as +-hhmm, like Str2CDateStruct's %z */
+  gmtoff = ptm->tm_gmtoff/60;
+  if (gmtoff < 0) _ds->zone_diff = -((-gmtoff)/60*100 + (-gmtoff)%60);
+  else            _ds->zone_diff = gmtoff/60*100 + gmtoff%60;
 }
 
 I64 YearStartDate(I64 year)

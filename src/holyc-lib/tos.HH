@@ -156,6 +156,13 @@ public I64 class CDate {
   I32 date;
 };
 
+/* A broken-down CDate. sec100 is hundredths of a second (0-99) and
+ * sec10000 the ten-thousandths below them (0-99), so the fraction of a
+ * second is sec100/100 + sec10000/10000. mon is 1-12, day_of_mon 1-31,
+ * day_of_week 0 (Sunday) - 6. zone_diff is the offset from UTC as
+ * +-hhmm (e.g. 100 for +01:00, -130 for -01:30), set by
+ * NowDateTimeStruct and by Str2CDateStruct's %z; Struct2Date and
+ * Date2Struct ignore it. */
 public class CDateStruct {
   U64 sec10000, sec100, sec, min, hour, day_of_week, day_of_mon, mon;
   I32 year;
