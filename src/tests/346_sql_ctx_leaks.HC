@@ -36,7 +36,13 @@ I32 Main()
   delta = HeapInUse() - before;
   tests++; if (delta < 16384) correct++; else "failed open leaked %d bytes\n", delta;
 
-  /* releasing a context with a live statement still closes it */
+  /* releasing a context with a live statement still closes it. A kept
+   * connection is ~145 KB, 40 MB over these 280 opens. On macOS the heap
+   * total can also step up by ~130 KB once or twice with nothing leaked:
+   * each CPU's malloc magazine keeps its last freed block (the closed
+   * connection's) cached and counted as in use, and the thread may move
+   * to another core during the loop (16 cores: up to ~2.1 MB). So allow
+   * under 8 KB per open. */
   for (i = 0; i < 300; i++) {
     if (i == 20) before = HeapInUse();
     ctx = SqlCtxNew(":memory:");
@@ -45,7 +51,7 @@ I32 Main()
     SqlFinalizePrepared(ps);
   }
   delta = HeapInUse() - before;
-  tests++; if (delta < 16384) correct++; else "busy close leaked %d bytes\n", delta;
+  tests++; if (delta < 280 * 8192) correct++; else "busy close leaked %d bytes\n", delta;
   SqlCtxRelease(NULL);
 
   /* len is 0 for columns that are not TEXT or BLOB */
