@@ -1707,6 +1707,7 @@ public class RBTree
   U0 (*free_key)(U0 *);
   U0 (*free_value)(U0 *);
   I64 (*key_cmp)(U0 *, U0 *);
+  RBNode *nil; /* this tree's sentinel leaf */
 };
 
 public RBTree *RBTreeNew(U0 (*free_key)(U0 *),

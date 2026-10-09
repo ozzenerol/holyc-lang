@@ -16,8 +16,10 @@ class RBNode
   RBNode *parent;
 };
 
-static RBNode *RB_SENTINAL;
-
+/* Each tree has its own sentinel (`nil`), the black leaf every path ends
+ * in. The algorithms write its parent, so sharing one between trees would
+ * be a data race between threads. It is the only node whose `left` is
+ * NULL. */
 class RBTree
 {
   RBNode *root;
@@ -25,45 +27,49 @@ class RBTree
   U0 (*free_key)(U0 *);
   U0 (*free_value)(U0 *);
   I64 (*key_cmp)(U0 *, U0 *);
+  RBNode *nil;
 };
+
+static Bool RBIsNil(RBNode *n)
+{
+  return n == NULL || n->left == NULL;
+}
 
 RBTree *RBTreeNew(U0 (*free_key)(U0 *), U0 (*free_value)(U0 *), 
                   U0 (*key_cmp)(U0 *, U0 *))
 {
-  static I64 has_init = 0;
-  if (!has_init) {
-    has_init = 1;
-    RB_SENTINAL = MAlloc(sizeof(RBNode));
-  }
   RBTree *tree = MAlloc(sizeof(RBTree));
+  RBNode *nil = MAlloc(sizeof(RBNode));
+  nil->color = __RB_BLACK__;
+  nil->left = NULL;
+  nil->right = NULL;
+  nil->parent = NULL;
+  nil->key = NULL;
+  nil->value = NULL;
   tree->free_key = free_key;
   tree->free_value = free_value;
   tree->key_cmp = key_cmp;
-  tree->root = RB_SENTINAL;
+  tree->nil = nil;
+  tree->root = nil;
   tree->size = 0;
-  RB_SENTINAL->color = __RB_BLACK__;
-  RB_SENTINAL->left = NULL;
-  RB_SENTINAL->right = NULL;
-  RB_SENTINAL->key = NULL;
-  RB_SENTINAL->value = NULL;
   return tree;
 }
 
-static RBNode *RBNodeNew(U0 *key, U0 *value)
+static RBNode *RBNodeNew(RBTree *tree, U0 *key, U0 *value)
 {
   RBNode *n = MAlloc(sizeof(RBNode));
   n->key = key;
   n->value = value;
   n->color = __RB_RED__;
-  n->right = RB_SENTINAL;
-  n->left = RB_SENTINAL;
+  n->right = tree->nil;
+  n->left = tree->nil;
   n->parent = NULL;
   return n;
 }
 
 static U0 RBNodeRelease(RBTree *tree, RBNode *n)
 {
-  if (n && n != RB_SENTINAL) {
+  if (n && n != tree->nil) {
     if (tree->free_key) tree->free_key(n->key);
     if (tree->free_value) tree->free_value(n->value);
     Free(n);
@@ -74,7 +80,7 @@ static U0 RBLeftRot(RBTree *tree, RBNode *x)
 {
   RBNode *y = x->right;
   x->right = y->left;
-  if (y->left != RB_SENTINAL) {
+  if (y->left != tree->nil) {
     y->left->parent = x;
   }
   y->parent = x->parent;
@@ -93,7 +99,7 @@ static U0 RBRightRot(RBTree *tree, RBNode *y)
 {
   RBNode *x = y->left;
   y->left = x->right;
-  if (x->right != RB_SENTINAL) {
+  if (x->right != tree->nil) {
     x->right->parent = y;
   }
   x->parent = y->parent;
@@ -167,7 +173,7 @@ U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value)
   RBNode *z = NULL;
   I64 cmp = 0;
 
-  while (x != RB_SENTINAL) {
+  while (x != tree->nil) {
     y = x;
     cmp = tree->key_cmp(key, x->key);
 
@@ -187,7 +193,7 @@ U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value)
     }
   }
 
-  z = RBNodeNew(key,value);
+  z = RBNodeNew(tree,key,value);
   z->parent = y;
 
   if (y == NULL) {
@@ -216,7 +222,7 @@ static RBNode *RBNodeFind(RBTree *tree, RBNode *n, U0 *key)
   RBNode *cur = n;
   I64 cmp = 0;
 
-  while (cur && cur != RB_SENTINAL) {
+  while (cur && cur != tree->nil) {
     cmp = tree->key_cmp(key, cur->key);
     if (cmp == 0) {
       return cur;
@@ -254,9 +260,9 @@ static U0 RBTransplant(RBTree *tree, RBNode *u, RBNode *v)
   v->parent = u->parent;
 }
 
-static RBNode *RBNodeMin(RBNode *n)
+static RBNode *RBNodeMin(RBTree *tree, RBNode *n)
 {
-  while (n->left != RB_SENTINAL) n = n->left;
+  while (n->left != tree->nil) n = n->left;
   return n;
 }
 
@@ -331,14 +337,14 @@ U0 RBTreeDelete(RBTree *tree, U0 *key)
   y = z;
   original_color = y->color;
 
-  if (z->left == RB_SENTINAL) {
+  if (z->left == tree->nil) {
     x = z->right;
     RBTransplant(tree, z, z->right);
-  } else if (z->right == RB_SENTINAL) {
+  } else if (z->right == tree->nil) {
     x = z->left;
     RBTransplant(tree, z, z->left);
   } else {
-    y = RBNodeMin(z->right);
+    y = RBNodeMin(tree, z->right);
     original_color = y->color;
     x = y->right;
     if (y != z->right) {
@@ -373,7 +379,7 @@ U0 RBTreeForEach(RBTree *tree,
   RBNode *cur = tree->root;
 
   while (cur) {
-    while (cur != NULL && cur != RB_SENTINAL) {
+    while (!RBIsNil(cur)) {
       stack[sp++] = cur;
       cur = cur->left;
     }
@@ -400,7 +406,7 @@ RBIter *RBIterNew(RBTree *tree)
   it->sp = 0;
   it->stack = MAlloc(sizeof(RBNode*)*tree->size);
   RBNode *node = tree->root;
-  while (node != NULL && node != RB_SENTINAL) {
+  while (!RBIsNil(node)) {
     it->stack[it->sp++] = node;
     node = node->left;
   }
@@ -423,7 +429,7 @@ RBNode *RBIterNext(RBIter *it)
   RBNode *node = it->stack[--it->sp];
   auto right_tree = node->right;
 
-  while (right_tree != NULL && right_tree != RB_SENTINAL) {
+  while (!RBIsNil(right_tree)) {
     it->stack[it->sp++] = right_tree;
     right_tree = right_tree->left;
   }
@@ -442,6 +448,7 @@ U0 RBTreeRelease(RBTree *tree)
     RBNodeRelease(tree, node);
   }
   RBIterRelease(it);
+  Free(tree->nil);
   Free(tree);
 }
 
@@ -490,7 +497,7 @@ IntSetIter *IntSetIterNew(IntSet *set)
   it->entry = MAlloc(sizeof(IntSetEntry));
   it->stack = MAlloc(sizeof(RBNode *) * set->tree->size);
   RBNode *node = set->tree->root;
-  while (node != NULL && node != RB_SENTINAL) {
+  while (!RBIsNil(node)) {
     it->stack[it->sp++] = node;
     node = node->left;
   }
@@ -507,7 +514,7 @@ IntSetEntry *IntSetIterNext(IntSetIter *it)
   it->entry->key = node->key(I64);
   auto right_tree = node->right;
 
-  while (right_tree != NULL && right_tree != RB_SENTINAL) {
+  while (!RBIsNil(right_tree)) {
     it->stack[it->sp++] = right_tree;
     right_tree = right_tree->left;
   }
