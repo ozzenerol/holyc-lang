@@ -23,7 +23,7 @@ I32 g_srv, g_cli, g_acc;
 Bool Pair(I32 family)
 {// A listening loopback socket of `family`, a client and the accepted end
   sockaddr_storage ss;
-  I64 len = sizeof(sockaddr_storage);
+  U32 len = sizeof(sockaddr_storage);
   MemSet(&ss, 0, sizeof(sockaddr_storage));
   g_srv = g_cli = g_acc = -1;
   if (family == AF_INET6) {

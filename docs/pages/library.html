@@ -1289,6 +1289,21 @@ if (conn != -1) {
 }
 close(srv);
 </code></pre>
+<p>The raw calls are there too, for UDP and anything the helpers don't cover:
+<code>socket</code>, <code>bind</code>, <code>sendto</code>, <code>recvfrom</code>,
+<code>sendmsg</code>, <code>recvmsg</code>, <code>getsockname</code>, <code>setsockopt</code>, ...
+Address and option lengths are C's <code>socklen_t</code>, a <code>U32</code>: declare the
+ones you pass by address (to <code>accept</code>, <code>recvfrom</code>, <code>getsockname</code>,
+<code>getpeername</code>, <code>getsockopt</code>) as <code>U32</code> and set them to the buffer
+size first. The <code>MSG_*</code> flags (<code>MSG_PEEK</code>, <code>MSG_TRUNC</code>,
+<code>MSG_WAITALL</code>, ...) have the platform's values.</p>
+<pre><code>
+I32 fd = socket(AF_INET, SOCK_DGRAM, 0);
+sockaddr_storage from;
+U32 fromlen = sizeof(sockaddr_storage);
+U8 buf[512];
+I64 n = recvfrom(fd, buf, sizeof(buf), 0, (&amp;from)(sockaddr *), &amp;fromlen);
+</code></pre>
 
 <h2 id="fzf">Fuzzy matching</h2>
 <p><code>FzF(text, pattern)</code> matches text the way the fzf tool does and returns the

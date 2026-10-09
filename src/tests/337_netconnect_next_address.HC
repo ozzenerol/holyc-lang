@@ -19,7 +19,7 @@ U0 Check(Bool ok, U8 *what)
 I64 Port(I32 sockfd)
 {
   sockaddr_storage ss;
-  I64 len = sizeof(sockaddr_storage);
+  U32 len = sizeof(sockaddr_storage);
   if (sockfd == -1 || getsockname(sockfd, (&ss)(sockaddr *), &len) == -1) return -1;
   U16 p = (&ss)(sockaddr_in *)->sin_port;
   return ((p & 0xff) << 8) | (p >> 8);

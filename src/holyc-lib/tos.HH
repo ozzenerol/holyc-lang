@@ -1955,6 +1955,22 @@ public U0 SqlRowRelease(SqlRow *row);
 #define SOCK_RAW        3               /* Raw protocol interface */
 #define SOCK_SEQPACKET  5               /* Sequenced packet stream */
 
+/* Flags for send, recv, sendto, recvfrom, sendmsg and recvmsg */
+#define MSG_OOB         0x1             /* Out-of-band data */
+#define MSG_PEEK        0x2             /* Read without removing it from the queue */
+#define MSG_DONTROUTE   0x4             /* Don't use a gateway */
+#ifdef IS_LINUX
+#define MSG_CTRUNC      0x8             /* recvmsg: control data was cut short */
+#define MSG_TRUNC       0x20            /* recvmsg: datagram was longer than the buffer */
+#define MSG_EOR         0x80            /* End of record */
+#define MSG_WAITALL     0x100           /* Wait for the full request */
+#else
+#define MSG_CTRUNC      0x20            /* recvmsg: control data was cut short */
+#define MSG_TRUNC       0x10            /* recvmsg: datagram was longer than the buffer */
+#define MSG_EOR         0x8             /* End of record */
+#define MSG_WAITALL     0x40            /* Wait for the full request */
+#endif
+
 /*
  * Per-socket option flags.
  */
@@ -2244,9 +2260,9 @@ public class sockaddr_un
 };
 
 public extern "c" I32 setsockopt(I32 __sockfd, I32 __level, I32 __option_name,
-    U0 *__option_value, I64 __option_len);
+    U0 *__option_value, U32 __option_len);
 public extern "c" I32 getsockopt(I32 socket, I32 level, I32 option_name,
-    U0 * option_value, I64 *option_len);
+    U0 * option_value, U32 *option_len);
 public extern "c" I32 shutdown(I32 socket, I32 how);
 public extern "c" U32 inet_addr(U8 *cp);
 public extern "c" I32 inet_aton(U8 *cp, in_addr *pin);
@@ -2289,19 +2305,23 @@ public extern "c" U0 setprotoent(I32 stayopen);
 public extern "c" U0 setservent(I32 stayopen);
 public extern "c" U8 *hstrerror(I32 err);
 
+/* Address and option lengths are a socklen_t in C: 32 bits on Linux and
+ * macOS. Pass a U32 for the in/out ones (accept, getpeername, getsockname,
+ * recvfrom, getsockopt): the kernel writes only 4 bytes, so the upper half
+ * of an I64 would keep whatever was in it. */
 public extern "c" I32 socket(I32 domain, I32 type, I32 protocol);
-public extern "c" I32 connect(I32 socket, sockaddr *address, I64 address_len);
-public extern "c" I32 accept(I32 socket, sockaddr *address, I64 *address_len);
-public extern "c" I32 bind(I32 socket, sockaddr *address, I64 address_len);
-public extern "c" I32 getpeername(I32 socket, sockaddr *address, I64 *address_len);
+public extern "c" I32 connect(I32 socket, sockaddr *address, U32 address_len);
+public extern "c" I32 accept(I32 socket, sockaddr *address, U32 *address_len);
+public extern "c" I32 bind(I32 socket, sockaddr *address, U32 address_len);
+public extern "c" I32 getpeername(I32 socket, sockaddr *address, U32 *address_len);
 public extern "c" I64 recvmsg(I32 socket, msghdr *message, I32 flags); 
-public extern "c" I64 recvfrom(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *address, U64 *address_len);
+public extern "c" I64 recvfrom(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *address, U32 *address_len);
 public extern "c" I64 recv(I32 socket, U0 *buffer, U64 length, I32 flags);
 public extern "c" I32 listen(I32 socket, I32 backlog);
-public extern "c" I32 getsockname(I32 socket, sockaddr *address, I64 *address_len);
+public extern "c" I32 getsockname(I32 socket, sockaddr *address, U32 *address_len);
 public extern "c" I64 send(I32 socket, U0 *buffer, U64 length, I32 flags);
 public extern "c" I64 sendmsg(I32 socket, msghdr *message, I32 flags);
-public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U64 dest_len);
+public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U32 dest_len);
 
 /* Writing to a socket whose peer has closed raises SIGPIPE, which kills the
  * process: there is no way yet to ignore it or to pass MSG_NOSIGNAL. */

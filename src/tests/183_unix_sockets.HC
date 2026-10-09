@@ -18,7 +18,8 @@ U0 Check(Bool ok, U8 *what)
 
 I32 Main()
 {
-  I64 tests = 28, len, i, port;
+  I64 tests = 28, i, port;
+  U32 len;
   I32 srv, cli, acc, one = 1, seven = 7, got = 0;
   U8 path[256], longpath[256], ip[64], msg[8];
   sockaddr_un un;
