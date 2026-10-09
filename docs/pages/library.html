@@ -617,78 +617,238 @@ key destructor registered, an update frees the key you passed: don't use it afte
 <code>StrMapSet</code> returns.</p></div>
 
 <h2 id="json">JSON</h2>
-<p><code>JsonParse</code> parses text into a tree of <code>Json</code> nodes; the text can
-be any JSON value (an object, array, string, number, boolean or <code>null</code>). Check
-<code>JsonOk</code> before using the result. <code>JsonSelect</code> walks a path:
-<code>.field</code> for object members and <code>[n]</code> for array elements, with a type
-suffix that must match (<code>:s</code> string, <code>:i</code> integer, <code>:f</code>
-float, <code>:b</code> boolean, <code>:a</code> array, <code>:o</code> object). It returns
-<code>NULL</code> if the path or type doesn't match.</p>
+<h3>Parsing and selecting</h3>
+<p><code>JsonParse(text)</code> parses text into a tree of <code>Json</code> nodes and
+returns its root; the text can be any one JSON value (an object, array, string, number,
+boolean or <code>null</code>). It always returns a root: check <code>JsonOk</code> before
+using it, and free it with <code>JsonRelease</code> either way. <code>JsonSelect(node,
+path)</code> walks a path from any node: <code>.key</code> for an object member,
+<code>[n]</code> for an array item, and a type check that must match: <code>:s</code>
+string, <code>:i</code> integer, <code>:f</code> float, <code>:b</code> boolean,
+<code>:a</code> array, <code>:o</code> object, <code>:!</code> null. It returns
+<code>NULL</code> if the path doesn't match or is malformed (<code>[1x]</code>,
+<code>..a</code>, a trailing <code>.</code>).</p>
 <pre data-run><code>
 U0 Main()
 {
-  U8 *text = "{\"name\": \"hcc\", \"version\": 15, \"ratio\": 0.75, \"tags\": [\"jit\", \"repl\"], \"stable\": false}";
+  U8 *text = "{\"name\": \"hcc\", \"version\": 15, \"ratio\": 0.75, \"tags\": [\"jit\", \"repl\"], \"stable\": false, \"owner\": null}";
   Json *doc = JsonParse(text);
   if (!JsonOk(doc)) {
     JsonPrintError(doc);
+    JsonRelease(doc);
     return;
   }
 
   "%s v%d\n", JsonSelect(doc, ".name:s")->str, JsonSelect(doc, ".version:i")->i64;
   "second tag: %s\n", JsonSelect(doc, ".tags[1]:s")->str;
-  "stable: %d\n", JsonSelect(doc, ".stable:b")->boolean;
-  "missing: %d\n", JsonSelect(doc, ".author:s") == NULL;
+  "stable: %d, owner is null: %d\n", JsonSelect(doc, ".stable:b")->boolean,
+    JsonSelect(doc, ".owner:!") != NULL;
+  "missing: %d, wrong type: %d\n", JsonSelect(doc, ".author") == NULL,
+    JsonSelect(doc, ".version:s") == NULL;
 
   Json *tags = JsonSelect(doc, ".tags:a");
   for (Json *t = tags->array; t; t = t->next) {
     "tag %s\n", t->str;
   }
 
-  "%s\n", JsonToString(doc);
+  U8 *out = JsonToString(doc);
+  "%s\n", out;
+  Free(out);
   JsonRelease(doc);
 }
 </code></pre>
 <pre class="output">
 hcc v15
 second tag: repl
-stable: 0
-missing: 1
+stable: 0, owner is null: 1
+missing: 1, wrong type: 1
 tag jit
 tag repl
-{"name": "hcc","version": 15,"ratio": 0.75,"tags": ["jit","repl"],"stable": false}
+{"name": "hcc","version": 15,"ratio": 0.75,"tags": ["jit","repl"],"stable": false,"owner": null}
 </pre>
-<p>Each node has a <code>type</code> (<code>JSON_STRING</code>, <code>JSON_INT</code>,
-<code>JSON_FLOAT</code>, <code>JSON_BOOL</code>, <code>JSON_NULL</code>,
-<code>JSON_ARRAY</code>, <code>JSON_OBJECT</code>), a <code>key</code> when it's an object
-member, its value in <code>str</code> / <code>i64</code> / <code>f64</code> /
-<code>boolean</code> / <code>array</code> / <code>object</code>, and <code>next</code> for
-its siblings. String escapes are decoded, <code>\uXXXX</code> (and surrogate pairs) to
-UTF-8. A string can hold <code>\u0000</code>, so <code>str_len</code> and
-<code>key_len</code> give the full length of <code>str</code> and <code>key</code>; selectors
-match a key up to its first <code>'\0'</code>. <code>JsonToString</code> writes a float with
-15, 16 or 17 significant digits, the fewest of those that read back as the same value
-(<code>inf</code> and <code>nan</code>, which JSON lacks, as <code>null</code>), always with a decimal point (<code>0.75</code>, <code>2.0</code>,
-<code>1.0e+21</code>), and escapes strings so the output parses back (<code>\"</code>,
-<code>\\</code>, <code>\n</code>, <code>\t</code>, ... and <code>\u00XX</code> for other
-control characters).</p>
-<p>The optional arguments are the length to parse (-1, the default, reads up to the
-terminating NUL) and flags. With <code>JSON_STRNUM_FLAG</code> numbers are not converted:
-each one becomes a <code>JSON_STRNUM</code> node whose <code>strnum</code> is the number
-exactly as written, so large integers and decimals keep every digit, and
-<code>JsonToString</code> writes it back unchanged. The <code>:i</code> and
-<code>:f</code> suffixes don't match these nodes; select them without a suffix.</p>
+<p>Each node has a <code>type</code> and its value in the matching field:
+<code>JSON_STRING</code> in <code>str</code>, <code>JSON_INT</code> in <code>i64</code>,
+<code>JSON_FLOAT</code> in <code>f64</code>, <code>JSON_BOOL</code> in
+<code>boolean</code>, <code>JSON_NULL</code>, <code>JSON_STRNUM</code> in
+<code>strnum</code> (see below), and <code>JSON_ARRAY</code> / <code>JSON_OBJECT</code>,
+whose <code>array</code> / <code>object</code> points at the first item or member - or is
+<code>NULL</code> when the array or object is empty. A member has its name in
+<code>key</code>, and <code>next</code> leads to the following item or member, so that is how
+you iterate.</p>
+
+<h3>Wildcards and getters</h3>
+<p>A <code>*</code> in a path takes the next argument: an <code>I64</code> inside
+<code>[]</code>, a string after <code>.</code>, and it can be part of a name
+(<code>.price_*</code>). Each part of a path is at most 256 bytes, and a key that contains
+<code>.</code> <code>[</code> <code>]</code> <code>:</code> or <code>*</code> can't be written
+in a path. <code>JsonObjectGet(obj, key)</code> and <code>JsonArrayGet(arr, i)</code> take
+any key or index directly (<code>NULL</code> if it isn't there or the node has the wrong
+type), and <code>JsonLen</code> counts the items of an array or object (0 for anything
+else). If a key appears twice, both members are kept; selecting it finds the first.</p>
 <pre data-run><code>
 U0 Main()
 {
-  Json *doc = JsonParse("{\"id\": 123456789012345678901234567890, \"price\": 9.90}",
-                        -1, JSON_STRNUM_FLAG);
-  "id %s\n", JsonSelect(doc, ".id")->strnum;
-  "price %s\n", JsonSelect(doc, ".price")->strnum;
-  "%s\n", JsonToString(doc);
+  Json *doc = JsonParse("{\"prices\": {\"eur\": 9.5, \"usd\": 10.25}, \"rows\": [[1, 2], [3]],"
+                        " \"a.b\": \"dotted\", \"dup\": 1, \"dup\": 2}");
+  U8 *currency = "usd";
+  for (I64 i = 0; i < 2; i++) {
+    "row %d has %d items\n", i, JsonLen(JsonSelect(doc, ".rows[*]", i));
+  }
+  "%s: %.2f\n", currency, JsonSelect(doc, ".prices.*:f", currency)->f64;
+
+  Json *prices = JsonObjectGet(doc, "prices");
+  for (Json *p = prices->object; p; p = p->next) {
+    "%s = %.2f\n", p->key, p->f64;
+  }
+  "%s, dup = %d, members %d\n", JsonObjectGet(doc, "a.b")->str,
+    JsonObjectGet(doc, "dup")->i64, JsonLen(doc);
+  "rows[1][0] = %d, rows[5]: %d\n", JsonArrayGet(JsonArrayGet(JsonObjectGet(doc, "rows"), 1), 0)->i64,
+    JsonArrayGet(JsonObjectGet(doc, "rows"), 5) == NULL;
   JsonRelease(doc);
 }
 </code></pre>
 <pre class="output">
+row 0 has 2 items
+row 1 has 1 items
+usd: 10.25
+eur = 9.50
+usd = 10.25
+dotted, dup = 1, members 5
+rows[1][0] = 3, rows[5]: 1
+</pre>
+
+<h3>Writing JSON and freeing</h3>
+<p><code>JsonToString(node)</code> returns the JSON text of that node's value as a new
+string to <code>Free</code>: for an inner node just its value, without its key or the nodes
+after it. Members are written as <code>"key": value</code> and items are separated by
+<code>,</code> without a space. Floats get 15, 16 or 17 significant digits, the fewest that
+read back as the same value, always with a decimal point (<code>0.75</code>,
+<code>2.0</code>, <code>1.0e+21</code>); infinity and NaN, which JSON lacks, are written as
+<code>null</code>. Strings are escaped (<code>\"</code>, <code>\\</code>, <code>\n</code>,
+<code>\t</code>, ..., <code>\u00XX</code> for other control characters), so the output
+parses back to the same values.</p>
+<p>The nodes inside a document - whatever <code>JsonSelect</code>, the getters and
+<code>next</code> give you - are views into it: don't free or keep them after the root is
+released. <code>JsonRelease</code> frees a whole document, and only does something when given
+a root; on <code>NULL</code> or an inner node it does nothing.</p>
+<pre data-run><code>
+U0 Main()
+{
+  Json *doc = JsonParse("{\"user\": {\"id\": 7, \"roles\": [\"admin\"]}, \"n\": 1e400}");
+  Json *user = JsonSelect(doc, ".user");
+  U8 *s = JsonToString(user);      // just this node's value
+  "%s\n", s;
+  Free(s);
+  JsonRelease(user);               // a view: ignored
+  s = JsonToString(doc);           // 1e400 is too big for an F64: null
+  "%s\n", s;
+  Free(s);
+  JsonRelease(doc);                // frees everything
+}
+</code></pre>
+<pre class="output">
+{"id": 7,"roles": ["admin"]}
+{"user": {"id": 7,"roles": ["admin"]},"n": null}
+</pre>
+
+<h3>Errors and strictness</h3>
+<p>The parser follows RFC 8259 strictly. It rejects trailing commas, anything after the
+top-level value, numbers like <code>01</code>, <code>+1</code>, <code>.5</code>,
+<code>1.</code>, <code>1e</code> or hex, raw control characters (tab, newline, ...) inside
+strings, whitespace other than space, tab, newline and carriage return, anything but whitespace
+between a key and its <code>:</code>, and arrays and objects nested more than
+<code>JSON_MAX_DEPTH</code> (512) deep. On an error <code>JsonGetStrerror(root)</code>
+returns a message to <code>Free</code> (<code>NULL</code> if there was no error) and
+<code>JsonPrintError</code> prints it; both say where, as a line and a byte column, also
+found in <code>root-&gt;state</code> with the error code (<code>error</code>, <code>line</code>,
+<code>col</code>, <code>offset</code>).</p>
+<pre data-run><code>
+U0 Main()
+{
+  Json *doc = JsonParse("{\n  \"a\": [1, 2],\n  \"b\" 3\n}");
+  if (!JsonOk(doc)) {
+    U8 *msg = JsonGetStrerror(doc);
+    "%s\n", msg;
+    "code %d, line %d, column %d\n", doc->state->error, doc->state->line, doc->state->col;
+    Free(msg);
+  }
+  JsonRelease(doc);
+
+  U8 *bad[6] = {"[1, 2,]", "[1] x", "[01]", "{\"a\": tru}", "[\"tab\there\"]", ""};
+  for (I64 i = 0; i < 6; i++) {
+    doc = JsonParse(bad[i]);
+    "%d ", doc->state->error;
+    JsonRelease(doc);
+  }
+  "\n";
+}
+</code></pre>
+<pre class="output">
+Expected ':' after an object key, got '3' at line 3, column 7
+code 14, line 3, column 7
+8 8 5 18 19 12 
+</pre>
+<table>
+  <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>JSON_INVALID_UTF16_SURROGATE</code> (2)</td><td>a <code>\u</code> escape with an unpaired or invalid surrogate</td></tr>
+    <tr><td><code>JSON_INVALID_HEX</code> (3)</td><td><code>\u</code> not followed by 4 hex digits</td></tr>
+    <tr><td><code>JSON_INVALID_STRING_NOT_TERMINATED</code> (4)</td><td>a string without its closing quote</td></tr>
+    <tr><td><code>JSON_INVALID_NUMBER</code> (5)</td><td>a malformed number</td></tr>
+    <tr><td><code>JSON_INVALID_JSON_TYPE_CHAR</code> (8)</td><td>no value where one was expected (<code>[1,]</code>), an unexpected character after a value (also after the top-level one), or the end of the input</td></tr>
+    <tr><td><code>JSON_CANNOT_START_PARSE</code> (12)</td><td>empty input, or it doesn't start with a value</td></tr>
+    <tr><td><code>JSON_INVALID_KEY_TERMINATOR_CHARACTER</code> (13)</td><td>an object member that doesn't start with a quoted key</td></tr>
+    <tr><td><code>JSON_INVALID_KEY_VALUE_SEPARATOR</code> (14)</td><td>no <code>:</code> after a key</td></tr>
+    <tr><td><code>JSON_INVALID_ARRAY_CHARACTER</code> (15)</td><td>no <code>,</code> or <code>]</code> after an array item</td></tr>
+    <tr><td><code>JSON_INVALID_ESCAPE_CHARACTER</code> (16)</td><td>an unknown escape such as <code>\q</code></td></tr>
+    <tr><td><code>JSON_INVALID_LITERAL</code> (18)</td><td>not <code>true</code>, <code>false</code> or <code>null</code></td></tr>
+    <tr><td><code>JSON_INVALID_CONTROL_CHARACTER</code> (19)</td><td>a raw byte below 0x20 inside a string</td></tr>
+    <tr><td><code>JSON_NESTING_TOO_DEEP</code> (20)</td><td>nested deeper than <code>JSON_MAX_DEPTH</code></td></tr>
+  </tbody>
+</table>
+<p><code>JSON_OK</code> is 0. The codes 1, 6, 7, 9, 10, 11 and 17 are still defined but no
+longer produced.</p>
+
+<h3>Numbers and strings</h3>
+<p>An integer that fits in an <code>I64</code> becomes a <code>JSON_INT</code>; a larger one
+becomes a <code>JSON_FLOAT</code>, as in JavaScript, and a number with a fraction or exponent
+is a float (one too big for an <code>F64</code> is infinity). String escapes are decoded,
+<code>\uXXXX</code> and surrogate pairs to UTF-8. A string can contain <code>\u0000</code>,
+so <code>str_len</code> and <code>key_len</code> give the full byte length of
+<code>str</code> and <code>key</code>; C-style functions and paths see them only up to the
+first <code>'\0'</code>.</p>
+<p><code>JsonParse</code>'s optional arguments are the length to parse (-1, the default,
+reads up to the terminating NUL) and flags: <code>JSON_NO_FLAGS</code> or
+<code>JSON_STRNUM_FLAG</code>. With <code>JSON_STRNUM_FLAG</code> numbers are not converted:
+each one is still checked against the JSON grammar and becomes a <code>JSON_STRNUM</code>
+node whose <code>strnum</code> is the number exactly as written, so large integers and
+decimals keep every digit, and <code>JsonToString</code> writes it back unchanged. The
+<code>:i</code> and <code>:f</code> checks don't match these nodes; select them without
+one.</p>
+<pre data-run><code>
+U0 Main()
+{
+  Json *doc = JsonParse("[9007199254740993, 99999999999999999999, 2.50, \"a\\u0000b\"]");
+  Json *big = JsonArrayGet(doc, 1);
+  "%d %d %d\n", JsonIsInt(JsonArrayGet(doc, 0)), JsonIsFloat(big), JsonArrayGet(doc, 3)->str_len;
+  U8 *s = JsonToString(doc);
+  "%s\n", s;
+  Free(s);
+  JsonRelease(doc);
+
+  doc = JsonParse("{\"id\": 123456789012345678901234567890, \"price\": 9.90}",
+                  -1, JSON_STRNUM_FLAG);
+  "id %s\n", JsonSelect(doc, ".id")->strnum;
+  "price %s\n", JsonSelect(doc, ".price")->strnum;
+  s = JsonToString(doc);
+  "%s\n", s;
+  Free(s);
+  JsonRelease(doc);
+}
+</code></pre>
+<pre class="output">
+1 1 3
+[9007199254740993,1.0e+20,2.5,"a\u0000b"]
 id 123456789012345678901234567890
 price 9.90
 {"id": 123456789012345678901234567890,"price": 9.90}

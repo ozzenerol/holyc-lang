@@ -1044,7 +1044,7 @@ static U8 *JsonGetStrerrorInternal(I32 error, U8 ch, I64 line, I64 col)
   return StrPrint(NULL, "%s at line %d, column %d", what, line, col);
 }
 
-/* If the json has state this will return the error as a human readible string
+/* If the json has state this will return the error as a human readable string
  * must be freed by the caller (allows it to be thread safe). It would be
  * advisable to use this for debugging purposes only as it calls malloc */
 U8 *JsonGetStrerror(Json *json)
@@ -1060,7 +1060,8 @@ U8 *JsonGetStrerror(Json *json)
   return NULL;
 }
 
-/* Print the error to stdout */
+/* Print the error to stdout ("No errors" if there was none); nothing for
+ * NULL or a node that isn't a root */
 U0 JsonPrintError(Json *json)
 {
   if (!json || !json->state) { /* NULL or not a root: prints nothing */
@@ -1244,19 +1245,20 @@ public I64 JsonLen(Json *node)
 /**
  * Allows selections like:
  *
- * Json *J = JsonParse(myJson_string);
- * Json *width = JsonSelect(J,".foo.bar[*].baz",4);
- * Json *height = JsonSelect(J,".tv.type[4].*","name");
- * Json *price = JsonSelect(J,".clothes.shirt[4].price_*", <some_variable>);
+ * Json *J = JsonParse(text);
+ * Json *width = JsonSelect(J,".foo.bar[*].baz",4);      // [*] takes an I64
+ * Json *height = JsonSelect(J,".tv.type[4].*","name");  // .* takes a U8 *
+ * Json *price = JsonSelect(J,".clothes.shirt[4].price_*","eur");
  *
  * You can also include a :<type> specifier, typically at the end, to verify the
  * type of the final JSON object selected. If the type doesn't match, the
  * function will return NULL. For instance, the specifier .foo.bar:s will return
  * NULL unless the root object has a 'foo' field, which is an object with a
- * 'bar' cfield that contains a string. Here is a comprehensive list of
+ * 'bar' field that contains a string. Here is a comprehensive list of
  * selectors:
  *
- *    ".field" selects the "field" of the current object.
+ *    ".field" selects the "field" of the current object (the first one if
+ *             the key repeats).
  *    "[1234]" selects the specified index of the current array.
  *    ":<type>" checks if the currently selected type is of the specified type,
  *              where the type can be a single letter representing:

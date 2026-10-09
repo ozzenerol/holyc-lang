@@ -1332,8 +1332,14 @@ public FzFPosition *FzF(U8 *text, U8 *pattern,I32 case_mode=FZF_CASE_SMART,
     Bool fuzzy=TRUE);
 public U0 FzFPositionRelease(FzFPosition *pos);
 
+/* JsonParse flags: none, or keep numbers as their text (JSON_STRNUM) */
+#define JSON_NO_FLAGS    (0x0)
 #define JSON_STRNUM_FLAG (0x1)
 
+/* Json node types: string (str, str_len), float (f64), integer (i64),
+ * number kept as text (strnum, with JSON_STRNUM_FLAG), array (array: the
+ * first item, NULL when empty), object (object: the first member, NULL
+ * when empty), boolean (boolean), null. */
 #define JSON_STRING 0
 #define JSON_FLOAT  1
 #define JSON_INT    2
@@ -1343,6 +1349,8 @@ public U0 FzFPositionRelease(FzFPosition *pos);
 #define JSON_BOOL   6
 #define JSON_NULL   7
 
+/* Only on the root JsonParse returns: the error code, the byte offset,
+ * line and column where it was found, and the character there. */
 class JsonState
 {
   U8 ch;
@@ -1353,6 +1361,9 @@ class JsonState
 };
 
 public class Json;
+/* A JSON value. `type` says which union member holds it; `key` is set on
+ * an object's members; `next` is the following item or member. Only the
+ * root (what JsonParse returns) has `state`. */
 class Json
 {
   JsonState *state;
@@ -1376,46 +1387,98 @@ class Json
   I64 str_len;
   I64 key_len;
 };
+/* JsonParse error codes (state->error). Not produced any more, kept for
+ * old code: 1, 6, 7, 9, 10, 11 and 17 (the end of the input is reported
+ * as 8, or as the error of what was being read). */
 #define JSON_OK 0
+/* Not produced */
 #define JSON_INVALID_UTF16 1
+/* A \u escape with an unpaired or invalid surrogate */
 #define JSON_INVALID_UTF16_SURROGATE 2
+/* \u not followed by 4 hex digits */
 #define JSON_INVALID_HEX 3
+/* A string with no closing quote */
 #define JSON_INVALID_STRING_NOT_TERMINATED 4
+/* A malformed number (01, +1, .5, 1., 1e, -) */
 #define JSON_INVALID_NUMBER 5
+/* Not produced */
 #define JSON_INVALID_DECIMAL 6
+/* Not produced */
 #define JSON_INVALID_SIGN 7
+/* No value where one was expected, an unexpected character after a
+ * value (also after the top-level one), or the input ended early */
 #define JSON_INVALID_JSON_TYPE_CHAR 8
+/* Not produced (see JSON_INVALID_LITERAL) */
 #define JSON_INVALID_BOOL 9
+/* Not produced */
 #define JSON_INVALID_TYPE 10
+/* Not produced */
 #define JSON_CANNOT_ADVANCE 11
+/* Empty input, or it doesn't start with a JSON value */
 #define JSON_CANNOT_START_PARSE 12
+/* An object member that doesn't start with a '"' key */
 #define JSON_INVALID_KEY_TERMINATOR_CHARACTER 13
+/* Something other than whitespace between a key and ':' */
 #define JSON_INVALID_KEY_VALUE_SEPARATOR 14
+/* Something other than ',' or ']' after an array item */
 #define JSON_INVALID_ARRAY_CHARACTER 15
+/* An unknown escape such as \q in a string */
 #define JSON_INVALID_ESCAPE_CHARACTER 16
+/* Not produced */
 #define JSON_EOF 17
-#define JSON_INVALID_LITERAL 18 /* not true, false or null */
-#define JSON_INVALID_CONTROL_CHARACTER 19 /* a raw byte < 0x20 in a string */
-#define JSON_NESTING_TOO_DEEP 20 /* arrays/objects nested over JSON_MAX_DEPTH */
+/* Not true, false or null where a literal starts */
+#define JSON_INVALID_LITERAL 18
+/* A raw byte below 0x20 inside a string (write \n, \t, \u0001 ...) */
+#define JSON_INVALID_CONTROL_CHARACTER 19
+/* Arrays/objects nested deeper than JSON_MAX_DEPTH */
+#define JSON_NESTING_TOO_DEEP 20
 
 /* JsonParse rejects arrays and objects nested deeper than this */
 #define JSON_MAX_DEPTH 512
 
 /* Raw string, with option length of the string and 
  * flags */
+/* Parse `len` bytes of `raw` (-1: up to the NUL) into a tree of Json
+ * nodes; the text must be exactly one JSON value (RFC 8259), with only
+ * whitespace around it. `flags` is JSON_NO_FLAGS or JSON_STRNUM_FLAG,
+ * which keeps numbers as the text they were written as. Always returns a
+ * root: check JsonOk, then free it with JsonRelease. */
 public Json *JsonParse(U8 *raw, I64 len=-1, I64 flags=0);
+/* TRUE if j is a root that parsed without error. */
 public Bool JsonOk(Json *j);
+/* Free a whole document. Only a root does anything: NULL and inner nodes
+ * (from JsonSelect, the getters or ->next) are views and are ignored. */
 public U0 JsonRelease(Json *J);
+/* The JSON text of json's value only (not its key or the nodes after it);
+ * a new string to Free. Members are written "key": value, separated by
+ * ',' with no space. The output parses back to the same values. */
 public U8 *JsonToString(Json *json);
+/* A new string describing the parse error, ending "at line L, column C",
+ * to Free; NULL on success and for NULL or an inner node. */
 public U8 *JsonGetStrerror(Json *json);
+/* Print JsonGetStrerror's message (or "No errors"); nothing for NULL or
+ * an inner node. */
 public U0 JsonPrintError(Json *J);
+/* TRUE if j is an object; FALSE for NULL. */
 public Bool JsonIsObject(Json *j);
+/* TRUE if j is an array; FALSE for NULL. */
 public Bool JsonIsArray(Json *j);
+/* TRUE if j is a null; FALSE for NULL. */
 public Bool JsonIsNull(Json *j);
+/* TRUE if j is a boolean; FALSE for NULL. */
 public Bool JsonIsBool(Json *j);
+/* TRUE if j is a string; FALSE for NULL. */
 public Bool JsonIsString(Json *j);
+/* TRUE if j is an integer (JSON_INT); FALSE for NULL. */
 public Bool JsonIsInt(Json *j);
+/* TRUE if j is a float (JSON_FLOAT); FALSE for NULL. */
 public Bool JsonIsFloat(Json *j);
+/* Walk a path from j: ".key" (first match), "[n]", and ":t" to check the
+ * type (s string, i int, f float, a array, o object, b bool, ! null).
+ * A '*' takes the next argument: an I64 inside [], a U8 * after '.'.
+ * Each part is at most 256 bytes; keys containing . [ ] : * need
+ * JsonObjectGet. NULL if anything doesn't match or the path is malformed.
+ * The result is a view into the document. */
 public Json *JsonSelect(Json *j, U8 *fmt, ...);
 /* The value stored under exactly `key` (the first if it is repeated), or
  * NULL if obj isn't an object or has no such key; works for any key,
