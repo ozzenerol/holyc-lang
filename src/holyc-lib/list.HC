@@ -107,6 +107,47 @@ U0 ListRelease(List *ll, U0 (*FreeValue)(U0 *arg))
   Free(ll);
 }
 
+U0 ListClear(List *l, U0 (*free_value)(U0 *value)=NULL)
+{// Free every node (calling free_value on each value, if given) and keep
+ // the head, empty: works on a ListInit head too. NULL is ignored.
+  if (!l) return;
+  List *node = l->next;
+  List *next;
+  while (node != l) {
+    next = node->next;
+    if (free_value) {
+      free_value(node->value);
+    }
+    Free(node);
+    node = next;
+  }
+  l->next = l->prev = l;
+}
+
+U0 *ListRemove(List *node)
+{// Unlink `node` from its list, free it and return its value. Never pass
+ // the list's head; an empty head (linked to itself) is left alone and
+ // NULL is returned, as for a NULL node.
+  if (!node || node->next == node) return NULL;
+  U0 *value = node->value;
+  node->prev->next = node->next;
+  node->next->prev = node->prev;
+  Free(node);
+  return value;
+}
+
+U0 *ListFirst(List *l)
+{// The first value, without removing it; NULL if the list is empty or NULL
+  if (!l || l->next == l) return NULL;
+  return l->next->value;
+}
+
+U0 *ListLast(List *l)
+{// The last value, without removing it; NULL if the list is empty or NULL
+  if (!l || l->prev == l) return NULL;
+  return l->prev->value;
+}
+
 I64 ListCount(List *ll)
 {
   if (!ll || ll == ll->next) return 0;
