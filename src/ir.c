@@ -396,6 +396,20 @@ static void irEmitMemcpy(IrCtx *ctx,
     irBlockAddInstr(ctx, call);
 }
 
+/* Zero `n_bytes` at `dst` with libc memset, resolved like memcpy above. */
+static void irEmitMemset(IrCtx *ctx, IrValue *dst, int n_bytes) {
+    IrValue *args_wrap = irValueNew(IR_TYPE_ARRAY, IR_VAL_UNRESOLVED);
+    args_wrap->as.array.label = aoStrPrintf("memset");
+    Vec *args = irValueVecNew();
+    args_wrap->as.array.values = args;
+    vecPush(args, dst);
+    vecPush(args, irConstInt(IR_TYPE_I64, 0));
+    vecPush(args, irConstInt(IR_TYPE_I64, n_bytes));
+    IrValue *ret = irTmp(IR_TYPE_PTR, 8);
+    IrInstr *call = irInstrNew(IR_CALL, ret, args_wrap, NULL);
+    irBlockAddInstr(ctx, call);
+}
+
 /* Emit a one-argument call to a HolyC runtime function by name. The
  * args wrapper's label is the bare function name (no `_` prefix);
  * asmNormaliseFunctionName adds the leading underscore at emit time.
@@ -1281,6 +1295,32 @@ static void irStoreConstBytes(IrCtx *ctx,
         irBlockAddInstr(ctx, irInstrNew(IR_STORE, field, val, NULL));
         pos += chunk;
     }
+}
+
+/* Whether the brace list `init` sets every element and field of a `ty`
+ * object (padding aside). C zero-fills whatever a shorter list leaves
+ * out, so an object it doesn't cover is cleared before the stores. */
+static int irInitCoversType(Ast *init, AstType *ty) {
+    if (!init || init->kind != AST_ARRAY_INIT || !ty) return 1;
+    int n = 0;
+    if (astTypeIsArray(ty)) {
+        listForEach(init->arrayinit) {
+            if (!irInitCoversType((Ast *)it->value, ty->ptr)) return 0;
+            n++;
+        }
+        return ty->len < 0 || n >= ty->len;
+    }
+    if (!astIsIntrinsicClass(ty) &&
+        (ty->kind == AST_TYPE_CLASS || ty->kind == AST_TYPE_UNION))
+    {
+        listForEach(init->arrayinit) {
+            AstType *fld = astClassFieldAt(ty, n);
+            if (!irInitCoversType((Ast *)it->value, fld)) return 0;
+            n++;
+        }
+        return astClassFieldAt(ty, n) == NULL;
+    }
+    return 1;
 }
 
 /* Recursively lower an AST_ARRAY_INIT against `base + offset_bytes`,
@@ -2321,6 +2361,19 @@ void irLowerDecl(IrCtx *ctx, Ast *ast) {
                  * is type-aware: array parents stride by elem
                  * size; class / union parents stride by each
                  * item's own size (matching asmArrayInit). */
+                if (!irInitCoversType(init, var->type)) {
+                    /* `I64 a[4] = {1,2}`: the rest is zero, as in C.
+                     * A small object is cleared with inline stores. */
+                    int n = var->type->size;
+                    if (n <= 64) {
+                        irStoreConstBytes(ctx, local, 0, n, NULL, 0);
+                    } else {
+                        IrValue *dst_addr = irTmp(IR_TYPE_PTR, 8);
+                        irBlockAddInstr(ctx,
+                                irInstrNew(IR_LEA, dst_addr, local, NULL));
+                        irEmitMemset(ctx, dst_addr, n);
+                    }
+                }
                 irLowerArrayInitWalk(ctx, local, 0, var->type, init);
                 break;
             }

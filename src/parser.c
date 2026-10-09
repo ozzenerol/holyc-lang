@@ -865,9 +865,10 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags) {
         if (var->type->len == -1) {
             var->type->len = len;
             var->type->size = len * var->type->ptr->size;
-        } else if (is_str ? var->type->len < len : var->type->len != len) {
+        } else if (var->type->len < len) {
             /* Like C, `U8 buf[8] = "abc"` copies the string and
-             * zero-fills the rest; only a too-small array is an error. */
+             * `I64 a[4] = {1,2}` sets the first two items; the rest is
+             * zero-filled. Only a too-small array is an error. */
             cctrlRaiseExceptionFromTo(cc, NULL, '{', '}',
                                      "Invalid array initializer: expected %d items but got %d",
                                       var->type->len, len);
