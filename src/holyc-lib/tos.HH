@@ -50,6 +50,17 @@ public U0 ListInsertValueBefore(List *ll, U0 *value);
 public U0 *ListPop(List *l);
 public U0 ListRelease(List *ll, U0 (*FreeValue)(U0 *arg));
 public I64 ListCount(List *ll);
+/* Free every node (calling free_value on each value, if given) but keep
+ * the head, now empty; works on a ListInit (stack) head. NULL is ignored. */
+public U0 ListClear(List *l, U0 (*free_value)(U0 *value) = NULL);
+/* Unlink `node` from its list, free it and return its value. Must not be
+ * given the list's head (an empty head is left alone, returning NULL).
+ * NULL returns NULL. */
+public U0 *ListRemove(List *node);
+/* The first / last value without removing it; NULL if the list is empty
+ * or NULL (a stored NULL looks the same: check ListEmpty). */
+public U0 *ListFirst(List *l);
+public U0 *ListLast(List *l);
 public U0 ListMergePrepend(List *l1, List *l2);
 public U0 ListMergeAppend(List *l1, List *l2);
 
