@@ -257,8 +257,9 @@ Ast *astBinaryOp(AstBinOp operation, Ast *left, Ast *right, int *_is_err) {
     Ast *ast = astNew();
     ast->type = astGetResultType(operation,left->type,right->type);  
 
+    /* No type means the operands don't combine; the caller reports it
+     * with the source location (see parseCreateBinaryOp). */
     if (ast->type == NULL) {
-        loggerWarning("Binary type is being assigned as NULL\n");
         *_is_err = 1;
     }
 
@@ -1091,7 +1092,7 @@ start_routine:
     }
 
 error:
-    loggerWarning("Binop has returned null type\n");
+    /* Callers raise the located error; a warning here would be noise. */
     return NULL;
 }
 
