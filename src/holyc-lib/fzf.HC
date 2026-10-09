@@ -720,7 +720,7 @@ FzFPattern *FzFParsePattern(I32 case_mode, U8 *pattern, Bool fuzzy=TRUE)
     str_replace_char(ptr, '\t', ' ');
     U8 *text = StrNew(ptr);
 
-    U8 *og_str = NULL;
+    U8 *og_str = text;
     U8 *lower_text = str_tolower(text, len);
     Bool case_sensitive = case_mode == FZF_CASE_RESPECT ||
                          (case_mode == FZF_CASE_SMART && 
@@ -847,11 +847,21 @@ FzFPattern *FzFParsePattern(I32 case_mode, U8 *pattern, Bool fuzzy=TRUE)
   return pat_obj;
 }
 
+static U0 FzFTermRelease(U0 *_term)
+{
+  FzFTerm *term = _term;
+  if (term) {
+    Free(term->ptr);
+    Free(term->text);
+    Free(term);
+  }
+}
+
 static U0 FzFTermSetRelease(U0 *_set)
 {
   FzFTermSet *set = _set;
   if (set) {
-    ListRelease(set->entries,&Free);
+    ListRelease(set->entries,&FzFTermRelease);
     Free(set);
   }
 }
@@ -885,6 +895,7 @@ I64 FzFGetScore(U8 *text, FzFPattern *pattern, FzFSlab *slab)
       FzFTerm *term = term_set->entries->next->value;
       FzFResult res;
       term->fn(&res,term->case_sensitive,&input,term->text(FzFString *),NULL,slab);
+      final += res.score;
     }
     if (final > 0) {
       return 0;
