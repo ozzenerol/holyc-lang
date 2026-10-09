@@ -725,30 +725,42 @@ public U8 *Shlurp(U8 *fmt, ...);
  * Free(q). */
 public U8 *ShQuote(U8 *s);
 
-/* TempleOS-style try/catch/throw. CatchFrame is 256 bytes (matches
- * what the compiler reserves per `try` block); the runtime stores its
- * jmp_buf bytes plus a chain pointer inside. Fs->except_ch holds the
- * u64 thrown by the most recent `throw(...)`. */
+/* TempleOS-style try/catch/throw. The compiler emits the calls to the
+ * HCC_ helpers below; user code only reads Fs. */
+
+/* One per `try`, on the stack of the function the try is in (the
+ * compiler reserves 256 bytes): the setjmp buffer, then the next outer
+ * frame of the same thread. */
 public class CatchFrame;
 public class CatchFrame
 {
   I8 jb[248];
   CatchFrame *prev;
 };
+/* A thread's exception state: catch_top is its innermost active try
+ * (NULL outside any), except_ch the value of its last throw, which a
+ * catch handler reads. */
 public class HCFs
 {
   CatchFrame *catch_top;
   U64 except_ch;
 };
-/* `Fs` is the TempleOS-faithful global task pointer. The canonical
- * definition (and storage init) lives in libtos's except.HC; this
- * `extern` declaration tells user-side parsing that `Fs` exists
- * without emitting storage here (which would clash at link time). */
-extern HCFs *Fs;
+/* The calling thread's exception state (named after the TempleOS task
+ * pointer). A function, so `Fs->except_ch` calls it: each thread has
+ * its own, and a throw is caught only by a try of the same thread. */
+public HCFs *Fs();
 public extern "c" I32 setjmp(U0 *env);
 public extern "c" U0 longjmp(U0 *env, I32 val);
+/* Make f the calling thread's innermost try; the compiler then calls
+ * setjmp(f) in the function that has the try. */
 public U0 HCC_PushFrame(CatchFrame *f);
+/* Make the try that was active before f the innermost again. Emitted
+ * when a try body ends or is left by return/break/continue/goto, and
+ * before its catch handler runs, so a throw there goes further out. */
 public U0 HCC_TryLeave(CatchFrame *f);
+/* `throw(v)`: store v in Fs->except_ch and jump to the catch of the
+ * innermost try of the calling thread. With no try it reports v and
+ * exits the process with 1, from any thread. */
 public U0 HCC_Throw(U64 v);
 
 #define M_E         2.71828182845904523536028747135266250   /* e              */
