@@ -2039,6 +2039,37 @@ static void parseCheckArithmeticUnaryOp(Cctrl *cc, AstUnOp op, Ast *operand,
     cctrlTerminate(cc);
 }
 
+/* `*x` needs a pointer or an array: `1 +* 2` is `1 + (*2)` and
+ * dereferencing an integer left the expression without a type, which
+ * crashed hcc later on. */
+static void parseCheckDerefOperand(Cctrl *cc, Ast *operand,
+                                   int line, int col, int len)
+{
+    AstType *ty = operand->type;
+    if (cc->flags & CCTRL_TRANSPILING) return;
+    if (!ty || ty->ptr || ty->kind == AST_TYPE_AUTO) return;
+
+    char *msg = mprintf("The `*` operator cannot be applied to a %s of %s, "
+                        "only pointers can be dereferenced",
+                        astKindToHumanReadable(operand),
+                        astTypeKindToHumanReadable(ty));
+    /* `(*fp)()` isn't supported, a function pointer is called as `fp()` */
+    char *sug = ty->kind == AST_TYPE_FUNC
+        ? mprintf("call a function pointer without the `*`")
+        : mprintf("`*` on `%s` is invalid", astTypeToString(ty));
+    AoStr *bold = aoStrNew();
+    aoStrCatColoured(bold, ESC_BOLD, msg);
+    AoStr *buf = cctrlCreateErrorLineAt(cc, line, col, len, bold->data,
+                                        CCTRL_ERROR, sug);
+    aoStrRelease(bold);
+    CctrlDiagnostic *d = cctrlMakeDiag(cc, CCTRL_ERROR, buf, aoStrPrintf("%s", sug));
+    d->line = d->end_line = line;
+    d->col = col;
+    d->end_col = col + len;
+    cctrlDiagPush(cc, d);
+    cctrlTerminate(cc);
+}
+
 Ast *parseUnaryExpr(Cctrl *cc) {
     Lexeme *tok;
     Ast *ast;
@@ -2144,7 +2175,10 @@ Ast *parseUnaryExpr(Cctrl *cc) {
                 }
                 break;
             }
-            case AST_UN_OP_DEREF:   type = operand->type->ptr; break;
+            case AST_UN_OP_DEREF:
+                parseCheckDerefOperand(cc, operand, op_line, op_col, op_len);
+                type = operand->type->ptr;
+                break;
             case AST_UN_OP_BIT_NOT:
                 parseCheckArithmeticUnaryOp(cc, unary_op, operand,
                                             op_line, op_col, op_len);

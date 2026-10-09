@@ -56,9 +56,6 @@ there works as shown.</p>
         <td><code>-transpile</code> writes a nested named class after the struct that uses it</td>
         <td>The transpiler is experimental; fix the C output by hand</td></tr>
   </tbody>
-    <tr><td>Two binary operators in a row can crash hcc</td>
-        <td><code>I64 d = 1 +* 2;</code> prints "Unary type is being assigned as NULL" and segfaults instead of a syntax error</td>
-        <td>Fix the expression; the error is in your code</td></tr>
     <tr><td>A stray <code>;</code> at the top level swallows the next declaration</td>
         <td><code>I64 x = 1;;</code> followed by <code>I64 y = 2;</code> fails with "Identifier expected: got TK_KEYWORD I64" on the second line</td>
         <td>Remove the extra <code>;</code></td></tr>
