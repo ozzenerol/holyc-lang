@@ -49,10 +49,11 @@ public I32 RmDir(U8 *path, Bool flags=0)
 
     buf = StrPrint(NULL,"%s/%s",path,ent->name);
     if (buf) {
-      if (ent->type & DT_DIR) {
+      if (ent->type == DT_DIR) {
         r2 = RmDir(buf,flags);
-      } else if (ent->type & DT_REG) {
-
+      } else if (ent->type != DT_UNKNOWN) {
+        /* Anything but a directory, links included, is unlinked; the
+         * type is a number, not a bit mask (DT_SOCK & DT_DIR != 0) */
         if ((r2 = unlink(buf)) == 0 && flags & RM_VERBOSE) {
           "Rm: %s\n",buf;
         } else {
