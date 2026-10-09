@@ -190,7 +190,7 @@ class ThreadPool
   U0 *priv_data;
 };
 
-public extern "c" I64 pthread_create(pthread_t **th, U0 *thread_attr=NULL, 
+public extern "c" I32 pthread_create(pthread_t **th, U0 *thread_attr=NULL, 
 		U0 (*function_ptr)(U0 *argv), U0 *argv=NULL);
 public extern "c" I32 pthread_mutex_init(pthread_mutex_t *lk, pthread_mutexattr_t *mutex_attr=NULL);
 public extern "c" I32 pthread_mutex_destroy(pthread_mutex_t *lk);
@@ -211,6 +211,7 @@ U0 ThreadPoolRelease(ThreadPool *pool);
 
 U0 ThreadPoolEnqueue(ThreadPool *pool, U0 *argv, U0 (*callback)(U0 *priv_data, U0 *argv))
 {// Enqueue a job
+  if (!pool) return;
   ThreadWorkerJob *job = MAlloc(sizeof(ThreadWorkerJob));
   job->callback = callback;
   job->argv = argv;
@@ -223,6 +224,7 @@ U0 ThreadPoolEnqueue(ThreadPool *pool, U0 *argv, U0 (*callback)(U0 *priv_data, U
 
 U0 ThreadPoolWait(ThreadPool *pool)
 {//Wait for all jobs in the queue to be complete
+  if (!pool) return;
   pthread_mutex_lock(&pool->lock);
   while (!ListEmpty(pool->jobs) || pool->active_threads != 0) {
     pthread_cond_wait(&pool->no_work,&pool->lock);
@@ -301,6 +303,7 @@ ThreadPool *ThreadPoolNew(I64 worker_count)
 
 U0 ThreadPoolStop(ThreadPool *pool)
 {// Finish every queued job, then stop and join the workers
+  if (!pool) return;
   pthread_mutex_lock(&pool->lock);
   pool->run = FALSE;
   pthread_cond_broadcast(&pool->has_work);
