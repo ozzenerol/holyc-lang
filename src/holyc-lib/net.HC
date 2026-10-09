@@ -350,17 +350,23 @@ public Bool NetSetSocketNoDelay(I32 sockfd)
 }
 
 static U0 *NetGetInAddress(sockaddr *sa)
-{
+{// The IPv4 or IPv6 address in `sa`, NULL for any other family
   if (sa->sa_family == AF_INET)
     return &(sa(sockaddr_in*)->sin_addr);
-  return &(sa(sockaddr_in6 *)->sin6_addr);
+  if (sa->sa_family == AF_INET6)
+    return &(sa(sockaddr_in6 *)->sin6_addr);
+  return NULL;
 }
 
 /* Fills out buf with the IPV4 address */
 public Bool NetGetIpv4Address(sockaddr *sAddr, I32 ai_family, U8 *outbuf, I32 size)
 {
   U0 *address;
+  if (sAddr->sa_family != ai_family)
+    return FALSE;
   address = NetGetInAddress(sAddr);
+  if (address == NULL)
+    return FALSE;
   if (inet_ntop(ai_family, address, outbuf, size) == NULL)
     return FALSE;
   return TRUE;
@@ -503,16 +509,16 @@ public I32 NetAccept(I32 socket, Bool non_blocking=FALSE)
  */
 public Bool NetGetIpv4AddressFromAcceptedSocket(I32 sockfd, U8 *ipbuf, I32 outlen)
 {
-  sockaddr sa;
+  sockaddr_storage sa; /* a sockaddr is too small for an IPv6 peer */
   I64 len;
   I32 retval;
 
-  len = sizeof(sockaddr);
-  if ((retval = getpeername(sockfd, &sa, &len)) == -1) {
+  len = sizeof(sockaddr_storage);
+  if ((retval = getpeername(sockfd, (&sa)(sockaddr *), &len)) == -1) {
     return FALSE;
   }
 
-  return NetGetIpv4Address(&sa, (&sa)(sockaddr_in *)->sin_family, ipbuf, outlen);
+  return NetGetIpv4Address((&sa)(sockaddr *), sa.ss_family, ipbuf, outlen);
 }
 
 /* Fills `addr` for the socket file `name`; FALSE if the path doesn't fit */
