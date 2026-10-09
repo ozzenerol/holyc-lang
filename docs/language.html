@@ -1088,6 +1088,49 @@ U0 Main()
 insufficient funds
 carrying on
 </pre>
+<p>The value is converted to <code>U64</code> like an argument to a <code>U64</code>
+parameter: <code>throw(42.75)</code> throws 42. The catch handler runs after its
+<code>try</code> has ended, so a <code>throw</code> inside it goes to the next enclosing
+<code>try</code>.</p>
+<p>A <code>return</code>, <code>break</code>, <code>continue</code> or <code>goto</code> may
+leave a <code>try</code> body (or a catch handler) at any depth of nesting; the tries it
+leaves stop catching:</p>
+<pre data-run><code>I64 Find(I64 *items, I64 n, I64 want)
+{
+  I64 i;
+  for (i = 0; i &lt; n; i++) {
+    try {
+      if (items[i] == want) return i;
+      if (items[i] &lt; 0) break;
+    } catch {
+    }
+  }
+  return -1;
+}
+
+U0 Main()
+{
+  I64 items[4] = {3, 7, -1, 9};
+  try {
+    "%d %d\n", Find(items, 4, 7), Find(items, 4, 9);
+    throw('Late');
+  } catch {
+    "caught here, not in Find\n";
+  }
+}
+</code></pre>
+<pre class="output">1 -1
+caught here, not in Find
+</pre>
+<p>Each thread has its own <code>Fs</code>: a <code>throw</code> is caught only by a
+<code>try</code> of the thread that threw, so threads can use try/catch at the same time.
+<code>Fs</code> is a function returning the calling thread's state, so
+<code>Fs->except_ch</code> reads that thread's last thrown value.</p>
+<p>A throw that no <code>try</code> catches, in any thread, prints the value on stderr and
+ends the program with exit code 1. A character constant whose bytes are all printable is
+shown as text, anything else as a number:</p>
+<pre><code>uncaught throw: 'Funds'
+uncaught throw: 404</code></pre>
 
 <h2 id="calling-c">Calling C</h2>
 <p>Declare any C function with <code>extern "c"</code> and call it directly. libc is always
@@ -1152,7 +1195,7 @@ being one. The differences:</p>
     <tr><td><code>?:</code></td><td>Not supported, as in TempleOS</td></tr>
     <tr><td>Sub-integer access (<code>x.u8[1]</code>)</td><td>Not supported</td></tr>
     <tr><td>Exponent operator <code>`</code></td><td>Not supported; use <code>Pow</code> or <code>pow</code></td></tr>
-    <tr><td><code>Fs</code></td><td>Exists for exceptions (<code>Fs->except_ch</code>); there are no TempleOS tasks</td></tr>
+    <tr><td><code>Fs</code></td><td>Exists for exceptions (<code>Fs->except_ch</code>), one per thread; there are no TempleOS tasks</td></tr>
     <tr><td>DolDoc, graphics, the TempleOS shell</td><td>Not available; use the C library through <code>extern "c"</code></td></tr>
   </tbody>
 </table>
