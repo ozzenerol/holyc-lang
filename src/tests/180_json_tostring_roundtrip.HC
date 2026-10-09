@@ -53,6 +53,7 @@ I32 Main()
   Free(j->object->str);
   U8 *ctl = StrNew("a\x01b\x1Fc\x0B\x7F\xC3\xA9");
   j->object->str = ctl;
+  j->object->str_len = StrLen(ctl); /* the length JsonToString writes */
   U8 *out = JsonToString(j);
   Expect(out, "{\"s\": \"a\\u0001b\\u001fc\\u000b\x7F\xC3\xA9\"}");
   Free(out);

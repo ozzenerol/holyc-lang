@@ -665,8 +665,11 @@ tag repl
 member, its value in <code>str</code> / <code>i64</code> / <code>f64</code> /
 <code>boolean</code> / <code>array</code> / <code>object</code>, and <code>next</code> for
 its siblings. String escapes are decoded, <code>\uXXXX</code> (and surrogate pairs) to
-UTF-8. <code>JsonToString</code> writes a float in the shortest form that reads back
-as the same value, always with a decimal point (<code>0.75</code>, <code>2.0</code>,
+UTF-8. A string can hold <code>\u0000</code>, so <code>str_len</code> and
+<code>key_len</code> give the full length of <code>str</code> and <code>key</code>; selectors
+match a key up to its first <code>'\0'</code>. <code>JsonToString</code> writes a float with
+15, 16 or 17 significant digits, the fewest of those that read back as the same value
+(<code>inf</code> and <code>nan</code>, which JSON lacks, as <code>null</code>), always with a decimal point (<code>0.75</code>, <code>2.0</code>,
 <code>1.0e+21</code>), and escapes strings so the output parses back (<code>\"</code>,
 <code>\\</code>, <code>\n</code>, <code>\t</code>, ... and <code>\u00XX</code> for other
 control characters).</p>

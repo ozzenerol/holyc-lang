@@ -1369,6 +1369,12 @@ class Json
     F64 f64;
     I64 i64;
   };
+  /* Bytes in `str` (a JSON_STRING) and in `key`, before their '\0': a
+   * string can hold \u0000, which the '\0' termination would cut off.
+   * Set them when you change `str` or `key` (0 means "up to the '\0'").
+   * JsonSelect matches keys up to their first '\0'. */
+  I64 str_len;
+  I64 key_len;
 };
 #define JSON_OK 0
 #define JSON_INVALID_UTF16 1
@@ -1389,6 +1395,11 @@ class Json
 #define JSON_INVALID_ESCAPE_CHARACTER 16
 #define JSON_EOF 17
 #define JSON_INVALID_LITERAL 18 /* not true, false or null */
+#define JSON_INVALID_CONTROL_CHARACTER 19 /* a raw byte < 0x20 in a string */
+#define JSON_NESTING_TOO_DEEP 20 /* arrays/objects nested over JSON_MAX_DEPTH */
+
+/* JsonParse rejects arrays and objects nested deeper than this */
+#define JSON_MAX_DEPTH 512
 
 /* Raw string, with option length of the string and 
  * flags */

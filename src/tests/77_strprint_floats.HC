@@ -115,10 +115,11 @@ I32 Main()
   Free(s);
   JsonRelease(js);
 
-  /* floats print so they read back as the same float */
+  /* floats print so they read back as the same float (with 15, 16 or 17
+   * digits, so the smallest denormal is not the shortest -5e-324) */
   js = JsonParse("[2.0, 1.0e21, 0.30000000000000004, 1.0e-7, -4.9406564584124654e-324]");
   s = JsonToString(js);
-  if (!StrCmp(s, "[2.0,1.0e+21,0.30000000000000004,1.0e-07,-5.0e-324]")) {
+  if (!StrCmp(s, "[2.0,1.0e+21,0.30000000000000004,1.0e-07,-4.94065645841247e-324]")) {
     correct++;
   } else {
     "\n  JsonToString gave: %s", s;

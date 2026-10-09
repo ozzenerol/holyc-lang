@@ -4,7 +4,8 @@
  * replace one, test 197), every function in libtos was a weak global
  * symbol, `static` ones included. A program defining a function with the
  * name of a library internal silently replaced it when compiled: its own
- * `CountNumberLen` (static in json.HC) broke JsonToString, its own
+ * `CountNumberLen` (static in json.HC; now JsonNumberLen, which the
+ * test uses) broke JsonToString, its own
  * `GetNextNonWhitespaceIdx` (an internal helper of JsonParse, now
  * static) broke JsonParse. `static` functions and file-scope `static`
  * variables are now local symbols, in the library and in programs: a
@@ -47,7 +48,7 @@ Bool Runs(Bool jit, U8 *source, U8 *want)
 
 /* A library-internal name, static in the library */
 U8 *src_count =
-"I64 CountNumberLen(U8 *a, U8 *b, Bool *c, Bool *d) { return 0; }
+"I64 JsonNumberLen(U0 *p, Bool *is_int) { return 0; }
 U0 Main()
 {
   Json *j = JsonParse(\"[12]\");
@@ -115,9 +116,9 @@ I32 Main()
   I64 res = System("command -v nm >/dev/null 2>&1 || exit 0; "
       "lib=${HCC_INSTALL_DIR:-../../build/prefix}/lib/libtos.a; "
       "[ -f \"$lib\" ] || exit 0; "
-      "nm \"$lib\" | grep -E ' [Tt] _?CountNumberLen$' | grep -q ' t ' && "
+      "nm \"$lib\" | grep -E ' [Tt] _?JsonNumberLen$' | grep -q ' t ' && "
       "nm \"$lib\" | grep -qE ' [WVT] _?JsonParse$' && "
-      "! nm \"$lib\" | grep -qE ' [TWV] _?CountNumberLen$'");
+      "! nm \"$lib\" | grep -qE ' [TWV] _?JsonNumberLen$'");
   if (res == 0) correct++;
   else "Failed - nm\n";
 

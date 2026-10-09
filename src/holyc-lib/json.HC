@@ -34,6 +34,13 @@
 #define JSON_INVALID_ESCAPE_CHARACTER 16
 #define JSON_EOF 17
 #define JSON_INVALID_LITERAL 18 /* not true, false or null */
+#define JSON_INVALID_CONTROL_CHARACTER 19 /* a raw byte < 0x20 in a string */
+#define JSON_NESTING_TOO_DEEP 20 /* arrays/objects nested over JSON_MAX_DEPTH */
+
+/* Arrays and objects nest at most this deep: the parser, JsonToString and
+ * JsonReleaseList recurse once per level, and 80000 levels overflowed the
+ * stack */
+#define JSON_MAX_DEPTH 512
 
 #define JSON_PARSER_STRING  0
 #define JSON_PARSER_NUMERIC 1
@@ -74,6 +81,12 @@ class Json
     I64 i64;
     Bool boolean;
   };
+  /* Bytes in `str` (a JSON_STRING) and in `key`, before their '\0': a
+   * string can hold \u0000, which the '\0' termination would cut off.
+   * Set them when you change `str` or `key` (0 means "up to the '\0'").
+   * JsonSelect matches keys up to their first '\0'. */
+  I64 str_len;
+  I64 key_len;
 };
 
 class JsonParser 
@@ -87,6 +100,7 @@ class JsonParser
   Json *ptr;
   I32 flags;
   JsonState *state;
+  I64 depth; /* arrays/objects open around the current value */
 };
 
 class JsonStringBuilder
@@ -105,6 +119,8 @@ static Json *JsonNew()
   J->key = NULL;
   J->next = NULL;
   J->state = NULL;
+  J->str_len = 0;
+  J->key_len = 0;
   return J;
 }
 
@@ -115,16 +131,6 @@ static JsonState *JsonStateNew()
   json_state->ch = '\0';
   json_state->offset = 0;
   return json_state;
-}
-
-static I64 GetNextNonWhitespaceIdx(U8 *ptr)
-{
-  U8 *start = ptr;
-  while (IsSpace(*ptr)) {
-    ++ptr;
-  }
-  I64 val = ptr - start;
-  return val;
 }
 
 static U0 JsonUnsafeAdvanceBy(JsonParser *p, I64 jmp)
@@ -172,153 +178,99 @@ static U8 JsonUnsafePeekAt(JsonParser *p, I64 idx)
   return p->buffer[idx];
 }
 
+/* JSON's whitespace is exactly space, tab, LF and CR (not \v or \f) */
 static U0 JsonAdvanceWhitespace(JsonParser *p)
 {
-  I64 val = GetNextNonWhitespaceIdx(p->buffer+p->offset);
-  p->offset += val;
-}
-
-static U0 JsonAdvanceToTerminator(JsonParser *p, U8 terminator)
-{
-  while (JsonCanAdvanceBy(p, 1) && JsonPeek(p) != terminator) {
-    ++p->offset;
+  while (p->offset < p->buflen) {
+    U8 ch = p->buffer[p->offset];
+    if (ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r') break;
+    p->offset++;
   }
 }
 
-static I64 CountNumberLen(JsonParser *p, U8 *ptr, Bool *is_hex, Bool *is_exp)
+/* Length of the number at the current offset, RFC 8259's grammar
+ * -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?, ending at the input's
+ * end, whitespace, ',', ']' or '}'. Anything else (`01`, `+1`, `.5`,
+ * `1.`, `0x1F`, `1e`, `1a`, `--1`) sets JSON_INVALID_NUMBER and returns
+ * 0. *_is_int: no fraction and no exponent. */
+static I64 JsonNumberLen(JsonParser *p, Bool *_is_int)
 {
-  U8 *start = ptr;
-  I32 seen_e = 0, seen_dec = 0, seen_X = 0;
-
-  while (*ptr != ',' && *ptr != ']' && *ptr != '}' && *ptr != '\0' &&
-         *ptr != '\n' && *ptr != '\r' && *ptr != '\t' && *ptr != ' ') {
-    switch (*ptr) {
-      case 'e':
-      case 'E':
-        if (seen_e) {
-          return JsonAdvanceToError(p, ptr - start, JSON_INVALID_NUMBER);
-        }
-        seen_e = 1;
-        break;
-      case 'x':
-      case 'X':
-        if (seen_X) {
-          return JsonAdvanceToError(p, ptr - start, JSON_INVALID_NUMBER);
-        }
-        *is_hex = TRUE;
-        seen_X = 1;
-        break;
-      case '-':
-      case '+':
-        break;
-      case '.':
-        if (seen_dec) {
-          return JsonAdvanceToError(p, ptr - start, JSON_INVALID_NUMBER);
-        }
-        seen_dec = 1;
-        break;
-      /* Anything else is invalid */
-      default:
-        if (!(((*ptr) >= '0' && (*ptr) <= '9') ||
-            *ptr >= 'a' && *ptr <= 'f' || *ptr >= 'A' && *ptr <= 'F')) {
-          return JsonAdvanceToError(p, ptr - start, JSON_INVALID_NUMBER);
-        }
-        break;
-      }
-    ptr++;
+  I64 i = p->offset, n = p->buflen;
+  U8 *b = p->buffer;
+  *_is_int = TRUE;
+  if (i < n && b[i] == '-') i++;
+  if (i >= n || !('0' <= b[i] <= '9')) goto bad;
+  if (b[i] == '0') {
+    i++;
+  } else {
+    while (i < n && '0' <= b[i] <= '9') i++;
   }
-
-  /* Floating point hex does not exist */
-  if (seen_dec && seen_X) {
-    return JsonAdvanceToError(p, ptr - start, JSON_INVALID_NUMBER);
+  if (i < n && b[i] == '.') {
+    *_is_int = FALSE;
+    i++;
+    if (i >= n || !('0' <= b[i] <= '9')) goto bad;
+    while (i < n && '0' <= b[i] <= '9') i++;
   }
-
-  /* Exponent hex does not exist */
-  if (seen_X && seen_e) {
-    return JsonAdvanceToError(p, ptr - start, JSON_INVALID_NUMBER);
+  if (i < n && (b[i] == 'e' || b[i] == 'E')) {
+    *_is_int = FALSE;
+    i++;
+    if (i < n && (b[i] == '+' || b[i] == '-')) i++;
+    if (i >= n || !('0' <= b[i] <= '9')) goto bad;
+    while (i < n && '0' <= b[i] <= '9') i++;
   }
+  if (i < n && b[i] != ' ' && b[i] != '\t' && b[i] != '\n' &&
+      b[i] != '\r' && b[i] != ',' && b[i] != ']' && b[i] != '}') {
+    goto bad;
+  }
+  return i - p->offset;
 
-  /* `1e+15` has no `.` but is still a float */
-  *is_exp = seen_e;
-  return ptr - start;
+bad:
+  /* Point the error at the offending character */
+  if (i > n) i = n;
+  p->offset = i;
+  p->error = JSON_INVALID_NUMBER;
+  return 0;
 }
 
-/* Takes a string pointer and a pointer to an integer as input, and returns the
- * number of decimal numeric characters in the string, and the position of the
- * decimal point if present.
- */
-static I32 CountMantissa(U8 *ptr, I32 *decidx)
+/* Does the integer `text` (an optional '-' then digits, no leading
+ * zeros) fit in an I64? */
+static Bool JsonIntFits(U8 *text, I64 len)
 {
-  I32 mantissa = 0;
-  *decidx = -1;
-
-  for (;; ++mantissa) {
-    U8 ch = *ptr;
-    /* If the character is not a decimal numeric character, or if
-     * the decimal point has already been found exit the loop
-     */
-    if (!('0'<=ch<='9')) {
-      if ((ch != '.') || *decidx >= 0) {
-        break;
-      }
-      *decidx = mantissa;
-    }
-    ptr++;
+  U8 *max = "9223372036854775807";
+  if (*text == '-') {
+    max = "9223372036854775808";
+    text++;
+    len--;
   }
-  return mantissa;
+  if (len != 19) return len < 19;
+  return StrNCmp(text, max, 19) <= 0;
 }
 
 static U0 JsonParseNumber(JsonParser *p)
 {
   auto current = p->ptr;
-  auto ptr = p->buffer + p->offset;
-  I64 res;
-  U8 *endptr = NULL;
-  Bool is_hex = FALSE, is_exp = FALSE;
-  I32 neg = 0, dec_idx = -1, mantissa = 0;
-  I32 num_len = CountNumberLen(p, ptr,&is_hex,&is_exp);
+  Bool is_int;
+  I64 num_len = JsonNumberLen(p, &is_int);
+  if (!num_len) return;
 
-  if (*ptr == '-') {
-    neg = 1;
-    ptr++;
-  } else if (*ptr == '+') {
-    neg = 0;
-    ptr++;
-  } else if ((!((*ptr) >= '0' && (*ptr) <= '9') && *ptr != '.') ||
-               (num_len == 0)) {
-    JsonAdvanceToError(p, 0, JSON_INVALID_NUMBER);
-    return;
-  }
+  /* strtoll / strtod need the text on its own: `len` may end the input
+   * mid-buffer, with more digits after it */
+  U8 small[64], *text = small;
+  if (num_len >= 64) text = MAlloc(num_len + 1);
+  MemCpy(text, p->buffer + p->offset, num_len);
+  text[num_len] = '\0';
 
-  if (num_len == 1) {
-    current->i64 = JsonPeek(p)-'0';
+  /* An integer outside I64 is read as an F64 (JSON_FLOAT), as JavaScript
+   * does; strtoll would saturate it silently. 1e400 is inf, which
+   * JsonToString writes as null. */
+  if (is_int && JsonIntFits(text, num_len)) {
+    current->i64 = strtoll(text, NULL, 10);
     current->type = JSON_INT;
-    JsonAdvance(p);
-    return;
-  }
-
-  mantissa = CountMantissa(ptr, &dec_idx);
-
-  if (dec_idx == -1 && !is_exp) {
-    if (neg) --ptr; /* let strtoll do the hard work */
-    if (is_hex) {
-      res = strtoll(ptr,&endptr,16);
-    } else {
-      res = strtoll(ptr,&endptr);
-    }
-    current->i64 = res;
-    current->type = JSON_INT;
-    JsonUnsafeAdvanceBy(p, num_len);
-    return;
-  }
-
-  auto parsed = strtod(ptr, &endptr);
-  if (neg) {
-    current->f64 = -parsed;
   } else {
-    current->f64 = parsed;
+    current->f64 = strtod(text, NULL);
+    current->type = JSON_FLOAT;
   }
-  current->type = JSON_FLOAT;
+  if (text != small) Free(text);
   JsonUnsafeAdvanceBy(p, num_len);
 }
 
@@ -328,18 +280,12 @@ static U0 JsonParseNumber(JsonParser *p)
 static U0 JsonParseStrNum(JsonParser *p)
 {
   auto current = p->ptr;
-  U8 *ptr = p->buffer + p->offset;
-  Bool is_hex = FALSE, is_exp = FALSE;
-  I64 num_len = CountNumberLen(p, ptr, &is_hex, &is_exp);
-
-  if (p->error != JSON_OK) return;
-  if (num_len == 0) {
-    JsonAdvanceToError(p, 0, JSON_INVALID_NUMBER);
-    return;
-  }
+  Bool is_int;
+  I64 num_len = JsonNumberLen(p, &is_int);
+  if (!num_len) return;
 
   current->strnum = MAlloc(num_len + 1);
-  MemCpy(current->strnum, ptr, num_len);
+  MemCpy(current->strnum, p->buffer + p->offset, num_len);
   current->strnum[num_len] = '\0';
   current->type = JSON_STRNUM;
   JsonUnsafeAdvanceBy(p, num_len);
@@ -460,7 +406,9 @@ static I64 JsonUtf8Encode(U8 *dst, I64 cp)
   return 4;
 }
 
-static U8 *JsonParseString(JsonParser *p)
+/* The string at the current offset, decoded; its length (which a
+ * \u0000 inside makes more than its StrLen) goes in *_len */
+static U8 *JsonParseString(JsonParser *p, I64 *_len)
 {
   Bool run = TRUE;
   I64 start = p->offset;
@@ -471,16 +419,18 @@ static U8 *JsonParseString(JsonParser *p)
     end++;
   }
 
-  /* approximate string length */
-  while (JsonUnsafePeekAt(p, end) != '\0') {
+  /* approximate string length: to the closing quote, stepping over each
+   * escape as a pair (testing the byte before a quote for a '\\' took
+   * the end of "C:\\" for an escaped quote). Never past `buflen`: a
+   * string the input cuts off is unterminated */
+  while (end < p->buflen && JsonUnsafePeekAt(p, end) != '\0') {
     U8 cur = JsonUnsafePeekAt(p, end);
     if (cur == '"') {
-      if (JsonUnsafePeekAt(p, end - 1) != '\\') {
-        break;
-      }
+      break;
     } else if (cur == '\\') {
       // escape sequence so add another byte
-      if (JsonUnsafePeekAt(p, end + 1) == '\0') {
+      if (end + 1 >= p->buflen || JsonUnsafePeekAt(p, end + 1) == '\0') {
+        end = p->buflen; /* cut off inside an escape: unterminated */
         break;
       }
       end++;
@@ -488,8 +438,10 @@ static U8 *JsonParseString(JsonParser *p)
     end++;
   }
 
-  if (JsonUnsafePeekAt(p, end) == '\0') {
-    p->error = JSON_EOF;
+  if (end >= p->buflen || JsonUnsafePeekAt(p, end) == '\0') {
+    p->offset = end;
+    if (p->offset > p->buflen) p->offset = p->buflen;
+    p->error = JSON_INVALID_STRING_NOT_TERMINATED;
     return NULL;
   }
 
@@ -550,6 +502,10 @@ static U8 *JsonParseString(JsonParser *p)
         run = 0;
         break;
       default:
+        if (JsonPeek(p) < 0x20) { /* RFC 8259: control characters escaped */
+          p->error = JSON_INVALID_CONTROL_CHARACTER;
+          goto err;
+        }
         str[len++] = JsonPeek(p);
         break;
     }
@@ -562,6 +518,7 @@ static U8 *JsonParseString(JsonParser *p)
   }
 
   str[len] = '\0';
+  *_len = len;
   return str;
 
 err:
@@ -572,11 +529,21 @@ err:
 }
 
 static U8 *JsonFloatToStr(U8 *buf, F64 f)
-{ // Shortest %g that reads back as `f`, with a '.' so it parses as a float
-  I64 prec = 1, len;
+{ // %.15g, %.16g or %.17g, the first that reads back as `f`, with a '.'
+  // so it parses as a float. 17 digits always do; starting at 15 (not 1)
+  // costs one or two tries instead of up to 17, and %g still drops
+  // trailing zeros (0.1 is "0.1"). C's snprintf: StrPrint's exact %g is
+  // the same text but several times slower. `buf` holds 64 bytes.
+  I64 prec = 15, len;
   U8 *e;
+  U64 bits;
+  MemCpy(&bits, &f, sizeof(F64));
+  if (((bits >> 52) & 0x7FF) == 0x7FF) { /* inf/nan: JSON has none, null as JavaScript */
+    StrCpy(buf, "null");
+    return buf;
+  }
   while (TRUE) {
-    StrPrint(buf,"%.*g",prec,f);
+    snprintf(buf,64,"%.*g",prec(I32),f);
     if (prec >= 17 || strtod(buf,NULL) == f) break;
     prec++;
   }
@@ -591,14 +558,22 @@ static U8 *JsonFloatToStr(U8 *buf, F64 f)
   return buf;
 }
 
-/* Appends `str` as a JSON string literal, quotes included */
-static U0 JsonCatQuoted(JsonStringBuilder *js, U8 *str)
+/* Appends the `len` bytes of `str` as a JSON string literal, quotes
+ * included; a '\0' among them is written \u0000 */
+static U0 JsonCatQuoted(JsonStringBuilder *js, U8 *str, I64 len)
 {
-  if (!str) str = "";
-  U8 *buf = MAlloc(StrLen(str) * 6 + 3), *dst = buf, *hex = "0123456789abcdef";
+  if (!str) {
+    str = "";
+    len = 0;
+  } else if (!len) { /* a node made or changed by hand */
+    len = StrLen(str);
+  }
+  U8 *buf = MAlloc(len * 6 + 3), *dst = buf, *hex = "0123456789abcdef";
+  U8 *end = str + len;
   U8 ch;
   *dst++ = '"';
-  while ((ch = *str++)) {
+  while (str < end) {
+    ch = *str++;
     switch (ch) {
       case '"':  *dst++ = '\\'; *dst++ = '"'; break;
       case '\\': *dst++ = '\\'; *dst++ = '\\'; break;
@@ -637,7 +612,7 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js,
 
   while (J) {
     if (J->key && siblings) {
-      JsonCatQuoted(js,J->key);
+      JsonCatQuoted(js,J->key,J->key_len);
       js->buf = CatLenPrint(js->buf,&js->len,": ");
     }
     switch (J->type) {
@@ -651,7 +626,7 @@ static U0 JsonToStringInternal(Json *J, JsonStringBuilder *js,
         js->buf = CatLenPrint(js->buf,&js->len,"%s",J->strnum);
         break;
       case JSON_STRING:
-        JsonCatQuoted(js,J->str);
+        JsonCatQuoted(js,J->str,J->str_len);
         break;
       case JSON_ARRAY:
         js->buf = CatLenPrint(js->buf,&js->len,"[");
@@ -775,7 +750,6 @@ static Json *JsonParseArray(JsonParser *p)
   }
 
   U8 ch = '\0';
-  I32 can_advance = 0;
   Json *J;
   Json *val = JsonNew();
   p->ptr = val;
@@ -792,11 +766,10 @@ static Json *JsonParseArray(JsonParser *p)
     JsonAdvanceWhitespace(p);
     ch = JsonPeek(p);
     if (ch != ',') {
-      can_advance = JsonCanAdvanceBy(p, 1);
-      if (ch == ']' && can_advance) {
+      /* Step past the ']' even when it ends the input, so the caller
+       * sees what follows it */
+      if (ch == ']') {
         JsonAdvance(p);
-        break;
-      } else if (ch == ']' && !can_advance) {
         break;
       } else {
         JsonReleaseList(val); /* the whole list parsed so far, keys and values */
@@ -822,7 +795,6 @@ Json *JsonParseObject(JsonParser *p)
     return NULL;
   }
   U8 ch = '\0';
-  Bool can_advance;
   Json *J,*val;
   val = JsonNew;
   p->ptr = val;
@@ -837,7 +809,7 @@ Json *JsonParseObject(JsonParser *p)
       return NULL;
     }
 
-    J->key = JsonParseString(p);
+    J->key = JsonParseString(p, &J->key_len);
     if (p->error != JSON_OK) {
       JsonReleaseList(val); /* the whole list parsed so far, keys and values */
       return NULL;
@@ -860,11 +832,8 @@ Json *JsonParseObject(JsonParser *p)
     JsonAdvanceWhitespace(p);
     ch = JsonPeek(p);
     if (ch != ',') {
-      can_advance = JsonCanAdvanceBy(p, 1);
-      if (ch == '}' && can_advance) {
+      if (ch == '}') { /* as for ']' in an array */
         JsonAdvance(p);
-        break;
-      } else if (ch == '}' && !can_advance) {
         break;
       } else {
         JsonReleaseList(val); /* the whole list parsed so far, keys and values */
@@ -900,7 +869,7 @@ static Bool JsonParseValue(JsonParser *p)
 
     case JSON_PARSER_STRING:
       J->type = JSON_STRING;
-      J->str = JsonParseString(p);
+      J->str = JsonParseString(p, &J->str_len);
       break;
 
     case JSON_PARSER_NULL:
@@ -913,7 +882,13 @@ static Bool JsonParseValue(JsonParser *p)
 
     case JSON_PARSER_OBJECT:
       J->type = JSON_OBJECT;
-      J->object = JsonParseObject(p);
+      if (++p->depth > JSON_MAX_DEPTH) {
+        p->error = JSON_NESTING_TOO_DEEP;
+        J->object = NULL;
+      } else {
+        J->object = JsonParseObject(p);
+      }
+      p->depth--;
       break;
 
     case JSON_PARSER_BOOL:
@@ -923,7 +898,13 @@ static Bool JsonParseValue(JsonParser *p)
 
     case JSON_PARSER_ARRAY:
       J->type = JSON_ARRAY;
-      J->array = JsonParseArray(p);
+      if (++p->depth > JSON_MAX_DEPTH) {
+        p->error = JSON_NESTING_TOO_DEEP;
+        J->array = NULL;
+      } else {
+        J->array = JsonParseArray(p);
+      }
+      p->depth--;
       break;
   }
 
@@ -944,6 +925,7 @@ Json *JsonParseWithLenAndFlags(U8 *raw, I64 len, I32 flags)
   p.ptr = NULL;
   p.error = JSON_OK; 
   p.J = J;
+  p.depth = 0;
 
   JsonAdvanceWhitespace(&p);
 
@@ -951,8 +933,13 @@ Json *JsonParseWithLenAndFlags(U8 *raw, I64 len, I32 flags)
   p.ptr = J;
   if (JsonPeek(&p) == '\0' || !JsonSetExpectedType(&p)) {
     p.error = JSON_CANNOT_START_PARSE;
-  } else {
-    JsonParseValue(&p);
+  } else if (JsonParseValue(&p)) {
+    /* Only whitespace may follow the value (`[1]x`, `1 2`, `truex` and
+     * `{"a":1}}` were accepted) */
+    JsonAdvanceWhitespace(&p);
+    if (p.offset < p.buflen) {
+      p.error = JSON_INVALID_JSON_TYPE_CHAR;
+    }
   }
 
   J->state = JsonStateNew();
@@ -978,6 +965,7 @@ Json *JsonParseWithLenAndFlags(U8 *raw, I64 len, I32 flags)
  * converting them to JSON_INT / JSON_FLOAT. */
 public Json *JsonParse(U8 *raw, I64 len=-1, I64 flags=0)
 {
+  if (!raw) return NULL;
   if (len == -1) len = StrLen(raw);
   return JsonParseWithLenAndFlags(raw,len,flags);
 }
@@ -1028,6 +1016,12 @@ static U8 *JsonGetStrerrorInternal(I32 error, U8 ch, I64 line, I64 col)
     case JSON_INVALID_ESCAPE_CHARACTER:
       return StrPrint(NULL, "Invalid escape character %s after '\\' at line "
                       "%d, column %d", c, line, col);
+    case JSON_INVALID_CONTROL_CHARACTER:
+      return StrPrint(NULL, "Unescaped control character %s in a string (write "
+                      "it as \\u%04x) at line %d, column %d", c, ch, line, col);
+    case JSON_NESTING_TOO_DEEP:
+      return StrPrint(NULL, "Arrays and objects nested more than %d deep at "
+                      "line %d, column %d", JSON_MAX_DEPTH, line, col);
     case JSON_INVALID_BOOL:
     case JSON_INVALID_LITERAL:
       what = "Invalid literal, expected true, false or null"; break;
