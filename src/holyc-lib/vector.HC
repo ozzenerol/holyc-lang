@@ -218,26 +218,74 @@ U0 *PtrVecGet(PtrVec *vec, I64 idx)
   return vec->entries[idx];
 }
 
-U0 QSortGeneric(U0 **arr, I64 high, I64 low, 
+/* Sort arr[low..high] in place; `_compare_fn(a, b)` is TRUE when `a` must
+ * come before `b` (a "less than", not a C-style -1/0/1 comparator). Not
+ * stable. Quicksort with a median-of-three pivot and a three-way
+ * partition, so sorted, reversed and all-equal input stay O(n log n); it
+ * recurses into the smaller part and loops on the larger one, so the
+ * recursion depth is O(log n). Short ranges use an insertion sort. */
+U0 QSortGeneric(U0 **arr, I64 high, I64 low,
     I64 (*_compare_fn)(U0 *_arg1, U0 *_arg2))
 {
-  if (low < high) {
-    U0 *pivot = arr[high];
-    I64 idx = low;
+  U0 *tmp;
+  while (high - low >= 16) {
+    /* Pivot: the median of three entries, one from each third of the
+     * range, at offsets scrambled by a hash of the bounds. Fixed spots
+     * (first/middle/last) are defeated by the order the partition leaves
+     * sorted input in and degrade towards O(n^2). */
+    U64 third = ((high - low + 1) / 3)(U64);
+    U64 h = low(U64) * 0x9E3779B97F4A7C15 + high(U64) * 0xC2B2AE3D27D4EB4F;
+    h ^= h >> 31;
+    I64 a = low + (h % third)(I64);
+    I64 c = low + third(I64) + ((h >> 20) % third)(I64);
+    I64 b = high - ((h >> 40) % third)(I64);
+    I64 m;
+    if (_compare_fn(arr[c], arr[a])) {
+      if (_compare_fn(arr[b], arr[c]))      m = c;
+      else if (_compare_fn(arr[b], arr[a])) m = b;
+      else                                  m = a;
+    } else {
+      if (_compare_fn(arr[b], arr[a]))      m = a;
+      else if (_compare_fn(arr[b], arr[c])) m = b;
+      else                                  m = c;
+    }
+    tmp = arr[low]; arr[low] = arr[m]; arr[m] = tmp;
 
-    for (I64 i = low; i < high; ++i) {
-      if (_compare_fn(arr[i],pivot)) {
-        U0 *tmp = arr[i];
-        arr[i] = arr[idx];
-        arr[idx] = tmp;
-        idx++;
+    /* Three-way partition: [low, lt) < pivot, [lt, gt] == pivot,
+     * (gt, high] > pivot. The pivot element itself is never compared,
+     * so the middle part is never empty and both sides shrink. */
+    U0 *pivot = arr[low];
+    I64 lt = low, i = low + 1, gt = high;
+    while (i <= gt) {
+      if (_compare_fn(arr[i], pivot)) {
+        tmp = arr[lt]; arr[lt] = arr[i]; arr[i] = tmp;
+        lt++;
+        i++;
+      } else if (_compare_fn(pivot, arr[i])) {
+        tmp = arr[gt]; arr[gt] = arr[i]; arr[i] = tmp;
+        gt--;
+      } else {
+        i++;
       }
     }
 
-    arr[high] = arr[idx];
-    arr[idx] = pivot;
-    QSortGeneric(arr,high,idx+1,_compare_fn);
-    QSortGeneric(arr,idx-1,low,_compare_fn);
+    if (lt - low < high - gt) {
+      QSortGeneric(arr, lt - 1, low, _compare_fn);
+      low = gt + 1;
+    } else {
+      QSortGeneric(arr, high, gt + 1, _compare_fn);
+      high = lt - 1;
+    }
+  }
+
+  for (I64 j = low + 1; j <= high; ++j) {
+    U0 *x = arr[j];
+    I64 k = j - 1;
+    while (k >= low && _compare_fn(x, arr[k])) {
+      arr[k + 1] = arr[k];
+      k--;
+    }
+    arr[k + 1] = x;
   }
 }
 
