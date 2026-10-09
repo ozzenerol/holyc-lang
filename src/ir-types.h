@@ -413,12 +413,20 @@ typedef struct IrProgram {
 } IrProgram;
 
 #define IR_LOOP_STACK_MAX 32
+#define IR_TRY_STACK_MAX 32
 
 /* Keep track of breaks and continues */
 typedef struct IrLoopCtx {
     IrBlock *continue_block;  /* target of `continue` */
     IrBlock *break_block;     /* target of `break` */
+    u16 try_depth;            /* try bodies open when the loop started */
 } IrLoopCtx;
+
+/* The try bodies enclosing a label, outermost first. */
+typedef struct IrTryChain {
+    u16 depth;
+    Ast *tries[IR_TRY_STACK_MAX];
+} IrTryChain;
 
 typedef struct IrCtx {
     /* Current function being converted to IR */
@@ -435,6 +443,15 @@ typedef struct IrCtx {
     /*`Map<AoStr *label_name, IrBlock *>` for goto and labels within the current
      * function. */
     Map *labels;
+    /* The try bodies we are currently inside, outermost first, with the
+     * address of each one's CatchFrame. A jump out of a try body (return,
+     * break, continue, goto) must pop the frames it leaves. */
+    Ast *try_stack[IR_TRY_STACK_MAX];
+    IrValue *try_frames[IR_TRY_STACK_MAX];
+    u16 try_depth;
+    /* `Map<AoStr *label_name, IrTryChain *>`: the try bodies around each
+     * label of the current function, so a goto knows which to leave. */
+    Map *label_tries;
     /* `Set<u32 lvar_id>` of lvars in the current function whose
      * address is taken (via &x or inline-asm refs). NULL outside a
      * function. The lvar lowerer consults this to decide whether a

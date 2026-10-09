@@ -36,6 +36,7 @@ static void irPushLoopCtx(IrCtx *ctx,
     }
     ctx->loop_stack[ctx->loop_depth].continue_block = continue_blk;
     ctx->loop_stack[ctx->loop_depth].break_block = break_blk;
+    ctx->loop_stack[ctx->loop_depth].try_depth = ctx->try_depth;
     ctx->loop_depth++;
 }
 
@@ -49,6 +50,21 @@ static void irPopLoopCtx(IrCtx *ctx) {
 static IrLoopCtx *irCurLoopCtx(IrCtx *ctx) {
     if (ctx->loop_depth == 0) return NULL;
     return &ctx->loop_stack[ctx->loop_depth - 1];
+}
+
+static IrValue *irEmitRuntimeCall1(IrCtx *ctx, const char *fname,
+                                    IrValueType ret_type, int ret_size,
+                                    IrValue *arg);
+
+/* A jump to code that is inside only the outer `depth` try bodies of
+ * the current ones pops the catch frames of the others. They are a
+ * stack, so restoring the chain to what it was before the outermost
+ * one we leave pops them all. */
+static void irLeaveTries(IrCtx *ctx, u16 depth) {
+    if (ctx->try_depth > depth) {
+        irEmitRuntimeCall1(ctx, "HCC_TryLeave",
+                            IR_TYPE_VOID, 8, ctx->try_frames[depth]);
+    }
 }
 
 /* Collapse something that looks like `a.b.c` or `p->a.b`*/
@@ -2073,6 +2089,7 @@ void irLowerReturn(IrCtx *ctx, Ast *ast) {
          * the expression still runs for its side effects. */
         irExpr(ctx, ast->retval);
     }
+    irLeaveTries(ctx, 0);
     IrInstr *jmp = irJump(ctx->cur_func,
                           ctx->cur_block,
                           ctx->cur_func->exit_block);
@@ -2095,6 +2112,10 @@ void irLowerReturn(IrCtx *ctx, Ast *ast) {
  *     <lower catch_body>
  *     jmp end_block
  *   end_block:
+ *
+ * A return, break, continue or goto that jumps out of try_body pops
+ * the frames it leaves first (irLeaveTries); otherwise the chain would
+ * keep a frame of a dead stack and the next throw would longjmp to it.
  *
  * The CatchFrame layout (jmp_buf bytes + prev pointer) is opaque to
  * the compiler; we just reserve enough stack for the largest platform
@@ -2141,7 +2162,14 @@ void irLowerTry(IrCtx *ctx, Ast *ast) {
     /* 5. body_block: lower try body, leave the catch frame, jump to end. */
     irFnAddBlock(ctx->cur_func, body_block);
     ctx->cur_block = body_block;
+    if (ctx->try_depth >= IR_TRY_STACK_MAX) {
+        loggerPanic("try nesting above %d not supported\n", IR_TRY_STACK_MAX);
+    }
+    ctx->try_stack[ctx->try_depth] = ast;
+    ctx->try_frames[ctx->try_depth] = frame_addr;
+    ctx->try_depth++;
     irLowerAst(ctx, ast->try_body);
+    ctx->try_depth--;
     if (!ctx->cur_block->sealed) {
         irEmitRuntimeCall1(ctx, "HCC_TryLeave",
                             IR_TYPE_VOID, 8, frame_addr);
@@ -2530,6 +2558,18 @@ void irLowerGoto(IrCtx *ctx, Ast *ast) {
         mapAddLen(ctx->labels, lname->data, lname->len, target);
     }
 
+    /* Leave the try bodies that the label is not inside. */
+    IrTryChain *chain = ctx->label_tries
+        ? (IrTryChain *)mapGetLen(ctx->label_tries, lname->data, lname->len)
+        : NULL;
+    u16 common = 0;
+    while (chain && common < chain->depth && common < ctx->try_depth &&
+           chain->tries[common] == ctx->try_stack[common])
+    {
+        common++;
+    }
+    irLeaveTries(ctx, common);
+
     IrInstr *jmp = irJump(ctx->cur_func, ctx->cur_block, target);
     irBlockAddInstr(ctx, jmp);
     /* Anything emitted before the next AST_LABEL is dead - give
@@ -2762,6 +2802,7 @@ void irLowerAst(IrCtx *ctx, Ast *ast) {
         case AST_BREAK: {
             IrLoopCtx *lc = irCurLoopCtx(ctx);
             if (!lc) loggerPanic("break outside a loop\n");
+            irLeaveTries(ctx, lc->try_depth);
             IrInstr *j = irJump(ctx->cur_func, ctx->cur_block, lc->break_block);
             irBlockAddInstr(ctx, j);
             break;
@@ -2770,6 +2811,7 @@ void irLowerAst(IrCtx *ctx, Ast *ast) {
         case AST_CONTINUE: {
             IrLoopCtx *lc = irCurLoopCtx(ctx);
             if (!lc) loggerPanic("continue outside a loop\n");
+            irLeaveTries(ctx, lc->try_depth);
             IrInstr *j = irJump(ctx->cur_func, ctx->cur_block, lc->continue_block);
             irBlockAddInstr(ctx, j);
             break;
@@ -2993,6 +3035,72 @@ static void irEscapeWalk(Ast *ast, Set *escape) {
     }
 }
 
+/* Record, for every label, the try bodies it is inside (see
+ * IrCtx.label_tries). A catch handler runs after its frame is popped,
+ * so it does not count as inside its try. */
+static void irTryLabelWalk(IrCtx *ctx, Ast *ast, IrTryChain *chain);
+
+static void irTryLabelWalkList(IrCtx *ctx, List *l, IrTryChain *chain) {
+    if (!l) return;
+    listForEach(l) {
+        irTryLabelWalk(ctx, (Ast *)it->value, chain);
+    }
+}
+
+static void irTryLabelWalk(IrCtx *ctx, Ast *ast, IrTryChain *chain) {
+    if (!ast) return;
+    switch (ast->kind) {
+        case AST_LABEL: {
+            AoStr *lname = ast->slabel;
+            if (!lname) return;
+            IrTryChain *copy = (IrTryChain *)irAlloc(sizeof(IrTryChain));
+            memcpy(copy, chain, sizeof(IrTryChain));
+            if (!ctx->label_tries) {
+                ctx->label_tries = mapNew(8, &map_cstring_opaque_type);
+            }
+            mapAddLen(ctx->label_tries, lname->data, lname->len, copy);
+            return;
+        }
+        case AST_COMPOUND_STMT:
+            irTryLabelWalkList(ctx, ast->stms, chain);
+            return;
+        case AST_IF:
+            irTryLabelWalk(ctx, ast->then, chain);
+            irTryLabelWalk(ctx, ast->els, chain);
+            return;
+        case AST_FOR:
+            irTryLabelWalk(ctx, ast->forinit, chain);
+            irTryLabelWalk(ctx, ast->forbody, chain);
+            return;
+        case AST_WHILE:
+        case AST_DO_WHILE:
+            irTryLabelWalk(ctx, ast->whilebody, chain);
+            return;
+        case AST_SWITCH:
+            if (ast->cases) {
+                for (u64 i = 0; i < ast->cases->size; ++i) {
+                    irTryLabelWalk(ctx, vecGet(Ast *, ast->cases, i), chain);
+                }
+            }
+            irTryLabelWalk(ctx, ast->case_default, chain);
+            return;
+        case AST_CASE:
+        case AST_DEFAULT:
+            irTryLabelWalkList(ctx, ast->case_asts, chain);
+            return;
+        case AST_TRY:
+            if (chain->depth < IR_TRY_STACK_MAX) {
+                chain->tries[chain->depth++] = ast;
+                irTryLabelWalk(ctx, ast->try_body, chain);
+                chain->depth--;
+            }
+            irTryLabelWalk(ctx, ast->catch_body, chain);
+            return;
+        default:
+            return;
+    }
+}
+
 static Set *irCollectEscapingLVars(Ast *ast_func) {
     Set *escape = setNew(8, &set_uint_type);
     if (ast_func && ast_func->body) {
@@ -3013,6 +3121,12 @@ IrFunction *irLowerFunction(IrCtx *ctx, Ast *ast_func) {
     ctx->cur_block = entry;
     ctx->cur_func = func;
     ctx->labels = NULL; /* fresh label table per function */
+    ctx->try_depth = 0;
+    ctx->label_tries = NULL;
+    if (ast_func->body) {
+        IrTryChain chain = {0};
+        irTryLabelWalk(ctx, ast_func->body, &chain);
+    }
     if (ctx->escape_set) setRelease(ctx->escape_set);
     ctx->escape_set = irCollectEscapingLVars(ast_func);
     func->entry_block = entry;
