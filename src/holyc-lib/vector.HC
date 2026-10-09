@@ -1,5 +1,6 @@
 /* There is a lot of duplication here but it does 'work', generics would clean
  * all of this up... */
+
 public U0 QSortGeneric(U0 **arr, I64 high, I64 low,
     I64 (*_compare_fn)(U0 *_arg1, U0 *_arg2));
 
@@ -40,7 +41,7 @@ FloatVec *FloatVecNew(I64 size = 32)
   return vec;
 }
 
-U64 FloatVecCapacity(IntVec *vec)
+U64 FloatVecCapacity(FloatVec *vec)
 {
   return MSize(vec->entries)/sizeof(F64);
 }
@@ -74,6 +75,24 @@ F64 FloatVecGet(FloatVec *vec, I64 idx)
     _VecIndexError("FloatVecGet", idx, vec->size);
   }
   return vec->entries[idx];
+}
+
+U0 FloatVecSet(FloatVec *vec, I64 idx, F64 value)
+{// Replace the entry at `idx`; the index must be in [0, size), as for Get
+  if (idx < 0 || idx >= vec->size) {
+    _VecIndexError("FloatVecSet", idx, vec->size);
+  }
+  vec->entries[idx] = value;
+}
+
+F64 FloatVecLast(FloatVec *vec, Bool *_ok=NULL)
+{// The last entry without removing it; -1.0 and *_ok = FALSE when empty
+  if (vec->size > 0) {
+    if (_ok) *_ok = TRUE;
+    return vec->entries[vec->size - 1];
+  }
+  if (_ok) *_ok = FALSE;
+  return -1.0;
 }
 
 /* QSortGeneric hands the comparator two 64-bit slots as U0 *, in integer
@@ -150,6 +169,24 @@ I64 IntVecGet(IntVec *vec, I64 idx)
   return vec->entries[idx];
 }
 
+U0 IntVecSet(IntVec *vec, I64 idx, I64 value)
+{// Replace the entry at `idx`; the index must be in [0, size), as for Get
+  if (idx < 0 || idx >= vec->size) {
+    _VecIndexError("IntVecSet", idx, vec->size);
+  }
+  vec->entries[idx] = value;
+}
+
+I64 IntVecLast(IntVec *vec, Bool *_ok=NULL)
+{// The last entry without removing it; -1 and *_ok = FALSE when empty
+  if (vec->size > 0) {
+    if (_ok) *_ok = TRUE;
+    return vec->entries[vec->size - 1];
+  }
+  if (_ok) *_ok = FALSE;
+  return -1;
+}
+
 I64 _IntCmp(I64 i1, I64 i2)
 {
   return i1 < i2;
@@ -182,7 +219,7 @@ PtrVec *PtrVecNew(I64 size = 32)
   return vec;
 }
 
-U64 PtrVecCapacity(IntVec *vec)
+U64 PtrVecCapacity(PtrVec *vec)
 {
   return MSize(vec->entries)/sizeof(U0*);
 }
@@ -217,6 +254,24 @@ U0 *PtrVecGet(PtrVec *vec, I64 idx)
     _VecIndexError("PtrVecGet", idx, vec->size);
   }
   return vec->entries[idx];
+}
+
+U0 PtrVecSet(PtrVec *vec, I64 idx, U0 *value)
+{// Replace the entry at `idx`; the index must be in [0, size), as for Get
+  if (idx < 0 || idx >= vec->size) {
+    _VecIndexError("PtrVecSet", idx, vec->size);
+  }
+  vec->entries[idx] = value;
+}
+
+U0 *PtrVecLast(PtrVec *vec, Bool *_ok=NULL)
+{// The last entry without removing it; NULL and *_ok = FALSE when empty
+  if (vec->size > 0) {
+    if (_ok) *_ok = TRUE;
+    return vec->entries[vec->size - 1];
+  }
+  if (_ok) *_ok = FALSE;
+  return NULL;
 }
 
 /* Sort arr[low..high] in place; `_compare_fn(a, b)` is TRUE when `a` must
