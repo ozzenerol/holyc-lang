@@ -2,12 +2,7 @@
  *
  * SysV AMD64 ABI for both Linux and macOS (only the symbol naming and
  * PIC syntax differ - same call convention, same register set, same
- * struct passing). 
- *
- * Default codegen for X86_64 targets. The legacy AST-based x86.c
- * remains compiled in as a debugging fallback - pass --use-legacy-x86
- * (sets CCTRL_USE_LEGACY_X86) to route through it instead. Thes AST backend
- * will eventually be deleted. */
+ * struct passing). */
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>

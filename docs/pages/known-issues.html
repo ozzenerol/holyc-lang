@@ -52,9 +52,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>The legacy x86 backend has several wrong-code bugs</td>
-        <td>Only with <code>--use-legacy-x86</code>: <code>F64 R(I64 n) { return n; }</code> returns 0.0; narrow loads read 8 bytes (<code>I32 a[3] = {1,2,3}; a[0]</code> is 8589934593); some global class initialisers panic with "Global variables unimplemented"; the exit status of <code>U0 Main</code> is garbage</td>
-        <td>Use the default backend</td></tr>
     <tr><td>A class-typed item in a local initialiser list is garbage</td>
         <td>With <code>class L { I64 a; P p; I64 b; };</code>, a local <code>L l = {1, p0, 4};</code> leaves <code>l.p</code> holding pointer-like garbage; so does a local <code>P ps[2] = {p0, p0};</code>. The same initialisers on globals work</td>
         <td>Assign the class fields after the declaration (<code>l.p = p0;</code>), or make the variable global</td></tr>

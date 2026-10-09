@@ -11,7 +11,6 @@
 #include "cli.h"
 #include "config.h"
 #include "prsasm.h"
-#include "x86.h"
 #include "x86_64.h"
 #include "types.h"
 #include "util.h"
@@ -177,11 +176,6 @@ AoStr *asmGenerate(Cctrl *cc) {
             return aarch64AsmGenerate(cc);
         case TARGET_X86_64_APPLE_DARWIN:
         case TARGET_X86_64_UNKNOWN_LINUX_GNU:
-            /* Default: IR-based src/x86_64.c. --use-legacy-x86 opts
-             * back into the AST-based src/x86.c for comparison. */
-            if (cc->flags & CCTRL_USE_LEGACY_X86) {
-                return x86AsmGenerate(cc);
-            }
             return x86_64AsmGenerate(cc);
     }
     loggerPanic("asm: unknown target %d\n", (int)cc->target);

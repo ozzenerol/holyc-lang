@@ -24,11 +24,6 @@
 #define CCTRL_PASTE_DEFINES        (1<<2)
 #define CCTRL_PRESERVE_SIZEOF      (1<<3)
 #define CCTRL_ASM_HAS_INITIALISERS (1<<4)
-/* Escape hatch back to the legacy AST-based x86_64 codegen
- * (src/x86.c). Default is now the IR-based src/x86_64.c. The
- * legacy path will be deleted once the IR backend has full unit-
- * test coverage; until then this flag stays as a debugging tool. */
-#define CCTRL_USE_LEGACY_X86       (1<<5)
 /* REPL mode: re-defining a function replaces the previous definition
  * instead of raising "Cannot redefine function", and floating
  * expressions (`2+2;`, `(x*3);`) are legal at the top level so they
