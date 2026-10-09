@@ -746,11 +746,11 @@ public extern "c" F64 fmax(F64 f1, F64 f2);
 public extern "c" F64 fmin(F64 f1, F64 f2);
 public extern "c" F64 fma(F64 f1, F64 f2, F64 f3);
 #ifdef IS_X86_64
-public _extern _ABS U64 Abs(I64 num);
+public _extern _ABS I64 Abs(I64 num);
 #endif
 
 #ifdef IS_ARM_64
-public U64 Abs(I64 num);
+public I64 Abs(I64 num);
 #endif
 public U64 Gcd(I64 a, I64 b);
 public F64 Pow(F64 a, F64 b);
