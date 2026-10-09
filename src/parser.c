@@ -1161,9 +1161,16 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags,
         var->type = init->type;
     }
 
-    /* Check what we are trying to assign is valid */
-    AstType *ok = astTypeCheck(var->type,init,AST_BIN_OP_ASSIGN);
-    if (!ok) {
+    /* A value the `=` operator rejects (`I64 z = p` with a class `p`) is
+     * the same error as the assignment `z = p`, and the only diagnostic;
+     * one it accepts with a different type gets the warning. */
+    int is_err = 0;
+    if (!(cc->flags & CCTRL_TRANSPILING) && init->kind != AST_COMPOUND_STMT) {
+        astBinaryOp(AST_BIN_OP_ASSIGN,var,init,&is_err);
+    }
+    if (is_err) {
+        parseCreateBinaryOp(cc,AST_BIN_OP_ASSIGN,var,init);
+    } else if (!astTypeCheck(var->type,init,AST_BIN_OP_ASSIGN)) {
         typeCheckWarn(cc,eq_line,eq_col,var,init);
     }
 
