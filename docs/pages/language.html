@@ -518,6 +518,25 @@ U0 Main()
 <pre class="output">
 10 24
 </pre>
+<p>An array of function pointers puts the size after the name, as in C. It works for
+locals, globals, class fields and parameters:</p>
+<pre data-run><code>
+I64 Dbl(I64 x) { return x * 2; }
+I64 Sq(I64 x) { return x * x; }
+
+I64 (*ops[])(I64 x) = {&Dbl, &Sq};
+
+U0 Main()
+{
+  for (I64 i = 0; i < 2; i++) {
+    "%d\n", ops[i](5);
+  }
+}
+</code></pre>
+<pre class="output">
+10
+25
+</pre>
 
 <h2>Pointers and arrays</h2>
 <pre data-run><code>

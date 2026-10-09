@@ -2127,7 +2127,9 @@ void parseCompoundStatementInternal(Cctrl *cc, Ast *body) {
                 } else {
                     cctrlTokenGet(cc);
                     var = parseFunctionPointer(cc,next_type);
-                    mapAdd(cc->localenv,var->fname->data,var);
+                    /* An array of function pointers is an AST_LVAR */
+                    AoStr *var_name = var->kind == AST_LVAR ? var->lname : var->fname;
+                    mapAdd(cc->localenv,var_name->data,var);
                 }
 
                 if (cc->tmp_locals) {

@@ -17,9 +17,6 @@ there works as shown.</p>
     <tr><td><code>#undef</code> or a redefinition takes effect up to 16 tokens early</td>
         <td><code>#define N 3</code>, a use of <code>N</code>, then <code>#undef N</code> and <code>#define N 4</code> a few tokens later: the first use already sees 4</td>
         <td>Use a new macro name instead of redefining one</td></tr>
-    <tr><td>Arrays of function pointers don't parse</td>
-        <td><code>I64 (*fns[2])(I64 x);</code>: "unexpected character `[`"</td>
-        <td>Use a class with function-pointer fields</td></tr>
     <tr><td>No brace elision for class-typed fields</td>
         <td><code>class L { I64 t; P a; I64 z; }; L l = {1, 2, 3};</code> warns instead of filling <code>a</code>'s fields</td>
         <td>Brace the inner class: <code>{1, {2, 3}, 4}</code></td></tr>
