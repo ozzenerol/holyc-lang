@@ -113,16 +113,17 @@ F64 Pow(F64 a, I64 b)
 {
   if (b == 0) return 1.0;
   F64 result = 1.0;
+  U64 n = b; /* unsigned so that -I64_MIN still fits */
   if (b < 0) {
     a = 1 / a;
-    b = -b;
+    n = -n;
   }
-  while (b > 0) {
-    if (b & 2 != 1) {
+  while (n > 0) {
+    if (n & 1) {
       result = result * a;
     }
     a = a * a;
-    b /= 2;
+    n >>= 1;
   }
   return result;
 }
