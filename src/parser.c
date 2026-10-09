@@ -103,13 +103,32 @@ Ast *parseFloatingCharConst(Cctrl *cc, Lexeme *tok) {
     return astFunctionCall(ast_void_type,"printf",6,argv);
 }
 
-void parseTypeCheckClassFieldInitaliser(Cctrl *cc, AstType *cls_field_type, Ast *init) {
+/* `init`, an item of a class initialiser just parsed, must suit its
+ * field. `start` is the item's first token, or NULL: the warning then
+ * goes to the current token. */
+void parseTypeCheckClassFieldInitaliser(Cctrl *cc, AstType *cls_field_type, Ast *init,
+                                        Lexeme *start)
+{
     if (!astTypeCheck(cls_field_type, init, AST_BIN_OP_ASSIGN)) {
         char *cls_field_str = astTypeToColorString(cls_field_type);
         char *init_field = astTypeToColorString(init->type);
         char *var_string = astLValueToString(init,0);
-        cctrlWarning(cc,"Incompatible value being assigned to class field expected '%s' got '%s %s'",
-                cls_field_str,init_field,var_string);
+        if (start) {
+            /* Underline the item: up to its last token, the one
+             * consumed last, when that is on the same line. */
+            cctrlTokenRewind(cc);
+            Lexeme *end = cctrlTokenGet(cc);
+            int len = start->len;
+            if (end && end->line == start->line && end->col >= start->col) {
+                len = end->col + end->len - start->col;
+            }
+            cctrlWarningAt(cc,start->line,start->col,len,
+                    "Incompatible value being assigned to class field expected '%s' got '%s %s'",
+                    cls_field_str,init_field,var_string);
+        } else {
+            cctrlWarning(cc,"Incompatible value being assigned to class field expected '%s' got '%s %s'",
+                    cls_field_str,init_field,var_string);
+        }
     }
 }
 
@@ -243,7 +262,8 @@ static Ast *parseDeclNestedInit(Cctrl *cc, AstType *type, int is_class,
 /* A value item of `type`'s list, `init`: the next array element or,
  * in a class, field `i`. */
 static Ast *parseDeclScalarInit(Cctrl *cc, AstType *type, int is_class,
-                                u64 i, volatile int *depth, Ast *init)
+                                u64 i, volatile int *depth, Ast *init,
+                                Lexeme *start)
 {
     if (type->ptr) {
         if ((astGetResultType(AST_BIN_OP_ASSIGN, init->type, type->ptr)) == NULL) {
@@ -268,7 +288,7 @@ static Ast *parseDeclScalarInit(Cctrl *cc, AstType *type, int is_class,
             /* A `U8 name[8]` field takes the string's bytes. */
             parseCheckInnerArrayInit(cc,cls_field_type,init,depth);
         } else {
-            parseTypeCheckClassFieldInitaliser(cc,cls_field_type,init);
+            parseTypeCheckClassFieldInitaliser(cc,cls_field_type,init,start);
         }
         init = parseFoldInitElement(init, cls_field_type);
     }
@@ -309,24 +329,28 @@ static s64 parseDeclElidedCount(AstType *type, Ast *init) {
 }
 
 static Ast *parseDeclElidedInitList(Cctrl *cc, AstType *type, s64 count,
-                                    volatile int *depth, Ast *first);
+                                    volatile int *depth, Ast *first,
+                                    Lexeme *first_start);
 
 /* Item `i` of `type`'s list, not a braced one: its value, or the
  * items of an array or class element/field written without braces.
  * `init` is its first expression, already parsed. */
 static Ast *parseDeclValueInit(Cctrl *cc, AstType *type, int is_class,
-                               u64 i, volatile int *depth, Ast *init)
+                               u64 i, volatile int *depth, Ast *init,
+                               Lexeme *start)
 {
     AstType *sub_type = is_class ? astClassFieldAt(type, i) : type->ptr;
     s64 count = sub_type ? parseDeclElidedCount(sub_type, init) : 0;
     if (count > 0) {
-        return parseDeclElidedInitList(cc,sub_type,count,depth,init);
+        return parseDeclElidedInitList(cc,sub_type,count,depth,init,start);
     }
-    return parseDeclScalarInit(cc,type,is_class,i,depth,init);
+    return parseDeclScalarInit(cc,type,is_class,i,depth,init,start);
 }
 
-/* The next item's expression, the item's first token being a value */
-static Ast *parseDeclInitExpr(Cctrl *cc) {
+/* The next item's expression, the item's first token being a value,
+ * which is copied to `start` */
+static Ast *parseDeclInitExpr(Cctrl *cc, Lexeme *start) {
+    *start = *cctrlTokenPeek(cc);
     Ast *init = parseExpr(cc,16);
     if (init == NULL) {
         cctrlRaiseExceptionFromTo(cc,NULL,'{','}',"Array initaliser encountered an unexpected token");
@@ -340,7 +364,8 @@ static Ast *parseDeclInitExpr(Cctrl *cc) {
  * value, or elided again, as in a braced list, and they make the same
  * list. */
 static Ast *parseDeclElidedInitList(Cctrl *cc, AstType *type, s64 count,
-                                    volatile int *depth, Ast *first)
+                                    volatile int *depth, Ast *first,
+                                    Lexeme *first_start)
 {
     List *initlist = listNew();
     int is_class = type->kind == AST_TYPE_CLASS ||
@@ -350,7 +375,8 @@ static Ast *parseDeclElidedInitList(Cctrl *cc, AstType *type, s64 count,
 
     for (s64 i = 0; i < count; ++i) {
         if (i == 0) {
-            init = parseDeclValueInit(cc,type,is_class,i,depth,first);
+            init = parseDeclValueInit(cc,type,is_class,i,depth,first,
+                                      first_start);
         } else {
             tok = cctrlTokenGetRequired(cc);
             cctrlTokenRewind(cc);
@@ -365,8 +391,10 @@ static Ast *parseDeclElidedInitList(Cctrl *cc, AstType *type, s64 count,
             if (tokenPunctIs(tok, '{')) {
                 init = parseDeclNestedInit(cc,type,is_class,i,depth);
             } else {
-                init = parseDeclValueInit(cc,type,is_class,i,depth,
-                                          parseDeclInitExpr(cc));
+                Lexeme start;
+                init = parseDeclInitExpr(cc,&start);
+                init = parseDeclValueInit(cc,type,is_class,i,depth,init,
+                                          &start);
             }
         }
         listAppend(initlist,init);
@@ -439,8 +467,9 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
         if (tokenPunctIs(tok,'{')) {
             init = parseDeclNestedInit(cc,type,is_class,i,depth);
         } else {
-            init = parseDeclValueInit(cc,type,is_class,i,depth,
-                                      parseDeclInitExpr(cc));
+            Lexeme start;
+            init = parseDeclInitExpr(cc,&start);
+            init = parseDeclValueInit(cc,type,is_class,i,depth,init,&start);
         }
         if (is_class) {
             i++;
