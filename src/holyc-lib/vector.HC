@@ -21,6 +21,16 @@ class FloatVec
   F64 *entries;
 };
 
+/* Get/Set with an index outside [0, size): report it on stderr and exit,
+ * rather than read or write past the entries. */
+static U0 _VecIndexError(U8 *fn_name, I64 idx, I64 size)
+{
+  U8 *msg = StrPrint(NULL, "%s: index %d out of range (size %d)\n",
+                     fn_name, idx, size);
+  Write(STDERR, msg, StrLen(msg));
+  Exit(1);
+}
+
 FloatVec *FloatVecNew(I64 size = 32)
 {
   FloatVec *vec = MAlloc(sizeof(FloatVec));
@@ -65,6 +75,24 @@ F64 FloatVecGet(FloatVec *vec, I64 idx)
   }
 #endif
   return vec->entries[idx];
+}
+
+U0 FloatVecSet(FloatVec *vec, I64 idx, F64 value)
+{// Replace the entry at `idx`; the index must be in [0, size), as for Get
+  if (idx < 0 || idx >= vec->size) {
+    _VecIndexError("FloatVecSet", idx, vec->size);
+  }
+  vec->entries[idx] = value;
+}
+
+F64 FloatVecLast(FloatVec *vec, Bool *_ok=NULL)
+{// The last entry without removing it; -1.0 and *_ok = FALSE when empty
+  if (vec->size > 0) {
+    if (_ok) *_ok = TRUE;
+    return vec->entries[vec->size - 1];
+  }
+  if (_ok) *_ok = FALSE;
+  return -1.0;
 }
 
 I64 _FloatCmp(F64 f1, F64 f2)
@@ -137,6 +165,24 @@ I64 IntVecGet(IntVec *vec, I64 idx)
   return vec->entries[idx];
 }
 
+U0 IntVecSet(IntVec *vec, I64 idx, I64 value)
+{// Replace the entry at `idx`; the index must be in [0, size), as for Get
+  if (idx < 0 || idx >= vec->size) {
+    _VecIndexError("IntVecSet", idx, vec->size);
+  }
+  vec->entries[idx] = value;
+}
+
+I64 IntVecLast(IntVec *vec, Bool *_ok=NULL)
+{// The last entry without removing it; -1 and *_ok = FALSE when empty
+  if (vec->size > 0) {
+    if (_ok) *_ok = TRUE;
+    return vec->entries[vec->size - 1];
+  }
+  if (_ok) *_ok = FALSE;
+  return -1;
+}
+
 I64 _IntCmp(I64 i1, I64 i2)
 {
   return i1 < i2;
@@ -205,6 +251,24 @@ U0 *PtrVecGet(PtrVec *vec, I64 idx)
   }
 #endif
   return vec->entries[idx];
+}
+
+U0 PtrVecSet(PtrVec *vec, I64 idx, U0 *value)
+{// Replace the entry at `idx`; the index must be in [0, size), as for Get
+  if (idx < 0 || idx >= vec->size) {
+    _VecIndexError("PtrVecSet", idx, vec->size);
+  }
+  vec->entries[idx] = value;
+}
+
+U0 *PtrVecLast(PtrVec *vec, Bool *_ok=NULL)
+{// The last entry without removing it; NULL and *_ok = FALSE when empty
+  if (vec->size > 0) {
+    if (_ok) *_ok = TRUE;
+    return vec->entries[vec->size - 1];
+  }
+  if (_ok) *_ok = FALSE;
+  return NULL;
 }
 
 U0 QSortGeneric(U0 **arr, I64 high, I64 low, 

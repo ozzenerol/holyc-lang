@@ -168,6 +168,11 @@ public U64 FloatVecCapacity(IntVec *vec);
 public U0 FloatVecPush(FloatVec *vec, F64 value);
 public F64 FloatVecPop(FloatVec *vec, Bool *_ok);
 public F64 FloatVecGet(FloatVec *vec, I64 idx);
+/* Replace the entry at `idx`; out of range prints an error and exits,
+ * like FloatVecGet. */
+public U0 FloatVecSet(FloatVec *vec, I64 idx, F64 value);
+/* The last entry without removing it; -1.0 and *_ok = FALSE when empty. */
+public F64 FloatVecLast(FloatVec *vec, Bool *_ok = NULL);
 public U0 FloatVecClear(FloatVec *vec);
 public U0 FloatVecRelease(FloatVec *vec);
 public U0 FloatVecSort(FloatVec *vec);
@@ -177,6 +182,11 @@ public U64 IntVecCapacity(IntVec *vec);
 public U0 IntVecPush(IntVec *vec, I64 value);
 public I64 IntVecPop(IntVec *vec, Bool *_ok);
 public I64 IntVecGet(IntVec *vec, I64 idx);
+/* Replace the entry at `idx`; out of range prints an error and exits,
+ * like IntVecGet. */
+public U0 IntVecSet(IntVec *vec, I64 idx, I64 value);
+/* The last entry without removing it; -1 and *_ok = FALSE when empty. */
+public I64 IntVecLast(IntVec *vec, Bool *_ok = NULL);
 public U0 IntVecClear(IntVec *vec);
 public U0 IntVecRelease(IntVec *vec);
 public U0 IntVecSort(IntVec *vec);
@@ -186,6 +196,11 @@ public U64 PtrVecCapacity(IntVec *vec);
 public U0 PtrVecPush(PtrVec *vec, U0 *value);
 public U0 *PtrVecPop(PtrVec *vec, Bool *_ok);
 public U0 *PtrVecGet(PtrVec *vec, I64 idx);
+/* Replace the entry at `idx`; out of range prints an error and exits,
+ * like PtrVecGet. */
+public U0 PtrVecSet(PtrVec *vec, I64 idx, U0 *value);
+/* The last entry without removing it; NULL and *_ok = FALSE when empty. */
+public U0 *PtrVecLast(PtrVec *vec, Bool *_ok = NULL);
 public U0 PtrVecClear(PtrVec *vec);
 public U0 PtrVecRelease(PtrVec *vec, U0 (*_free_value)(U0 *_val) = NULL);
 public U0 PtrVecSort(PtrVec *vec,
