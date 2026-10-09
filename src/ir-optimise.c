@@ -508,6 +508,23 @@ static int irForwardStoreToReads(IrFunction *fn) {
                 }
             }
 
+            /* Likewise an op that overwrites a tracked SOURCE: after
+             * `store z, v; lea v, x` z still holds the old v, so later
+             * reads of z must not become reads of v (`I64 *z = v;
+             * v = &x;` made *z read x). */
+            if (I->dst) {
+                u64 j = 0;
+                while (j < n) {
+                    if (irValMatchesSlot(I->dst, sources[j])) {
+                        slots[j] = slots[n - 1];
+                        sources[j] = sources[n - 1];
+                        n--;
+                    } else {
+                        j++;
+                    }
+                }
+            }
+
             /* Update map on STORE: dst-slot now holds r1's value.
              * Only forward when the value is 8 bytes wide. A
              * sub-word value (i32 argc, i8 char param) has unspecified
