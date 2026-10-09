@@ -1328,12 +1328,22 @@ static int irInitCoversType(Ast *init, AstType *ty) {
     if (!astIsIntrinsicClass(ty) &&
         (ty->kind == AST_TYPE_CLASS || ty->kind == AST_TYPE_UNION))
     {
+        /* A union is set through its first member, which may be
+         * smaller than the union: clear it first. */
+        if (ty->kind == AST_TYPE_UNION) return 0;
         listForEach(init->arrayinit) {
             AstType *fld = astClassFieldAt(ty, n);
             if (!irInitCoversType((Ast *)it->value, fld)) return 0;
             n++;
         }
-        return astClassFieldAt(ty, n) == NULL;
+        if (astClassFieldAt(ty, n) != NULL) return 0;
+        /* Likewise for an anonymous union inside the class. */
+        MapIter mi;
+        mapIterInit(ty->fields, &mi);
+        while (mapIterNext(&mi)) {
+            if (((AstType *)mi.node->value)->init_skip) return 0;
+        }
+        return 1;
     }
     return 1;
 }

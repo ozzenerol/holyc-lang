@@ -1376,21 +1376,29 @@ int astSysvClassify(AstType *t, SysvClass *classes, int *n_eightbytes) {
     return 0;
 }
 
-/* Return the `idx`-th field's type in declaration order, or NULL if out
- * of range. Used to pair positional aggregate-initialiser items with the
- * field they target (so each gets the field's real type and offset). */
-AstType *astClassFieldAt(AstType *cls, int idx) {
+/* Return the field the `idx`-th positional aggregate-initialiser item
+ * targets, in declaration order, or NULL if out of range. Used to pair
+ * each item with its field (so it gets the field's real type and
+ * offset). A union takes one item, for its first member: the other
+ * members (init_skip, also when an anonymous union is flattened into a
+ * class) take none. */
+MapNode *astClassInitFieldAt(AstType *cls, int idx) {
     if (!cls || !cls->fields || !cls->fields->indexes || idx < 0) return NULL;
     Map *fields = cls->fields;
     int seen = 0;
     for (u64 i = 0; i < fields->indexes->size; ++i) {
         u64 fi = (u64)(uintptr_t)fields->indexes->entries[i];
         MapNode *node = &fields->entries[fi];
-        if (!node->value) continue;
-        if (seen == idx) return (AstType *)node->value;
+        if (!node->value || ((AstType *)node->value)->init_skip) continue;
+        if (seen == idx) return node;
         seen++;
     }
     return NULL;
+}
+
+AstType *astClassFieldAt(AstType *cls, int idx) {
+    MapNode *node = astClassInitFieldAt(cls, idx);
+    return node ? (AstType *)node->value : NULL;
 }
 
 /* Iterate a class/union's fields in declaration order (the fields Map
