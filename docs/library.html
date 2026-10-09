@@ -246,6 +246,24 @@ as the second argument to look only at that many bytes, or -1 for the whole stri
 [truncate]
 fixed
 </pre>
+<p><code>StrCleanEnd(s, chars)</code> removes any of the characters in <code>chars</code> from the end
+of <code>s</code>, in place, and returns <code>s</code>. Use it to drop the line ending from text you
+read, before comparing it. Pass a pointer as the third argument to get the new length.</p>
+<pre data-run><code>U0 Main()
+{
+  U8 buf[32];
+  StrCpy(buf, "exit\r\n");
+  I64 len;
+  StrCleanEnd(buf, "\r\n", &amp;len);
+  "[%s] %d %d\n", buf, len, StrCmp(buf, "exit") == 0;
+
+  StrCpy(buf, "Hello!!!...");
+  "[%s]\n", StrCleanEnd(buf, ".!");
+}
+</code></pre>
+<pre class="output">[exit] 4 1
+[Hello]
+</pre>
 
 <h3>Splitting paths and names</h3>
 <p>These follow TempleOS. <code>StrFirstRem(s, markers, dst)</code> moves the part before
