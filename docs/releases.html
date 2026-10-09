@@ -36,6 +36,40 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.3.0 <small>(2026-10-09)</small></h2>
+<p>A wrong-code fix in the optimiser, library functions you can redefine, new warnings for
+mistakes hcc used to accept silently, and three fewer ways to crash the compiler. Every fix
+has a regression test that runs both compiled and in the JIT.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>Conflicting declarations of a function are an error ("conflicting types"), also against
+  the standard library's prototypes. Programs that declared a library function with a different
+  signature used to compile and now don't.</li>
+  <li>New warnings: a number with a leading zero (<code>0644</code> is decimal 644, not octal), a pointer
+  converted to one of a different scalar type (<code>I64 *q = &amp;f</code> with <code>F64 f</code>), and a pointer
+  difference stored back into a pointer (<code>q -= q</code>). <code>-Werror</code> makes them errors.</li>
+  <li>Redefining a library function (your own <code>Now()</code>) works in compiled programs too; it used
+  to fail to link. Library functions are now weak symbols in libtos.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Copying a pointer and then reassigning the original no longer changes the copy
+  (<code>I64 *z = v; v = &amp;x;</code> made <code>*z</code> read <code>x</code>, or crash once <code>v</code> was NULL).</li>
+  <li>A <code>U0 *</code> compares with a function pointer using <code>==</code> and <code>!=</code>.</li>
+  <li>No more crashes on <code>I64 a[;</code> or on <code>*</code> applied to something that isn't a pointer
+  (<code>1 +* 2</code>); both are normal errors.</li>
+  <li>A stray <code>;</code> at the top level (<code>I64 x = 1;;</code>) is accepted instead of swallowing the
+  next declaration; in the REPL it also no longer breaks later results.</li>
+  <li>The C transpiler writes classes and unions after the types they contain and turns
+  <code>F32</code> into <code>float</code>.</li>
+  <li>The standard library's own prototypes now match their definitions (<code>ListDeque</code>,
+  <code>ListPop</code>, <code>StrMapSet</code>, <code>FzFGetScore</code>).</li>
+  <li>The LSP tests take seconds instead of over a minute.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.2.0 <small>(2026-10-09)</small></h2>
 <p>Networking and parser fixes: sockets now work the same on Linux and macOS, and five
 more compiler bugs are gone, each with a regression test.</p>
