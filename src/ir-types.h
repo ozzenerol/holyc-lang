@@ -420,6 +420,7 @@ typedef struct IrLoopCtx {
     IrBlock *continue_block;  /* target of `continue` */
     IrBlock *break_block;     /* target of `break` */
     u16 try_depth;            /* try bodies open when the loop started */
+    u16 continue_try_depth;   /* try bodies open at the continue target */
 } IrLoopCtx;
 
 /* The try bodies enclosing a label, outermost first. */

@@ -37,7 +37,20 @@ static void irPushLoopCtx(IrCtx *ctx,
     ctx->loop_stack[ctx->loop_depth].continue_block = continue_blk;
     ctx->loop_stack[ctx->loop_depth].break_block = break_blk;
     ctx->loop_stack[ctx->loop_depth].try_depth = ctx->try_depth;
+    ctx->loop_stack[ctx->loop_depth].continue_try_depth = ctx->try_depth;
     ctx->loop_depth++;
+}
+
+/* A switch is only a break target: `continue` inside it goes to the
+ * enclosing loop, if there is one. */
+static void irPushSwitchCtx(IrCtx *ctx, IrBlock *break_blk) {
+    IrLoopCtx *outer = ctx->loop_depth
+        ? &ctx->loop_stack[ctx->loop_depth - 1] : NULL;
+    irPushLoopCtx(ctx, outer ? outer->continue_block : NULL, break_blk);
+    if (outer) {
+        ctx->loop_stack[ctx->loop_depth - 1].continue_try_depth =
+            outer->continue_try_depth;
+    }
 }
 
 static void irPopLoopCtx(IrCtx *ctx) {
@@ -2625,7 +2638,7 @@ void irLowerSwitch(IrCtx *ctx, Ast *ast) {
         }
     }
 
-    irPushLoopCtx(ctx, NULL, end_block);
+    irPushSwitchCtx(ctx, end_block);
 
     /* Test chain. */
     for (int i = 0; i < n; i++) {
@@ -2819,8 +2832,10 @@ void irLowerAst(IrCtx *ctx, Ast *ast) {
 
         case AST_CONTINUE: {
             IrLoopCtx *lc = irCurLoopCtx(ctx);
-            if (!lc) loggerPanic("continue outside a loop\n");
-            irLeaveTries(ctx, lc->try_depth);
+            if (!lc || !lc->continue_block) {
+                loggerPanic("continue outside a loop\n");
+            }
+            irLeaveTries(ctx, lc->continue_try_depth);
             IrInstr *j = irJump(ctx->cur_func, ctx->cur_block, lc->continue_block);
             irBlockAddInstr(ctx, j);
             break;
