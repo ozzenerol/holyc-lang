@@ -2035,6 +2035,11 @@ public U0 SqlRowRelease(SqlRow *row);
 #define SO_OOBINLINE    10              /* Leave out-of-band data inline */
 #define SO_REUSEPORT    15              /* Allow reuse of local ports */
 #define SO_TIMESTAMP    29              /* Timestamp incoming datagrams */
+#define SO_SNDBUF       7               /* Send buffer size */
+#define SO_RCVBUF       8               /* Receive buffer size */
+#define SO_ERROR        4               /* Get and clear the pending error */
+#define SO_RCVTIMEO     20              /* Read timeout (a timeval) */
+#define SO_SNDTIMEO     21              /* Write timeout (a timeval) */
 #else
 #define SO_DEBUG        0x0001          /* Enable debugging information */
 #define SO_ACCEPTCONN   0x0002          /* Socket has had listen() applied */
@@ -2047,6 +2052,11 @@ public U0 SqlRowRelease(SqlRow *row);
 #define SO_REUSEPORT    0x0200          /* Allow reuse of local ports */
 #define SO_TIMESTAMP    0x0400          /* Timestamp incoming datagrams */
 #define SO_TIMESTAMP_MONOTONIC  0x0800  /* Use monotonic timestamps for datagrams */
+#define SO_SNDBUF       0x1001          /* Send buffer size */
+#define SO_RCVBUF       0x1002          /* Receive buffer size */
+#define SO_ERROR        0x1007          /* Get and clear the pending error */
+#define SO_RCVTIMEO     0x1006          /* Read timeout (a timeval) */
+#define SO_SNDTIMEO     0x1005          /* Write timeout (a timeval) */
 #endif
 
 /* Protocols */
@@ -2058,6 +2068,13 @@ public U0 SqlRowRelease(SqlRow *row);
 #define IPPROTO_IPV6            41              /* IPv6 protocol */
 #define IPPROTO_ICMPV6          58              /* ICMP for IPv6 */
 #define IPPROTO_RAW             255             /* Raw IP packets */
+
+/* IPPROTO_IPV6 level option: an AF_INET6 socket takes IPv6 only, no IPv4 */
+#ifdef IS_LINUX
+#define IPV6_V6ONLY             26
+#else
+#define IPV6_V6ONLY             27
+#endif
 
 /* TCP options */
 #ifdef IS_LINUX
@@ -2460,6 +2477,33 @@ public Bool NetGetIpv4AddressFromAcceptedSocket(I32 sockfd, U8 *ipbuf, I32 outle
 public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog);
 /* Connect to the unix domain socket file `name`; the socket or -1. */
 public I32 NetCreateUnixClientSocket(U8 *name);
+/* A UDP socket bound to `port` (0 lets the kernel pick one: read it with
+ * NetGetSocketPort) at `bindaddr`, which follows NetCreateServer's rules:
+ * a numeric IPv4 or IPv6 address, "*" or NULL for any address of addrfam
+ * (IPv4 for AF_UNSPEC), "::*" for any IPv6 address. Returns the socket, or
+ * -1 on failure (bad port, family or address, port in use). */
+public I32 NetCreateUdpSocket(I32 port, U8 *bindaddr, I32 addrfam=AF_UNSPEC,
+    Bool non_blocking=FALSE);
+/* Send `len` bytes of buf as one datagram to `addr` (a host name, or an
+ * IPv4 or IPv6 address) on `port`. The address must be of the socket's
+ * family: an IPv4 socket can't send to "::1". Returns the bytes sent, or
+ * -1 (bad port, address that doesn't resolve, send error); like NetSend
+ * it never raises SIGPIPE. */
+public I64 NetSendTo(I32 sockfd, U0 *buf, I64 len, U8 *addr, I32 port);
+/* Receive one datagram into buf of `len` bytes; the rest of a longer one
+ * is dropped. The sender's address goes as text into from_addr of
+ * from_size bytes (INET6_ADDRSTRLEN is enough for any) and its port into
+ * *from_port; either may be NULL. Reply to the sender with
+ * NetSendTo(sockfd, ..., from_addr, from_port). Returns the bytes
+ * received, or -1: on a timeout (NetSetRecvTimeout) or when a non-blocking
+ * socket has nothing to read Errno() is EAGAIN, on a signal EINTR. */
+public I64 NetRecvFrom(I32 sockfd, U0 *buf, I64 len, U8 *from_addr=NULL,
+    I64 from_size=0, I32 *from_port=NULL);
+/* Make reads on sockfd (recv, read, NetRecvFrom) give up after `ms`
+ * milliseconds and return -1; 0 waits forever again. TRUE on success. */
+public Bool NetSetRecvTimeout(I32 sockfd, I64 ms);
+/* The local port sockfd is bound to (IPv4 or IPv6), or -1. */
+public I32 NetGetSocketPort(I32 sockfd);
 
 
 class RBNode;
