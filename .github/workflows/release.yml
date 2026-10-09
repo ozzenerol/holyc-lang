@@ -29,28 +29,15 @@ jobs:
             os_name: linux
             arch: x86_64
             triple: x86_64-unknown-linux-gnu
-            cross: false
           - runner: ubuntu-22.04-arm
             os_name: linux
             arch: aarch64
             triple: aarch64-unknown-linux-gnu
-            cross: false
           - runner: macos-15
             os_name: macos
             arch: aarch64
             triple: aarch64-apple-darwin
-            cross: false
-          # No Intel macOS runners remain, so this leg cross-builds on
-          # Apple Silicon. The macOS SDK is universal, so `-arch x86_64`
-          # covers both the C sources and the libtos assembly; hcc picks
-          # its backend at runtime from --target, so one native binary
-          # can emit x86_64 Mach-O asm. Nothing here is executable on
-          # the runner, so the smoke test is skipped.
-          - runner: macos-15
-            os_name: macos
-            arch: x86_64
-            triple: x86_64-apple-darwin
-            cross: true
+          # macOS on Intel is not a supported target.
 
     steps:
       - uses: actions/checkout@v4
@@ -82,26 +69,12 @@ jobs:
           make C_COMPILER=cc BUILD_TYPE=Release INSTALL_PREFIX=/usr/local
           cp ./hcc ./hcc-native
 
-      # For the cross leg the shipped binary is a second, x86_64 build.
-      # CMAKE_RUNTIME_OUTPUT_DIRECTORY writes to the repo root, so this
-      # overwrites ./hcc - hence the ./hcc-native copy above.
-      - name: Build hcc for target
-        if: matrix.cross
-        run: |
-          cmake -S ./src -B ./build-x86_64 -G 'Unix Makefiles' \
-            -DCMAKE_C_COMPILER=cc \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-            -DHCC_ENABLE_JIT=on
-          make -C ./build-x86_64 -j3
-
       # Deliberately NOT `hcc -lib tos`: hccLibInit picks the library
       # naming and link commands from a build-time `#if IS_BSD` /
       # `#elif IS_LINUX`, i.e. from the host rather than from
       # cc->target, so it cannot produce a cross-target library. These
       # explicit steps are what hccLibInit runs, with the target chosen
-      # from the triple, and they are identical for native and cross.
+      # from the triple.
       - name: Build libtos
         env:
           PKG: ${{ steps.version.outputs.pkg }}
@@ -114,19 +87,13 @@ jobs:
           # the lexer resolves builtins from <install-dir>/include.
           cp ./src/holyc-lib/tos.HH "$stage/include/tos.HH"
 
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            archflag="-arch x86_64"
-          else
-            archflag=""
-          fi
-
           (cd ./src/holyc-lib && \
             "$GITHUB_WORKSPACE/hcc-native" \
               --target=${{ matrix.triple }} \
               --install-dir="$stage" \
               -fPIC -S -o "$GITHUB_WORKSPACE/tos.s" ./all.HC)
 
-          cc $archflag -fPIC -c ./tos.s -o ./tos.o
+          cc -fPIC -c ./tos.s -o ./tos.o
 
           # One -fPIC object feeds both the archive and the shared
           # library, exactly as the source build does.
@@ -140,7 +107,7 @@ jobs:
             cc -fPIC -shared -Wl,-Bsymbolic -Wl,-soname,libtos.so.0.0.1 \
               ./tos.o -o "$stage/lib/libtos.so.0.0.1" -lpthread -lc -lm
           else
-            cc $archflag -dynamiclib \
+            cc -dynamiclib \
               -install_name @rpath/libtos.0.0.1.dylib \
               ./tos.o -o "$stage/lib/libtos.0.0.1.dylib" -lpthread -lc -lm
           fi
@@ -161,7 +128,6 @@ jobs:
       # matters most here: a libtos laid out under a name the linker
       # or jitLoadLibtos does not probe for.
       - name: Smoke test
-        if: '!matrix.cross'
         env:
           PKG: ${{ steps.version.outputs.pkg }}
         run: |
