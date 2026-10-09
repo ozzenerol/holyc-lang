@@ -2207,7 +2207,8 @@ void irLowerIf(IrCtx *ctx, Ast *ast) {
 }
 
 void irLowerForLoop(IrCtx *ctx, Ast *ast) {
-    if (!ast->forbody) return;
+    /* An empty body (`for (i = 0; i < n; i++) ;`) still runs the init,
+     * condition and step: returning here dropped the whole loop */
     if (ast->forinit)
         irLowerAst(ctx, ast->forinit);
     if (ctx->cur_block->sealed) return;
