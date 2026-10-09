@@ -3,18 +3,17 @@
 #define RM_FORCE    0x4
 #define INTERNAL_RM_DIRECORY 0x6
 
+/* 0 if `path` is a directory afterwards (made now or already there) */
 static I32 MkDirIfNotExist(U8 *path, I32 mode=MKDIR_DEFAULT)
 {
   cStat st;
-  if (stat(path, &st) != 0) {
-    if (mkdir(path, mode) != 0) {
-      /* Means it already exists */
-      return 0;
-    }
-  } else if (!((st.st_mode & S_IFMT) == S_IFDIR)) {
-    return -1;
+  if (mkdir(path, mode) == 0) {
+    return 0;
   }
-  return 0;
+  if (stat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR) {
+    return 0;
+  }
+  return -1;
 }
 
 public I32 RmDir(U8 *path, Bool flags=0)
@@ -131,13 +130,14 @@ public I32 Rm(U8 *path, Bool flags=0)
   return 0;
 }
 
-public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
-{ /* Make a directory, by default does not recurse folder permissions are: 
-   * drwxr-xr-x */
+public I32 MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
+{ /* Make a directory, by default does not recurse. The mode is
+   * MKDIR_DEFAULT minus the umask. Returns 0 if path is a directory
+   * afterwards, -1 if not */
   Bool relative = TRUE;
   U8 *ptr,tmp[DIR_MAXPATHLEN];
   I64 i;
-  if (path == NULL) return -1;
+  if (path == NULL || *path == '\0') return -1;
   if (path[0] == '/') {
     relative = FALSE;
   }
@@ -155,15 +155,15 @@ public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE)
       if (i > 1 && *ptr == '/') {
         tmp[i] = '\0';
         if (MkDirIfNotExist(tmp,mode) != 0) {
-          return FALSE;
+          return -1;
         } 
       }
       ptr++;
     }
     if (*ptr == '\0' && *(ptr -1) != '/') {
       tmp[i] = '\0';
-      MkDirIfNotExist(tmp,mode);
+      return MkDirIfNotExist(tmp,mode);
     }
   }
-  return TRUE;
+  return 0;
 }
