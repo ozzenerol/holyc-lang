@@ -821,6 +821,8 @@ public class HCFs
 {
   CatchFrame *catch_top;
   U64 except_ch;
+  U0 *coro_cur;   /* coroutines.HC: running coroutine, NULL outside any */
+  U0 *coro_root;  /* coroutines.HC: save slot for the thread's own stack */
 };
 /* The calling thread's exception state (named after the TempleOS task
  * pointer). A function, so `Fs->except_ch` calls it: each thread has
@@ -839,6 +841,50 @@ public U0 HCC_TryLeave(CatchFrame *f);
  * innermost try of the calling thread. With no try it reports v and
  * exits the process with 1, from any thread. */
 public U0 HCC_Throw(U64 v);
+
+/* Coroutines (coroutines.HC): each runs a function on its own stack and
+ * pauses with CoroutineYield. Fields are private: use the functions. */
+public class Coroutine;
+public class Coroutine
+{
+  U0 *sp;
+  U0 *stack_base;
+  I64 stack_len;
+  Coroutine *resumer;
+  U0 *(*fn)(U0 *arg);
+  U0 *arg;
+  CatchFrame *catch_top;
+  U64 except_ch;
+  U64 thrown;
+  I64 status;
+  Bool failed;
+  Bool is_root;
+};
+/* A new coroutine that will run fn(arg) on its own stack of stack_size
+ * bytes (0 = 256 KiB; rounded up to whole pages, at least 4) above an
+ * inaccessible guard page, so an overflow crashes instead of writing
+ * over other memory. Nothing runs until the first CoroutineNext. NULL if
+ * the stack can't be mapped. */
+public Coroutine *CoroutineNew(U0 *(*fn)(U0 *arg), U0 *arg=NULL,
+                               I64 stack_size=0);
+/* Run c until it yields or returns. Returns the value it yielded or,
+ * once its function has returned (CoroutineDone(c) is then TRUE), the
+ * function's return value; NULL if c was already done. `send` becomes
+ * the return value of the CoroutineYield c is paused in (the first
+ * CoroutineNext ignores it). A throw that leaves c's function goes on
+ * from here. Resuming a running coroutine exits with a message. */
+public U0 *CoroutineNext(Coroutine *c, U0 *send=NULL);
+/* Inside a coroutine: pause and hand value to the CoroutineNext that
+ * resumed it; returns the `send` of the CoroutineNext that resumes it
+ * again. Outside a coroutine it exits with a message. */
+public U0 *CoroutineYield(U0 *value=NULL);
+/* TRUE once c's function has returned or thrown (also for NULL). */
+public Bool CoroutineDone(Coroutine *c);
+/* The running coroutine, NULL on a thread's own stack. */
+public Coroutine *CoroutineSelf();
+/* Free c and its stack (NULL is ignored). A coroutine paused in
+ * CoroutineYield is dropped where it is; c must not be running. */
+public U0 CoroutineRelease(Coroutine *c);
 
 #define M_E         2.71828182845904523536028747135266250   /* e              */
 #define M_LOG2E     1.44269504088896340735992468100189214   /* log2(e)        */

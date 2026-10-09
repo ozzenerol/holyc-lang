@@ -1343,6 +1343,63 @@ have each platform's values. <code>poll(fds, n, timeout_ms)</code> waits on an a
 close(-1): EBADF
 </pre>
 
+<h2 id="coroutines">Coroutines</h2>
+<p>A coroutine runs a function on its own stack and can pause in the middle.
+<code>CoroutineNew(&amp;Fn, arg)</code> makes one (nothing runs yet; NULL if its stack can't be
+mapped), <code>CoroutineNext(c)</code> runs it until it calls <code>CoroutineYield(value)</code>
+and returns that value, and the next <code>CoroutineNext</code> carries on after the yield.
+When the function returns, <code>CoroutineDone(c)</code> becomes TRUE and that last
+<code>CoroutineNext</code> returns the function's return value; after that it returns NULL. A yielded
+NULL is a value like any other, so loops test <code>CoroutineDone</code>. Values also go the other
+way: <code>CoroutineNext(c, send)</code> makes the paused <code>CoroutineYield</code> return
+<code>send</code> (the first <code>CoroutineNext</code> just starts the function with its arg).
+<code>CoroutineRelease(c)</code> frees it, also while it is paused.</p>
+<p>The function is <code>U0 *Fn(U0 *arg)</code>. Coroutines can resume other coroutines
+(<code>CoroutineSelf()</code> is the running one, NULL outside), every thread can have its own,
+and a <code>try</code> may span a yield. A throw that leaves the coroutine's function goes on from the
+<code>CoroutineNext</code> that resumed it. Each stack is 256 KiB unless <code>CoroutineNew</code>'s
+third argument says otherwise, with a guard page below it: running past it crashes the program
+instead of overwriting memory. <code>CoroutineYield</code> outside a coroutine, or resuming one that is
+running, prints a message and exits with 1.</p>
+<pre data-run><code>U0 *Fib(U0 *max)
+{
+  I64 a = 0, b = 1, t;
+  while (a &lt; max(I64)) {
+    CoroutineYield(a(U0 *));
+    t = a + b;
+    a = b;
+    b = t;
+  }
+  return NULL;
+}
+
+U0 *Sum(U0 *unused)
+{// a running total of whatever CoroutineNext sends
+  I64 total = 0;
+  while (TRUE) total += CoroutineYield(total(U0 *))(I64);
+  return NULL;
+}
+
+U0 Main()
+{
+  Coroutine *f = CoroutineNew(&amp;Fib, 50(U0 *));
+  for (U0 *v = CoroutineNext(f); !CoroutineDone(f); v = CoroutineNext(f))
+    "%d ", v;
+  "\n";
+  CoroutineRelease(f);
+
+  Coroutine *s = CoroutineNew(&amp;Sum);
+  CoroutineNext(s);                 // runs to the first yield
+  "%d\n", CoroutineNext(s, 5(U0 *));
+  "%d\n", CoroutineNext(s, 7(U0 *));
+  CoroutineRelease(s);
+}
+</code></pre>
+<pre class="output">0 1 1 2 3 5 8 13 21 34 
+5
+12
+</pre>
+
 <h2 id="fzf">Fuzzy matching</h2>
 <p><code>FzF(text, pattern)</code> matches text the way the fzf tool does and returns the
 score and the matched byte offsets, or NULL when it doesn't match. Terms separated by
