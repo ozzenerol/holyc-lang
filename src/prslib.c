@@ -1144,10 +1144,10 @@ static Ast *parseIdentifierOrFunction(Cctrl *cc,
     if (!is_lparen) {
         cctrlTokenRewind(cc);
         if (can_call_function) {
-            /* Function calls with no arguments are 'Function;' */
-            if ((tokenPunctIs(tok,';') || tokenPunctIs(tok,',') ||
-                tokenPunctIs(tok,')'))
-                    && parseIsFunction(ast)) {
+            /* A function name without `(` is a call with no arguments
+             * ('Function;', 'Function + 1'); only `&Function` takes its
+             * address. */
+            if (parseIsFunction(ast)) {
                 Vec *argv = astVecNew();
                 parseFunctionArgumentCheck(cc,ast,argv,ast->fname->data,ast->fname->len);
                 parseFlattenDefaultArgs(ast, argv);

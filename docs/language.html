@@ -430,7 +430,8 @@ U0 Main()
 </pre>
 
 <h3>Calling without parentheses</h3>
-<p>A function that needs no arguments can be called by name alone, TempleOS style:</p>
+<p>A function that needs no arguments can be called by name alone, TempleOS style, anywhere
+in an expression. Use <code>&amp;Name</code> for the function's address:</p>
 <pre data-run><code>U0 Greet()
 {
   "hi\n";
@@ -445,10 +446,12 @@ U0 Main()
 {
   Greet;
   "%d\n", Answer;
+  "%d\n", Answer + 1;
 }
 </code></pre>
 <pre class="output">hi
 42
+43
 </pre>
 
 <h3>Variable arguments</h3>
