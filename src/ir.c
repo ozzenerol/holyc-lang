@@ -1232,8 +1232,8 @@ static IrValue *irLowerAssign(IrCtx *ctx, Ast *ast) {
 
     /* float<->int assignment needs a real conversion (sitofp/fptosi). */
     if (tgt.type && ast->right->type &&
-        ((astIsFloatType(ast->right->type) && astIsIntType(tgt.type)) ||
-         (astIsIntType(ast->right->type) && astIsFloatType(tgt.type))))
+        ((astIsFloatType(ast->right->type) && astIsIntOrIntrinsic(tgt.type)) ||
+         (astIsIntOrIntrinsic(ast->right->type) && astIsFloatType(tgt.type))))
     {
         new_val = irLowerCast(ctx, new_val, ast->right->type, tgt.type);
     }
@@ -1985,8 +1985,8 @@ void irLowerReturn(IrCtx *ctx, Ast *ast) {
              * real conversion (sitofp/fptosi) like an assignment does,
              * not a raw bit copy into the return slot. */
             if (ast->type && ast->retval->type &&
-                ((astIsFloatType(ast->retval->type) && astIsIntType(ast->type)) ||
-                 (astIsIntType(ast->retval->type) && astIsFloatType(ast->type))))
+                ((astIsFloatType(ast->retval->type) && astIsIntOrIntrinsic(ast->type)) ||
+                 (astIsIntOrIntrinsic(ast->retval->type) && astIsFloatType(ast->type))))
             {
                 val = irLowerCast(ctx, val, ast->retval->type, ast->type);
             }
@@ -2405,8 +2405,8 @@ void irLowerDecl(IrCtx *ctx, Ast *ast) {
                      * float return assigned to an int (or vice versa)
                      * needs a real fcvt, not a raw register spill. Same
                      * chain as the scalar `default` initialiser path. */
-                    if ((astIsFloatType(init->type) && astIsIntType(var->type)) ||
-                        (astIsIntType(init->type) && astIsFloatType(var->type)))
+                    if ((astIsFloatType(init->type) && astIsIntOrIntrinsic(var->type)) ||
+                        (astIsIntOrIntrinsic(init->type) && astIsFloatType(var->type)))
                     {
                         ret = irLowerCast(ctx, ret, init->type, var->type);
                     }
@@ -2453,8 +2453,8 @@ void irLowerDecl(IrCtx *ctx, Ast *ast) {
                 ir_init = irExpr(ctx, init);
                 /* float<->int initialiser (`I64 j = f32v;`) needs a real
                  * conversion (sitofp/fptosi), not a raw bit copy. */
-                if ((astIsFloatType(init->type) && astIsIntType(var->type)) ||
-                    (astIsIntType(init->type) && astIsFloatType(var->type)))
+                if ((astIsFloatType(init->type) && astIsIntOrIntrinsic(var->type)) ||
+                    (astIsIntOrIntrinsic(init->type) && astIsFloatType(var->type)))
                 {
                     ir_init = irLowerCast(ctx, ir_init, init->type, var->type);
                 }

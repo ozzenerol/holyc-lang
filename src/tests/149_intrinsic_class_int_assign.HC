@@ -117,8 +117,8 @@ I32 Main()
   /* A real class still can't become an integer... */
   if (Contains(out, "warning: Incompatible types 'P' is not assignable to type 'I64'")) correct++;
   if (Contains(out, "I64 z = p;")) correct++;
-  /* Nor an intrinsic class a float (it would read back as 0.0). */
-  if (Contains(out, "'CDate' is not assignable to type 'F64'")) correct++;
+  /* An intrinsic class converts to a float like an integer, silently. */
+  if (Lacks(out, "'CDate' is not assignable to type 'F64'")) correct++;
   /* ...and the warning is on the line with the `=`, from the `=`. */
   if (Contains(out, "Incompatible types 'P *' is not assignable to type 'U8 *'")) correct++;
   if (Contains(out, "y = 2; s =\n") && Lacks(out, "Mk(4, 5, 6);\n")) correct++;

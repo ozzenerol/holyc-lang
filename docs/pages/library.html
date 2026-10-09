@@ -415,7 +415,8 @@ elapsed ms is never negative: 1
 <code>day_of_week</code> (0 is Sunday). <code>MPrintDate</code> and
 <code>MPrintTime</code> return new strings as <code>MM/DD/YYYY</code> and
 <code>HH:MM:SS</code>. A <code>CDate</code> is an <code>I64 class</code>, an integer
-underneath, so <code>CDate d = 5;</code> and <code>I64 x = d;</code> need no cast.</p>
+underneath, so <code>CDate d = 5;</code> and <code>I64 x = d;</code> need no cast,
+and <code>F64 f = d;</code> converts it to a float like any integer.</p>
 
 <h2 id="maths">Maths</h2>
 <p>The C maths library is declared under its usual names (<code>sqrt</code>,

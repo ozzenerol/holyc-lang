@@ -1053,9 +1053,10 @@ start_routine:
                  * to F64 when mixed, matching C usual conversions). */
                 return astTypeCopy(ptr1->size >= ptr2->size ? ptr1 : ptr2);
             }
-            if (ptr2->kind == AST_TYPE_CHAR) {
-                /* float OP char (U8 / I8 / Bool) -> the float type, as
-                 * for float OP int (CHAR sorts after FLOAT). */
+            if (ptr2->kind == AST_TYPE_CHAR || astIsIntrinsicClass(ptr2)) {
+                /* float OP char (U8 / I8 / Bool) or intrinsic class
+                 * (`I64 class CDate`) -> the float type, as for float OP
+                 * int (both sort after FLOAT). */
                 return astTypeCopy(ptr1);
             }
             goto error;
@@ -1177,7 +1178,13 @@ check_type:
     } else if (astIsIntType(e) && astIsIntrinsicClass(a)) {
         /* An intrinsic class (`I64 class CDate`) is an integer underneath:
          * `I64 x = date;` is as fine as `CDate d = 5;` (below), as in
-         * TempleOS. Not into a float: no conversion is emitted for it. */
+         * TempleOS. */
+        ret = e;
+        goto out;
+    } else if ((astIsFloatType(e) && astIsIntrinsicClass(a)) ||
+               (astIsIntrinsicClass(e) && astIsFloatType(a))) {
+        /* ...and converts to and from a float like its base integer type
+         * does: the lowering inserts a sitofp / fptosi. */
         ret = e;
         goto out;
     } else if (e->kind == a->kind) {
@@ -1373,6 +1380,13 @@ int astIsIntType(AstType *type) {
         }
     }
     return 0;
+}
+
+/* An integer, or an intrinsic class (`I64 class CDate`), which is an
+ * integer of its base type underneath. For choosing an int<->float
+ * conversion. */
+int astIsIntOrIntrinsic(AstType *type) {
+    return astIsIntType(type) || astIsIntrinsicClass(type);
 }
 
 /* `U64`: the only integer type that makes arithmetic unsigned. Every integer
