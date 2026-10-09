@@ -11,9 +11,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>The warning for a value returned from a <code>U0</code> function misprints the expression</td>
-        <td><code>return g++;</code> is shown as <code>++g</code>; <code>return Twice(Twice(1));</code> as <code>Twice(Twice(1););</code></td>
-        <td>Read the line number in the warning</td></tr>
     <tr><td>A missing name after a comma is reported on the next line</td>
         <td><code>I64 a, ;</code> reports "Identifier expected: got TK_PUNCT ;" with the caret on the start of the following line</td>
         <td>Look at the end of the previous line</td></tr>
