@@ -1059,20 +1059,12 @@ void cctrlWarning(Cctrl *cc, char *fmt, ...) {
     }
 }
 
-/* Like cctrlWarning, but anchored at an explicit (line, col) instead of
- * the current token. Needed when the thing being warned about was parsed
- * earlier and the cursor has since moved on - e.g. a missing return is
- * only known after the whole function body is consumed, by which point
- * the next declaration is the "current" token. */
-void cctrlWarningAt(Cctrl *cc, s64 lineno, s64 col, s64 len, char *fmt, ...) {
-    va_list ap;
-    va_start(ap,fmt);
+static void cctrlDiagAtVa(Cctrl *cc, int severity, s64 lineno, s64 col,
+                          s64 len, char *fmt, va_list ap)
+{
     char *msg = mprintVa(fmt, ap, NULL);
-    va_end(ap);
     AoStr *bold_msg = aoStrNew();
     aoStrCatColoured(bold_msg, ESC_BOLD, msg);
-    int is_werror = cc->flags & (CCTRL_WERROR);
-    int severity = is_werror ? CCTRL_ERROR : CCTRL_WARN;
     AoStr *rendered = cctrlCreateErrorLineAt(cc, lineno, col, len,
                                              bold_msg->data, severity, NULL);
     aoStrRelease(bold_msg);
@@ -1090,6 +1082,28 @@ void cctrlWarningAt(Cctrl *cc, s64 lineno, s64 col, s64 len, char *fmt, ...) {
     if (severity == CCTRL_ERROR) {
         cctrlTerminate(cc);
     }
+}
+
+/* Like cctrlWarning, but anchored at an explicit (line, col) instead of
+ * the current token. Needed when the thing being warned about was parsed
+ * earlier and the cursor has since moved on - e.g. a missing return is
+ * only known after the whole function body is consumed, by which point
+ * the next declaration is the "current" token. */
+void cctrlWarningAt(Cctrl *cc, s64 lineno, s64 col, s64 len, char *fmt, ...) {
+    va_list ap;
+    va_start(ap,fmt);
+    int is_werror = cc->flags & (CCTRL_WERROR);
+    int severity = is_werror ? CCTRL_ERROR : CCTRL_WARN;
+    cctrlDiagAtVa(cc, severity, lineno, col, len, fmt, ap);
+    va_end(ap);
+}
+
+/* An error anchored at an explicit (line, col), see cctrlWarningAt. */
+void cctrlRaiseExceptionAt(Cctrl *cc, s64 lineno, s64 col, s64 len, char *fmt, ...) {
+    va_list ap;
+    va_start(ap,fmt);
+    cctrlDiagAtVa(cc, CCTRL_ERROR, lineno, col, len, fmt, ap);
+    va_end(ap);
 }
 
 CctrlDiagnostic *cctrlMakeDiag(Cctrl *cc,
