@@ -2105,12 +2105,18 @@ public class sockaddr_storage
  */
 public class msghdr
 {
-  U8    *msg_name;      /* Optional address */
-  I64   msg_namelen;    /* Size of the address */
+  U0    *msg_name;      /* Optional address */
+  U32   msg_namelen;    /* Size of the address (socklen_t) */
   iovec *msg_iov;       /* Scatter/gather array of buffers */
-  I32   msg_iovlen;     /* Number of elements in msg_iov */
+#ifdef IS_LINUX
+  U64   msg_iovlen;     /* Number of elements in msg_iov (size_t) */
   U0    *msg_control;   /* Ancillary data */
-  I64   msg_controllen; /* Length of ancillary data buffer */
+  U64   msg_controllen; /* Length of ancillary data buffer (size_t) */
+#else
+  I32   msg_iovlen;     /* Number of elements in msg_iov (int) */
+  U0    *msg_control;   /* Ancillary data */
+  U32   msg_controllen; /* Length of ancillary data buffer (socklen_t) */
+#endif
   I32   msg_flags;      /* Flags on received message */
 };
 

@@ -651,12 +651,18 @@ and the scope zone index for link-local addresses.</p></div><div class="decl" id
 ensuring sufficient storage and proper alignment. It&#x27;s used where a socket address
 structure&#x27;s size and family are known, but the exact type is not.</p></div><div class="decl" id="msghdr"><div class="decl-head"><a class="decl-name" href="#msghdr">msghdr</a> <span class="kind">class</span></div><pre><code class="language-holyc">class msghdr
 {
-  U8    *msg_name;
-  I64   msg_namelen;
+  U0    *msg_name;
+  U32   msg_namelen;
   iovec *msg_iov;
+#ifdef IS_LINUX
+  U64   msg_iovlen;
+  U0    *msg_control;
+  U64   msg_controllen;
+#else
   I32   msg_iovlen;
   U0    *msg_control;
-  I64   msg_controllen;
+  U32   msg_controllen;
+#endif
   I32   msg_flags;
 };</code></pre><p class="doc">The msghdr class is used with message-based socket operations (sendmsg, recvmsg).
 It includes an optional socket address, scatter/gather array, ancillary data,
