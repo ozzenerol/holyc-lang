@@ -36,6 +36,68 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.6.0 <small>(2026-10-09)</small></h2>
+<p>A standard-library release. Strings, hash tables, lists and vectors were audited with random
+tests against reference models, valgrind and worst-case inputs; every bug found is fixed, the
+missing basics are added and every function is documented. Plus four compiler fixes. Every fix
+has a regression test that runs both compiled and in the JIT, on Linux x86_64, Linux arm64 and
+macOS.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>Vector <code>Get</code> and the new <code>Set</code> check the index: out of range prints the
+  function, index and size and exits with status 1 (it returned whatever was in memory).</li>
+  <li><code>StrPrint</code> and friends accept C's flags (<code>-0+ #</code>), length modifiers
+  (<code>l ll h hh z j</code>, all 64-bit), <code>%i</code>, <code>%o</code> and integer precision
+  (<code>%.3d</code> is <code>007</code>); <code>%.*d</code> is a precision, as in C. An unsupported
+  conversion is printed as written, warns on stderr and still uses its argument; the compiler's
+  format check knows the HolyC conversions (<code>%Q %D %T %C %F</code>) and warns about unknown ones.</li>
+  <li><code>Str2CDateStruct</code> and <code>StrToCDate</code> reject empty, partial and out-of-range
+  input (they returned success with garbage fields); <code>%a</code>, <code>%b</code> and <code>%p</code>
+  work, and missing seconds are 0.</li>
+  <li><code>StrNCpy</code> copies at most <code>len</code> bytes and stops at the end of the string
+  (like <code>strndup</code>); <code>MPrintQ</code>/<code>%Q</code> escape control bytes as
+  <code>\xNN</code>; <code>StrHash</code> values changed (an empty string hashes to 0).</li>
+  <li>String functions, maps and lists accept NULL instead of crashing (NULL compares before every
+  string).</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li><code>StrNPrint(dst, size, fmt, ...)</code>: bounded formatting with <code>snprintf</code>
+  semantics.</li>
+  <li>Maps: an optional <code>Bool *_ok</code> on <code>IntMapGet</code>/<code>StrMapGet</code> to tell
+  a missing key from a stored 0, <code>IntMapClear</code> and <code>StrMapClear</code>.</li>
+  <li>Lists: <code>ListClear</code>, <code>ListRemove</code>, <code>ListFirst</code>,
+  <code>ListLast</code>. Vectors: <code>IntVecSet</code>/<code>FloatVecSet</code>/<code>PtrVecSet</code>
+  and <code>...VecLast</code>; the <code>ok</code> flag of <code>Pop</code> is optional.</li>
+  <li><code>strncasecmp</code> and <code>atol</code> are declared for programs.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Strings: a trailing <code>%</code> read past the format; an unsupported conversion shifted the
+  later arguments (and could crash); <code>StrTrimEnd</code> wrote before an empty or blank string;
+  <code>CatLenPrint</code> leaked and overflowed by one byte; <code>WildMatch</code> got simple globs
+  wrong; <code>SPutChar</code> and <code>StrNCpy</code> memory errors. <code>StrLen</code> is about 5x
+  faster and <code>StrPrint</code> output grows 2x instead of 10x.</li>
+  <li>Hash tables: <code>""</code> as a key, <code>StrMapGetLen</code>/<code>HasLen</code> on part of a
+  string, integer keys sharing their low bits (quadratic), similar string keys clustering,
+  <code>IntMapNew(-1)</code> corrupting the heap, a key that is also its value freed twice.</li>
+  <li>Lists and vectors: <code>IntVecNew(0)</code> and <code>FloatVecNew(0)</code> overflowed on the
+  first pushes, <code>PtrVecNew</code> ignored its size, <code>FloatVecSort</code> did nothing,
+  sorting sorted or repeated data was quadratic and crashed at 100,000 elements, merging an empty list
+  linked freed memory into the other.</li>
+  <li>JSON: <code>JsonRelease</code> and parse errors leaked.</li>
+  <li>Compiler: a narrow (<code>I32</code>, <code>U16</code>, ...) call result used directly in an
+  expression wasn't extended (<code>strcmp("a", "b") &lt; 0</code> was false); <code>&amp;labs</code>
+  and other external function addresses failed to link; a lone <code>;</code> ended a function body;
+  an error in an <code>if</code> condition gave a second, bogus error on its <code>else</code>;
+  <code>sizeof()</code> crashed; <code>if ()</code>, <code>switch ()</code> and <code>while ()</code>
+  are errors; the transpiler keeps strings pasted with macros.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.5.0 <small>(2026-10-09)</small></h2>
 <p>The C transpiler checks programs before translating them, and the last v0.4.0 known issues
 are fixed. Every fix has a regression test that runs both compiled and in the JIT, on Linux
