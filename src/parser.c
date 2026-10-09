@@ -2917,6 +2917,13 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             return NULL;
         }
 
+        /* An empty declaration: a stray `;` as in `I64 x = 1;;` or
+         * `U0 F() {};`. Skip it, it would be taken for the type of the
+         * next declaration and swallow it. */
+        if (tokenPunctIs(tok, ';') && !cc->tmp_gvar_base_type) {
+            continue;
+        }
+
         if (cc->tmp_gvar_base_type) {
             /* Next declarator of `T a, b;` - the base type carries
              * over, any `*`s belong to this declarator alone. */
