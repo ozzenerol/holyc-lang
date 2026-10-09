@@ -733,6 +733,37 @@ public I64 System(U8 *command);
 /* write(2) len bytes of buf to fd: the number written, or -1. */
 public I64 Write(I64 fd, U8 *buf, I64 len);
 
+/* errno values (the ones networking code checks most); they differ
+ * between Linux and macOS, so compare Errno() with these names. */
+#define EINTR           4               /* Interrupted by a signal: retry */
+#define EBADF           9               /* Bad file descriptor */
+#define EINVAL          22              /* Invalid argument */
+#define EPIPE           32              /* Write to a closed pipe or socket */
+#ifdef IS_LINUX
+#define EAGAIN          11              /* Would block: try again later */
+#define EADDRINUSE      98              /* Address (port) already in use */
+#define ECONNRESET      104             /* Connection reset by the peer */
+#define ETIMEDOUT       110             /* Timed out */
+#define ECONNREFUSED    111             /* Connection refused */
+#define EINPROGRESS     115             /* Non-blocking connect started */
+#else
+#define EAGAIN          35              /* Would block: try again later */
+#define EINPROGRESS     36              /* Non-blocking connect started */
+#define EADDRINUSE      48              /* Address (port) already in use */
+#define ECONNRESET      54              /* Connection reset by the peer */
+#define ETIMEDOUT       60              /* Timed out */
+#define ECONNREFUSED    61              /* Connection refused */
+#endif
+#define EWOULDBLOCK     EAGAIN          /* Same value on Linux and macOS */
+
+/* The calling thread's C errno: the reason the last failing libc call
+ * (socket, connect, read, ...) gave, to compare with the E* names above.
+ * Only meaningful right after a call that returned its error value. */
+public I32 Errno();
+/* Set the calling thread's C errno, e.g. to 0 before a call that only
+ * reports errors through errno. */
+public U0 SetErrno(I32 err);
+
 /* Call the shell with `printf`-like formatting. fmt is always formatted,
  * also without arguments, so write %% for a literal %. Returns what
  * System returns: the exit code (0-255), or -1 if the command was killed
@@ -1964,11 +1995,15 @@ public U0 SqlRowRelease(SqlRow *row);
 #define MSG_TRUNC       0x20            /* recvmsg: datagram was longer than the buffer */
 #define MSG_EOR         0x80            /* End of record */
 #define MSG_WAITALL     0x100           /* Wait for the full request */
+#define MSG_DONTWAIT    0x40            /* This call only: don't block */
+#define MSG_NOSIGNAL    0x4000          /* No SIGPIPE on a closed peer: EPIPE */
 #else
 #define MSG_CTRUNC      0x20            /* recvmsg: control data was cut short */
 #define MSG_TRUNC       0x10            /* recvmsg: datagram was longer than the buffer */
 #define MSG_EOR         0x8             /* End of record */
 #define MSG_WAITALL     0x40            /* Wait for the full request */
+#define MSG_DONTWAIT    0x80            /* This call only: don't block */
+#define MSG_NOSIGNAL    0x80000         /* No SIGPIPE on a closed peer: EPIPE */
 #endif
 
 /*
@@ -2324,7 +2359,37 @@ public extern "c" I64 sendmsg(I32 socket, msghdr *message, I32 flags);
 public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U32 dest_len);
 
 /* Writing to a socket whose peer has closed raises SIGPIPE, which kills the
- * process: there is no way yet to ignore it or to pass MSG_NOSIGNAL. */
+ * process: pass MSG_NOSIGNAL to send/sendto/sendmsg to get -1 with Errno()
+ * EPIPE instead. */
+
+/* shutdown(2) `how` */
+#define SHUT_RD         0               /* No more receives */
+#define SHUT_WR         1               /* No more sends (the peer reads EOF) */
+#define SHUT_RDWR       2               /* Both */
+
+/* Byte order of ports (Htons/Ntohs) and IPv4 addresses (Htonl/Ntohl):
+ * host to network (big endian) and back. */
+public U16 Htons(U16 x);
+public U16 Ntohs(U16 x);
+public U32 Htonl(U32 x);
+public U32 Ntohl(U32 x);
+
+/* poll(2): wait until one of nfds descriptors in fds is ready, at most
+ * timeout milliseconds (-1: no limit, 0: just check). Returns how many
+ * have revents set, 0 on timeout, -1 on error (Errno() EINTR: retry). */
+public class pollfd
+{
+  I32 fd;      /* Descriptor to watch; a negative fd is skipped */
+  I16 events;  /* POLL* events wanted */
+  I16 revents; /* POLL* events that happened, set by poll */
+};
+#define POLLIN          0x1             /* Data to read (or a connection to accept) */
+#define POLLPRI         0x2             /* Urgent data to read */
+#define POLLOUT         0x4             /* Writing won't block */
+#define POLLERR         0x8             /* Error (revents only) */
+#define POLLHUP         0x10            /* Peer hung up (revents only) */
+#define POLLNVAL        0x20            /* fd not open (revents only) */
+public extern "c" I32 poll(pollfd *fds, U64 nfds, I32 timeout);
 
 /* Set O_NONBLOCK on sockfd: reads, writes, connect and accept then return
  * -1 instead of waiting. TRUE on success, FALSE if fcntl fails. */

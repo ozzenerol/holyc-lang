@@ -322,6 +322,29 @@ public extern "c" I64 send(I32 socket, U0 *buffer, U64 length, I32 flags);
 public extern "c" I64 sendmsg(I32 socket, msghdr *message, I32 flags);
 public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U32 dest_len);
 
+/* Byte order: the network is big endian, every target hcc supports is
+ * little endian, so these swap the bytes. */
+public U16 Htons(U16 x)
+{
+  return ((x & 0xFF) << 8) | ((x >> 8) & 0xFF);
+}
+
+public U16 Ntohs(U16 x)
+{
+  return Htons(x);
+}
+
+public U32 Htonl(U32 x)
+{
+  return ((x & 0xFF) << 24) | ((x & 0xFF00) << 8) |
+         ((x >> 8) & 0xFF00) | ((x >> 24) & 0xFF);
+}
+
+public U32 Ntohl(U32 x)
+{
+  return Htonl(x);
+}
+
 public Bool NetSetSocketNonBlocking(I32 sockfd)
 {
   I32 flags = fcntl(sockfd, F_GETFL, 0);
@@ -571,14 +594,9 @@ static Bool NetUnixAddress(sockaddr_un *addr, U8 *name)
 }
 
 #ifdef IS_LINUX
-extern "c" I32 *__errno_location();
 #define __NET_ECONNREFUSED 111
-static I32 NetErrno() { return *__errno_location(); }
 #else
-/* errno is *__error(); the raw name, as hcc doesn't prefix names starting with _ */
-_extern ___error I32 *NetErrnoPtr();
 #define __NET_ECONNREFUSED 61
-static I32 NetErrno() { return *NetErrnoPtr(); }
 #endif
 
 /* TRUE if `name` is a socket file left behind by a server that is gone:
@@ -595,7 +613,7 @@ static Bool NetUnixSocketIsStale(sockaddr_un *addr, U8 *name)
   if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
     return FALSE;
   rv = connect(fd, addr(sockaddr *), sizeof(sockaddr_un));
-  Bool stale = rv == -1 && NetErrno() == __NET_ECONNREFUSED;
+  Bool stale = rv == -1 && Errno() == __NET_ECONNREFUSED;
   close(fd);
   return stale;
 }

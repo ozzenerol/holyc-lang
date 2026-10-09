@@ -41,6 +41,29 @@ public I64 Write(I64 fd, U8 *buf, I64 len)
     return write(fd, buf, len);
 }
 
+#ifdef IS_LINUX
+extern "c" I32 *__errno_location();
+static I32 *ErrnoPtr() { return __errno_location(); }
+#else
+/* errno is *__error(); the raw name, as hcc doesn't prefix names starting with _ */
+_extern ___error I32 *ErrnoPtr();
+#endif
+
+/* The calling thread's C errno: the reason the last failing libc call
+ * (socket, connect, read, ...) gave. Only meaningful right after a call
+ * that returned its error value. */
+public I32 Errno()
+{
+  return *ErrnoPtr();
+}
+
+/* Set the calling thread's C errno, e.g. to 0 before a call that only
+ * reports errors through errno. */
+public U0 SetErrno(I32 err)
+{
+  *ErrnoPtr() = err;
+}
+
 /* Call the shell with `printf`-like formatting. Returns what System
  * returns: the exit code (0-255), or -1 if the command was killed by a
  * signal, could not be run, or fmt is NULL. */
