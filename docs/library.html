@@ -86,6 +86,10 @@ is grown, which may move it and frees the old block. <code>s</code> must come fr
 literal or a stack buffer. Unlike print statements, their <code>%d</code> is a
 full 64-bit integer. <code>%f</code>, <code>%e</code> and <code>%g</code> print a float the
 way C's <code>printf</code> does, with the same rounding.</p>
+<p><code>StrPrint(buf, fmt, ...)</code> writes into <code>buf</code> with no bound. For a
+fixed-size buffer use <code>StrNPrint(buf, size, fmt, ...)</code>, which works like C's
+<code>snprintf</code>: it writes at most <code>size - 1</code> characters and always ends them
+with a <code>'\0'</code>, cutting longer output short.</p>
 <pre data-run><code>U0 Main()
 {
   U8 *s = StrPrint(NULL, "%d|%05d|%s|%.2f", 5000000000, 42, "x", 3.14159);

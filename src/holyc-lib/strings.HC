@@ -30,6 +30,7 @@ extern "c" U64 strxfrm(U8 *__s1, U8 *__s2, U64 __n);
 
 public U8 *StrPrint(U8 *dst,U8 *fmt,...);
 public U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv);
+public U8 *StrNPrint(U8 *dst, I64 size, U8 *fmt, ...);
 public U8 *MPrintDate(CDate cdt);
 public U8 *MPrintTime(CDate cdt);
 public U8 *MPrintTimestampNow();
@@ -1243,6 +1244,25 @@ public U8 *StrMerge(...)
 U8 *StrPrint(U8 *dst=NULL,U8 *fmt,...)
 {// @TempleOS
   return StrPrintJoin(dst,fmt,argc,argv);
+}
+
+/* Format into `dst`, which has room for `size` bytes, like C's snprintf:
+ * at most size-1 characters are written, always followed by a '\0' (size
+ * <= 0 writes nothing), and longer output is cut short. Returns dst.
+ * StrPrint(dst, ...) has no bound, so use this for a fixed buffer. */
+U8 *StrNPrint(U8 *dst, I64 size, U8 *fmt, ...)
+{
+  if (!dst || size <= 0) return dst;
+  U8 *full = StrPrintJoin(NULL,fmt,argc,argv);
+  I64 len = 0;
+  if (full) {
+    len = StrLen(full);
+    if (len > size - 1) len = size - 1;
+    MemCpy(dst,full,len);
+    Free(full);
+  }
+  dst[len] = '\0';
+  return dst;
 }
 
 U8 *MStrPrint(U8 *fmt,...)

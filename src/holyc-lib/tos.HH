@@ -691,6 +691,11 @@ public U64 U64ToStr(U8 *dst, U64 num, I64 len = 5000);
 public U8 *StrMergeJoin(I64 argc, U64 *argv);
 public U8 *StrMerge(...);
 public U8 *StrPrint(U8 *dst=NULL, U8 *fmt, ...);
+/* Format into `dst`, which has room for `size` bytes, like C's snprintf:
+ * at most size-1 characters are written, always followed by a '\0' (size
+ * <= 0 writes nothing), and longer output is cut short. Returns dst.
+ * StrPrint(dst, ...) has no bound, so use this for a fixed buffer. */
+public U8 *StrNPrint(U8 *dst, I64 size, U8 *fmt, ...);
 public U8 *StrPrintJoin(U8 *_dst, U8 *fmt, I64 argc, I64 *argv);
 public U8 *MPrintDate(CDate cdt);
 public U8 *MPrintTime(CDate cdt);
