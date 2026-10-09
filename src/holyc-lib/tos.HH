@@ -821,7 +821,8 @@ extern "c" U8 *strstr(U8 *__big, U8 *__little);
 extern "c" U8 *strtok(U8 *__str, U8 *__sep);
 extern "c" U64 strxfrm(U8 *__s1, U8 *__s2, U64 __n);
 
-public _extern _STRLEN_FAST U64 StrLen(U8 *buf);
+/* The length of `buf` before its '\0', 0 for NULL. */
+public U64 StrLen(U8 *buf);
 public _extern _STRNCMP I64 StrNCmp(U8 *s1, U8 *s2, I64 len);
 public _extern _STRNICMP I64 StrNICmp(U8 *s1, U8 *s2, I64 len);
 public _extern _STRCPY U0 StrCpy(U8 *dst, U8 *src);
