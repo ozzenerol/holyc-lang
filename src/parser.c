@@ -2434,6 +2434,7 @@ Ast *parseStatement(Cctrl *cc) {
             }
 
             case KW_GOTO: {
+                int goto_line = tok->line, goto_col = tok->col;
                 tok = cctrlTokenGet(cc);
                 if (tok == NULL) {
                     cctrlRaiseException(cc,
@@ -2441,6 +2442,8 @@ Ast *parseStatement(Cctrl *cc) {
                 }
                 label = createFunctionLevelGotoLabel(cc,tok);
                 ret = astGoto(label);
+                ret->line = goto_line;
+                ret->col = goto_col;
                 cctrlTokenExpect(cc,';');
                 return ret;
             }
@@ -2786,6 +2789,163 @@ static int asmTextHasReturn(AoStr *text) {
     return 0;
 }
 
+/* ---- `goto` into a try body ----
+ *
+ * Entering a try body runs HCC_PushFrame; a goto that lands inside one
+ * from outside it (or from its catch handler, which runs after the
+ * frame is popped) skips that, and leaving the body then pops a frame
+ * that was never pushed. Like C++, reject it. Jumps within a try body
+ * and out of it are fine.
+ *
+ * A label is reachable from a goto when the label's innermost try body
+ * also contains the goto: every try around that one contains it too. */
+
+typedef struct ParseTryScope {
+    Ast *try_ast;
+    struct ParseTryScope *outer;
+} ParseTryScope;
+
+static void parseLabelTriesWalk(Map *label_try, Ast *s, Ast *inner_try);
+
+static void parseLabelTriesWalkList(Map *label_try, List *l, Ast *inner_try) {
+    if (!l) return;
+    listForEach(l) {
+        parseLabelTriesWalk(label_try, (Ast *)it->value, inner_try);
+    }
+}
+
+/* Record the innermost try body around each label (labels outside any
+ * try are left out). */
+static void parseLabelTriesWalk(Map *label_try, Ast *s, Ast *inner_try) {
+    if (!s) return;
+    switch (s->kind) {
+        case AST_LABEL:
+            if (inner_try && s->slabel) {
+                mapAddLen(label_try, s->slabel->data, s->slabel->len,
+                          inner_try);
+            }
+            return;
+        case AST_COMPOUND_STMT:
+            parseLabelTriesWalkList(label_try, s->stms, inner_try);
+            return;
+        case AST_IF:
+            parseLabelTriesWalk(label_try, s->then, inner_try);
+            parseLabelTriesWalk(label_try, s->els, inner_try);
+            return;
+        case AST_FOR:
+            parseLabelTriesWalk(label_try, s->forinit, inner_try);
+            parseLabelTriesWalk(label_try, s->forbody, inner_try);
+            return;
+        case AST_WHILE:
+        case AST_DO_WHILE:
+            parseLabelTriesWalk(label_try, s->whilebody, inner_try);
+            return;
+        case AST_SWITCH:
+            if (s->cases) {
+                for (u64 i = 0; i < s->cases->size; ++i) {
+                    parseLabelTriesWalk(label_try,
+                                        vecGet(Ast *, s->cases, i),
+                                        inner_try);
+                }
+            }
+            parseLabelTriesWalk(label_try, s->case_default, inner_try);
+            return;
+        case AST_CASE:
+        case AST_DEFAULT:
+            parseLabelTriesWalkList(label_try, s->case_asts, inner_try);
+            return;
+        case AST_TRY:
+            parseLabelTriesWalk(label_try, s->try_body, s);
+            parseLabelTriesWalk(label_try, s->catch_body, inner_try);
+            return;
+        default:
+            return;
+    }
+}
+
+static void parseGotoIntoTryWalk(Cctrl *cc, Map *label_try, Ast *s,
+                                 ParseTryScope *scope);
+
+static void parseGotoIntoTryWalkList(Cctrl *cc, Map *label_try, List *l,
+                                     ParseTryScope *scope)
+{
+    if (!l) return;
+    listForEach(l) {
+        parseGotoIntoTryWalk(cc, label_try, (Ast *)it->value, scope);
+    }
+}
+
+static void parseGotoIntoTryWalk(Cctrl *cc, Map *label_try, Ast *s,
+                                 ParseTryScope *scope)
+{
+    if (!s) return;
+    switch (s->kind) {
+        case AST_GOTO: {
+            if (!s->slabel) return;
+            Ast *target_try = (Ast *)mapGetLen(label_try, s->slabel->data,
+                                               s->slabel->len);
+            if (!target_try) return;
+            for (ParseTryScope *it = scope; it; it = it->outer) {
+                if (it->try_ast == target_try) return;
+            }
+            /* Labels are stored as `.<function>_<name>`. */
+            char *name = s->slabel->data;
+            if (cc->tmp_fname && s->slabel->len > cc->tmp_fname->len + 2) {
+                name += cc->tmp_fname->len + 2;
+            }
+            cctrlRaiseExceptionAt(cc, s->line, s->col, 4,
+                "`goto %s` jumps into a try body from outside it; "
+                "a try body can only be entered from its start", name);
+            return;
+        }
+        case AST_COMPOUND_STMT:
+            parseGotoIntoTryWalkList(cc, label_try, s->stms, scope);
+            return;
+        case AST_IF:
+            parseGotoIntoTryWalk(cc, label_try, s->then, scope);
+            parseGotoIntoTryWalk(cc, label_try, s->els, scope);
+            return;
+        case AST_FOR:
+            parseGotoIntoTryWalk(cc, label_try, s->forinit, scope);
+            parseGotoIntoTryWalk(cc, label_try, s->forbody, scope);
+            return;
+        case AST_WHILE:
+        case AST_DO_WHILE:
+            parseGotoIntoTryWalk(cc, label_try, s->whilebody, scope);
+            return;
+        case AST_SWITCH:
+            if (s->cases) {
+                for (u64 i = 0; i < s->cases->size; ++i) {
+                    parseGotoIntoTryWalk(cc, label_try,
+                                         vecGet(Ast *, s->cases, i), scope);
+                }
+            }
+            parseGotoIntoTryWalk(cc, label_try, s->case_default, scope);
+            return;
+        case AST_CASE:
+        case AST_DEFAULT:
+            parseGotoIntoTryWalkList(cc, label_try, s->case_asts, scope);
+            return;
+        case AST_TRY: {
+            ParseTryScope inner = { .try_ast = s, .outer = scope };
+            parseGotoIntoTryWalk(cc, label_try, s->try_body, &inner);
+            parseGotoIntoTryWalk(cc, label_try, s->catch_body, scope);
+            return;
+        }
+        default:
+            return;
+    }
+}
+
+static void parseCheckGotoIntoTry(Cctrl *cc, Ast *body) {
+    Map *label_try = mapNew(8, &map_cstring_opaque_type);
+    parseLabelTriesWalk(label_try, body, NULL);
+    if (label_try->size) {
+        parseGotoIntoTryWalk(cc, label_try, body, NULL);
+    }
+    mapRelease(label_try);
+}
+
 Ast *parseFunctionDef(Cctrl *cc, AstType *rettype,
         char *fname, int len, Vec *params, int has_var_args, int is_inline)
 {
@@ -3013,6 +3173,7 @@ Ast *parseFunctionDef(Cctrl *cc, AstType *rettype,
         func->inline_ret = astLVar(func->type->rettype, str_lit("retval"));
     }
     parseCompoundStatementInternal(cc, func_body);
+    parseCheckGotoIntoTry(cc, func_body);
     fn_type->rettype = cc->tmp_rettype;
     /* `astFunction` shallow-copies the type into the AST node, so
      * `func->type` is a different AstType than the local `fn_type`.
