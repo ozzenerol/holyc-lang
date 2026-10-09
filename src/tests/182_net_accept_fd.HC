@@ -29,7 +29,7 @@ U0 RaiseFdLimit(U64 want)
 I64 BoundPort(I32 fd)
 {
   U8 sa[128];
-  I64 len = sizeof(sa);
+  U32 len = sizeof(sa);
   if (getsockname(fd, sa(sockaddr *), &len) == -1) return -1;
   return sa[2] << 8 | sa[3];
 }

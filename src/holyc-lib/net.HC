@@ -263,9 +263,9 @@ public class sockaddr_un
 };
 
 public extern "c" I32 setsockopt(I32 __sockfd, I32 __level, I32 __option_name,
-    U0 *__option_value, I64 __option_len);
+    U0 *__option_value, U32 __option_len);
 public extern "c" I32 getsockopt(I32 socket, I32 level, I32 option_name,
-    U0 * option_value, I64 *option_len);
+    U0 * option_value, U32 *option_len);
 public extern "c" I32 shutdown(I32 socket, I32 how);
 public extern "c" U32 inet_addr(U8 *cp);
 public extern "c" I32 inet_aton(U8 *cp, in_addr *pin);
@@ -309,18 +309,18 @@ public extern "c" U0 setservent(I32 stayopen);
 public extern "c" U8 *hstrerror(I32 err);
 
 public extern "c" I32 socket(I32 domain, I32 type, I32 protocol);
-public extern "c" I32 connect(I32 socket, sockaddr *address, I64 address_len);
-public extern "c" I32 accept(I32 socket, sockaddr *address, I64 *address_len);
-public extern "c" I32 bind(I32 socket, sockaddr *address, I64 address_len);
-public extern "c" I32 getpeername(I32 socket, sockaddr *address, I64 *address_len);
+public extern "c" I32 connect(I32 socket, sockaddr *address, U32 address_len);
+public extern "c" I32 accept(I32 socket, sockaddr *address, U32 *address_len);
+public extern "c" I32 bind(I32 socket, sockaddr *address, U32 address_len);
+public extern "c" I32 getpeername(I32 socket, sockaddr *address, U32 *address_len);
 public extern "c" I64 recvmsg(I32 socket, msghdr *message, I32 flags); 
-public extern "c" I64 recvfrom(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *address, U64 *address_len);
+public extern "c" I64 recvfrom(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *address, U32 *address_len);
 public extern "c" I64 recv(I32 socket, U0 *buffer, U64 length, I32 flags);
 public extern "c" I32 listen(I32 socket, I32 backlog);
-public extern "c" I32 getsockname(I32 socket, sockaddr *address, I64 *address_len);
+public extern "c" I32 getsockname(I32 socket, sockaddr *address, U32 *address_len);
 public extern "c" I64 send(I32 socket, U0 *buffer, U64 length, I32 flags);
 public extern "c" I64 sendmsg(I32 socket, msghdr *message, I32 flags);
-public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U64 dest_len);
+public extern "c" I64 sendto(I32 socket, U0 *buffer, U64 length, I32 flags, sockaddr *dest_addr, U32 dest_len);
 
 public Bool NetSetSocketNonBlocking(I32 sockfd)
 {
@@ -519,7 +519,7 @@ error:
 public I32 NetAccept(I32 socket, Bool non_blocking=FALSE)
 {// Returns the accepted socket, or -1 on failure
   I32 accepted;
-  I64 socklen = sizeof(sockaddr_storage);
+  U32 socklen = sizeof(sockaddr_storage);
   sockaddr_storage in_addr;
 
   if ((accepted = accept(socket,(&in_addr)(sockaddr *),&socklen)) == -1) {
@@ -543,7 +543,7 @@ public I32 NetAccept(I32 socket, Bool non_blocking=FALSE)
 public Bool NetGetIpv4AddressFromAcceptedSocket(I32 sockfd, U8 *ipbuf, I32 outlen)
 {
   sockaddr_storage sa; /* a sockaddr is too small for an IPv6 peer */
-  I64 len;
+  U32 len;
   I32 retval;
 
   len = sizeof(sockaddr_storage);

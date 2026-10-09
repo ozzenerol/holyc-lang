@@ -79,7 +79,7 @@ I32 Main()
   /* recvmsg writes the sender's address length into msg_namelen */
   I32 u = socket(AF_INET, SOCK_DGRAM, 0);
   sockaddr_in me, from;
-  I64 len = sizeof(sockaddr_in);
+  U32 len = sizeof(sockaddr_in);
   MemSet(&me, 0, sizeof(sockaddr_in));
 #ifndef IS_LINUX
   me.sin_len = sizeof(sockaddr_in);

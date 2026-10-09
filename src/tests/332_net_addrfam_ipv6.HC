@@ -20,7 +20,7 @@ I64 g_port;
 I64 Family(I32 sockfd)
 {// The family of the socket's local address; sets g_port
   sockaddr_storage ss;
-  I64 len = sizeof(sockaddr_storage);
+  U32 len = sizeof(sockaddr_storage);
   MemSet(&ss, 0, sizeof(sockaddr_storage));
   if (getsockname(sockfd, (&ss)(sockaddr *), &len) == -1) return -1;
   U16 p = (&ss)(sockaddr_in *)->sin_port; /* same offset in sockaddr_in6 */

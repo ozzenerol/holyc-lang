@@ -18,7 +18,7 @@ U0 Check(Bool ok, U8 *what)
 I64 LocalPort(I32 sockfd)
 {
   sockaddr_in sa;
-  I64 len = sizeof(sockaddr_in);
+  U32 len = sizeof(sockaddr_in);
   if (getsockname(sockfd, (&sa)(sockaddr *), &len) == -1) return -1;
   U16 p = sa.sin_port;
   return ((p & 0xff) << 8) | (p >> 8);

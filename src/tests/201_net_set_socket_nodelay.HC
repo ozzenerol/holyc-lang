@@ -7,7 +7,7 @@
 I64 GetIntOpt(I32 fd, I32 level, I32 opt)
 {
   I32 val = -1;
-  I64 len = sizeof(I32);
+  U32 len = sizeof(I32);
   if (getsockopt(fd, level, opt, &val, &len) == -1) return -1;
   return val;
 }
