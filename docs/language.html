@@ -440,7 +440,11 @@ U0 Main()
 </pre>
 <p>Declare a prototype to call a function before its definition:
 <code>I64 Later(I64 x);</code> Every prototype and the definition must agree on the return
-and parameter types; a mismatch is an error ("conflicting types") at the later one.</p>
+and parameter types; a mismatch is an error ("conflicting types") at the later one.
+Default arguments carry over: after <code>I64 Later(I64 x=1);</code> the definition can be
+written <code>I64 Later(I64 x) { ... }</code> and <code>Later()</code> still passes 1 (this
+includes the prototypes in <code>tos.HH</code>). Repeating a default is allowed if it is the
+same value; a different value is an error.</p>
 <p>A program may define its own version of a standard-library function, with the same
 signature as in <code>tos.HH</code> (<code>CDate Now()</code>, say): the program's calls go to
 its own version, in the JIT and in a compiled binary. The library's own internal calls are

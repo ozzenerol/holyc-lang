@@ -2860,6 +2860,112 @@ static void parseCheckFunctionRedeclaration(Cctrl *cc, AstType *rettype,
     cctrlDiagPush(cc, d);
 }
 
+/* Do two default-argument expressions give the same value? Constant
+ * expressions compare by value (`2`, `1+1` and `2(I64)` agree), anything
+ * else by its spelling. */
+static int parseDefaultArgsEqual(Ast *a, Ast *b) {
+    int ok = 1;
+    if (!astIsFloatType(a->type) && !astIsFloatType(b->type)) {
+        s64 x = evalIntConstExprOrErr(a, &ok);
+        s64 y = ok ? evalIntConstExprOrErr(b, &ok) : 0;
+        if (ok) return x == y;
+    } else {
+        double x = evalFloatExprOrErr(a, &ok);
+        double y = ok ? evalFloatExprOrErr(b, &ok) : 0;
+        if (ok) return x == y;
+    }
+    char *sa = astLValueToString(a, 0);
+    char *sb = astLValueToString(b, 0);
+    return sa && sb && !strcmp(sa, sb);
+}
+
+/* Swap `from` for `to` where parseParams registered the parameter */
+static void parseReplaceParamLocal(Cctrl *cc, AoStr *name, Ast *from, Ast *to) {
+    if (name && mapGetLen(cc->localenv, name->data, name->len) == from) {
+        mapAdd(cc->localenv, name->data, to);
+    }
+    if (cc->tmp_locals) {
+        listForEach(cc->tmp_locals) {
+            if (it->value == from) it->value = to;
+        }
+    }
+}
+
+/* `fname` was declared before with the same signature: like C++, a later
+ * declaration or the definition keeps the earlier one's default
+ * arguments, so `I64 F(I64 n=2);` then `I64 F(I64 n) {...}` still allows
+ * `F()`. Giving the same parameter a default again is fine if it is the
+ * same value; a different value is an error (calls before and after the
+ * definition would otherwise disagree). */
+static void parseInheritDefaultParams(Cctrl *cc, AstType *rettype,
+                                      char *fname, int len, Vec *params,
+                                      int has_var_args)
+{
+    if (cc->flags & CCTRL_REPL) return;
+    Ast *prev = mapGetLen(cc->global_env, fname, len);
+    if (!prev || (prev->kind != AST_FUN_PROTO && prev->kind != AST_FUNC)) {
+        return;
+    }
+    Vec *prev_params = prev->params;
+    if (!prev_params || !params || prev_params->size != params->size) return;
+    /* A conflicting signature is reported by
+     * parseCheckFunctionRedeclaration; inherit nothing from it */
+    AstType *type = astMakeFunctionType(rettype, params);
+    if (!parseFnTypesMatch(type, prev->type) ||
+        !has_var_args != !prev->has_var_args) {
+        return;
+    }
+
+    for (u64 i = 0; i < params->size; ++i) {
+        Ast *old = prev_params->entries[i];
+        Ast *cur = params->entries[i];
+        if (!old || !cur || old->kind != AST_DEFAULT_PARAM) continue;
+
+        if (cur->kind == AST_DEFAULT_PARAM) {
+            if (parseDefaultArgsEqual(cur->declinit, old->declinit)) continue;
+            Ast *var = cur->declvar;
+            AoStr *name = var->kind == AST_FUNPTR ? var->fname : var->lname;
+            char *was = astLValueToString(old->declinit, 0);
+            char *now = astLValueToString(cur->declinit, 0);
+            AoStr *where = cctrlLookUpFile(cc, prev->file_id);
+            char *msg = mprintf("default argument `%s` for parameter `%s` of "
+                                "`%.*s` does not match the earlier "
+                                "declaration's `%s`%s%s%s",
+                                now ? now : "?", name ? name->data : "?",
+                                len, fname, was ? was : "?",
+                                where && prev->line > 0 ? " at " : "",
+                                where && prev->line > 0 ? where->data : "",
+                                where && prev->line > 0
+                                    ? mprintf(":%d", prev->line) : "");
+            int line = var->line > 0 ? var->line : cc->lineno;
+            int col = var->line > 0 ? var->col : 0;
+            int nlen = name ? (int)name->len : 1;
+            AoStr *bold = aoStrNew();
+            aoStrCatColoured(bold, ESC_BOLD, msg);
+            AoStr *buf = cctrlCreateErrorLineAt(cc, line, col, nlen,
+                                                bold->data, CCTRL_ERROR, NULL);
+            aoStrRelease(bold);
+            CctrlDiagnostic *d = cctrlMakeDiag(cc, CCTRL_ERROR, buf, NULL);
+            d->line = d->end_line = line;
+            d->col = col;
+            d->end_col = col + nlen;
+            cctrlDiagPush(cc, d);
+            continue;
+        }
+
+        if (cur->kind == AST_FUNPTR) {
+            /* parseParams keeps the AST_FUNPTR itself in the local scope */
+            Ast *def = astFunctionDefaultParam(cur, old->declinit);
+            cur->default_fn = def;
+            params->entries[i] = def;
+        } else if (cur->kind == AST_LVAR) {
+            Ast *def = astFunctionDefaultParam(cur, old->declinit);
+            parseReplaceParamLocal(cc, cur->lname, cur, def);
+            params->entries[i] = def;
+        }
+    }
+}
+
 Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int is_inline) {
     /* Anchor: the name token was just consumed, so the cursor still
      * sits on its line - stamp the function Ast with the NAME's
@@ -2891,6 +2997,8 @@ Ast *parseFunctionOrDef(Cctrl *cc, AstType *rettype, char *fname, int len, int i
         parseCheckFunctionRedeclaration(cc, rettype, fname, len, params,
                                         has_var_args, name_tok_line,
                                         name_tok_col);
+        parseInheritDefaultParams(cc, rettype, fname, len, params,
+                                  has_var_args);
     }
     if (tokenPunctIs(tok, '{')) {
         Ast *fn = parseFunctionDef(cc,rettype,fname,len,params,
