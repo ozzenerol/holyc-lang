@@ -718,6 +718,14 @@ void typeCheckReturnTypeWarn(Cctrl *cc, Ast *maybe_func,
     }
 
     /* cctrlWarningAt makes it bold (when colours are on) */
+    if (!retval) {
+        /* `return;` in a function returning a value: there is no value
+         * to print (this said `'(null)' of type 'U0'`) */
+        char *msg = mprintf("%s `return` with no value, expected a value of type '%s'",
+                            fstring, expected);
+        cctrlWarningAt(cc, ret_tok->line, ret_tok->col, ret_tok->len, "%s", msg);
+        return;
+    }
     char *msg = mprintf("%s unexpected return value '%s' of type '%s' expected '%s'",
                         fstring,
                         ast_str->data,
