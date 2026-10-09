@@ -672,19 +672,20 @@ IntSet *IntSetSymDiff(IntSet *s1, IntSet *s2)
 }
 
 U8 *IntSetToString(IntSet *set)
-{// "{1, 2, 3}", in order; free the result
+{
+  I64 len = 1;
   U8 *buf = StrNew("{");
   IntSetIter *i1 = IntSetIterNew(set);
   IntSetEntry *entry = NULL;
   Bool first = TRUE;
 
   while ((entry = IntSetIterNext(i1))) {
-    if (!first) buf = CatPrint(buf, ", ");
-    buf = CatPrint(buf, "%d", entry->key);
+    if (first) buf = CatLenPrint(buf, &len, "%d", entry->key);
+    else       buf = CatLenPrint(buf, &len, ", %d", entry->key);
     first = FALSE;
   }
   IntSetIterRelease(i1);
-  return CatPrint(buf, "}");
+  return CatLenPrint(buf, &len, "}");
 }
 
 
