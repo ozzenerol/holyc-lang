@@ -875,7 +875,11 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
         return ptr - start;
     }
 
-    while (!isNumTerminator(*ptr)) {
+    /* `case 1...3`: the number ends before the `...` range operator
+     * rather than reading `1.` as a float. Leaving the loop, not
+     * returning, keeps the checks below: `0x...3` is a hex literal with
+     * no digits, not 0. */
+    while (!isNumTerminator(*ptr) && !(*ptr == '.' && *(ptr + 1) == '.')) {
         switch (*ptr) {
         case 'e':
         case 'E':
@@ -921,11 +925,6 @@ static int countNumberLen(Lexer *l, char *ptr, int *isfloat, int *ishex,
             break;
 
         case '.':
-            /* `case 1...3`: the number ends before the `...` range
-             * operator rather than reading `1.` as a float. */
-            if (*(ptr + 1) == '.') {
-                return ptr - start;
-            }
             /* Floating point hex does not exist (`0x1.5`). */
             if (*ishex) {
                 lexNumWarning(l, "line %d: hex literals can't have a "
