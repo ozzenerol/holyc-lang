@@ -1,32 +1,22 @@
 #include "run_shared.HC"
 
-U0 RunTest(U8 *filename)
+U0 RunTest(U8 *filename, I64 idx)
 {
-  U8 buffer[512];
-  I64 len;
-
   /* Use the local build (../../hcc relative to src/tests/) so we
    * always test what's actually been compiled, not whatever older
    * hcc happens to be on PATH (e.g. an installed /usr/local/bin/hcc
    * from a prior version - this trap cost us a session of confused
-   * cross-test triage). */
-  U8 *install_dir = getenv("HCC_INSTALL_DIR");
-  if (g_target[0] == '\0' && install_dir) {
-    len = snprintf(buffer, sizeof(buffer), "../../hcc -jit --install-dir=%s %s",
-                   install_dir, filename);
-  } else if (g_target[0] == '\0') {
-    len = snprintf(buffer, sizeof(buffer), "../../hcc -jit %s", filename);
-  } else {
-    len = snprintf(buffer, sizeof(buffer),
-                   "../../hcc -jit --target=%s --install-dir=../../build/%s %s",
-                   g_target, g_target, filename);
-  }
-  buffer[len] = '\0';
-  auto res = System(buffer);
+   * cross-test triage). The program runs in the test's own directory
+   * (see RunTests), so the file is given by its absolute path. */
+  U8 *path = filename;
+  if (path[0] != '/') path = MStrPrint("%s/%s", g_start_dir, filename);
+  U8 *cmd = MStrPrint("'%s' -jit %s '%s'", g_hcc, g_hcc_flags, path);
+  auto res = System(cmd);
 
   if (res != 0) {
     "\033[0;31mFailed to compile\033[0;0m: %s\n",filename;
   }
+  Free(cmd);
 }
 
 I32 Main(I32 argc, U8 **argv)
@@ -47,16 +37,15 @@ I32 Main(I32 argc, U8 **argv)
     arg_idx = 2;
   }
 
+  PtrVec *vec;
   if (argc > arg_idx) {
-    RunTest(argv[arg_idx]);
-    Exit(0);
+    vec = PtrVecNew;
+    PtrVecPush(vec, StrNew(argv[arg_idx]));
+  } else {
+    vec = CollectTests;
   }
 
-  PtrVec *vec = CollectTests;
-
-  for (U8 *entry : vec) {
-    RunTest(entry);
-  }
+  RunTests(vec);
 
   PtrVecRelease(vec, &Free);
   return 0;

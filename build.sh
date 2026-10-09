@@ -15,7 +15,7 @@
 #
 # Run as your normal user, not with sudo.
 #
-# Env overrides: CC, JOBS, INSTALL_PREFIX
+# Env overrides: CC, JOBS (make and test parallelism), INSTALL_PREFIX
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -125,6 +125,8 @@ lib_args=(-fPIC -lib tos --install-dir="$PREFIX")
 if [ "$RUN_TESTS" = 1 ]; then
     # The test runners otherwise compile each test against /usr/local.
     export HCC_INSTALL_DIR="$PREFIX"
+    # How many tests the runners run at once
+    export JOBS
 
     step "Running unit tests"
     (cd "$ROOT/src/tests" && "$HCC" --install-dir="$PREFIX" ./run.HC -o test-runner && ./test-runner)
