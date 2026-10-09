@@ -207,7 +207,8 @@ U8 *str_replace(U8 *orig, U8 *rep, U8 *with) {
   while (count--) {
     ins = strstr(orig, rep);
     len_front = ins - orig;
-    tmp = StrNCpy(orig, len_front) + len_front;
+    MemCpy(tmp, orig, len_front);  /* C's strncpy, not StrNCpy */
+    tmp += len_front;
     StrCpy(tmp,with);
     tmp += len_with;
     orig += len_front + len_rep;

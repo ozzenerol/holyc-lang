@@ -773,24 +773,18 @@ public _extern _MEMCPY U0 *MemCpy(U0 *dst, U0 *src, U64 len);
 public _extern _CALLOC U0 *CAlloc(U64 new_size);
 public _extern _REALLOC U0 *ReAlloc(U0 *ptr, U64 new_size);
 
+/* The size StrPrint and MPrintQ start a new buffer at (it grows). */
 #define STR_LEN 256
 
+/* StrPrint's internal format flags; MPrintQ's `flags` takes PRTF_SLASH,
+ * which doubles each '%'. */
 #define PRTF_PAD_ZERO        0x001
 #define PRTF_LEFT_JUSTIFY    0x002
 #define PRTF_TRUNCATE        0x004
-#define PRTF_COMMA           0x008
-#define PRTF_DOLLAR          0x010
 #define PRTF_SLASH           0x020
-#define PRTF_QUESTION        0x040
-#define PRTF_AUX_FMT_NUM     0x080
 #define PRTF_DECIMAL         0x100
-#define PRTF_NEG             0x200
-#define PRTF_NEG_E           0x400
-#define PRTF_NEG_AUX_FMT_NUM 0x800
 
-#define CH_BACKSPACE   0x08
-#define CH_ESC         0x1B
-#define CH_SHIFT_ESC   0x1C
+/* TempleOS character codes: below CH_SHIFT_SPACE is a control byte. */
 #define CH_SHIFT_SPACE 0x1F
 #define CH_SPACE       0x20
 
@@ -799,12 +793,13 @@ extern "c" I64 strtoll(U8 *nptr, U8 **endptr, I64 base = 10);
 extern "c" U64 strtoul(U8 *nptr, U8 **endptr, I64 base = 10);
 extern "c" I64 snprintf(I8 *nptr, U64 len, I8 *fmt, ...);
 extern "c" I64 printf(I8 *fmt, ...);
-extern "c" I64 strlen(U8 *s);
 extern "c" I64 strnlen(U8 *s, I64 size);
 extern "c" U8 *strcat(U8 *__s1, U8 *__s2);
 extern "c" U8 *strchr(U8 *__s, I32 __c);
 extern "c" I32 strcmp(U8 *__s1, U8 *__s2);
 extern "c" I32 strcasecmp(U8 *__s1, U8 *__s2);
+extern "c" I32 strncasecmp(U8 *__s1, U8 *__s2, U64 __n);
+extern "c" I64 atol(U8 *__str);
 extern "c" I32 strcoll(U8 *__s1, U8 *__s2);
 extern "c" U8 *strcpy(U8 *__dst, U8 *__src);
 extern "c" U64 strcspn(U8 *__s, U8 *__u8set);
@@ -821,17 +816,36 @@ extern "c" U8 *strstr(U8 *__big, U8 *__little);
 extern "c" U8 *strtok(U8 *__str, U8 *__sep);
 extern "c" U64 strxfrm(U8 *__s1, U8 *__s2, U64 __n);
 
+/* Strings are NUL-terminated U8 arrays; the case functions are ASCII
+ * only. Functions that return a new string (StrNew, StrPrint(NULL, ..),
+ * MStrPrint, StrMerge, StrNCpy, MPrintQ, MPrintDate, ...) give you a
+ * block to Free. */
+
 /* The length of `buf` before its '\0', 0 for NULL. */
 public U64 StrLen(U8 *buf);
+/* Compare at most len bytes like C's strncmp: < 0, 0 or > 0, bytes compared
+ * as unsigned, stopping at a NUL. NULL sorts before every string (two NULLs
+ * are equal), whatever len is. */
 public _extern _STRNCMP I64 StrNCmp(U8 *s1, U8 *s2, I64 len);
+/* StrNCmp ignoring ASCII case, like C's strncasecmp. */
 public _extern _STRNICMP I64 StrNICmp(U8 *s1, U8 *s2, I64 len);
+/* Copy src and its NUL into dst, which must be big enough. A NULL src
+ * copies "" and a NULL dst does nothing. */
 public _extern _STRCPY U0 StrCpy(U8 *dst, U8 *src);
+/* Compare like C's strcmp: < 0, 0 or > 0, bytes compared as unsigned.
+ * NULL sorts before every string; two NULLs are equal. */
 public _extern _STRCMP I64 StrCmp(U8 *s1, U8 *s2);
 
 #ifdef IS_X86_64
+/* ch in lower case: only 'A'-'Z' change (ASCII). */
 public _extern _TOLOWER U8 ToLower(U8 ch);
+/* ch in upper case: only 'a'-'z' change (ASCII). */
 public _extern _TOUPPER U8 ToUpper(U8 ch);
+/* TRUE for ' ', '\t', '\n', '\v', '\f' and '\r'. */
 public _extern _ISSPACE Bool IsSpace(U8 ch);
+/* A 64-bit hash of str's bytes: h = h * 31 + c from 0, then a final mix
+ * (murmur3's), so similar keys spread over the low bits; "" hashes to 0.
+ * The same value on every target. */
 public _extern _STRHASH U64 StrHash(U8 *str);
 #endif
 
@@ -842,46 +856,114 @@ public Bool IsSpace(U8 ch);
 public U64 StrHash(U8 *str);
 #endif
 
+/* The integer at the start of str, like C's atol: leading spaces and a
+ * sign are allowed, parsing stops at the first non-digit, 0 if there is
+ * none or str is NULL. */
 public I64 Atoi(U8 *str);
 
+/* A new string with at most the first len bytes of buf, stopping at its
+ * NUL (like C's strndup), always NUL terminated. A negative len is 0 and a
+ * NULL buf gives "". */
 public U8 *StrNCpy(U8 *buf, I64 len);
+/* TempleOS file names: a pointer to the first '.' that isn't followed by
+ * '/' or '.' (so "archive.tar.gz" gives ".tar.gz"), or NULL. */
 public U8 *FileExtDot(U8 *src);
+/* Cut the extension (from FileExtDot's dot) off src, in place, and copy it
+ * without the dot into dst if dst isn't NULL ("" when there is none).
+ * Returns dst. */
 public U8 *FileExtRem(U8 *src, U8 *dst = NULL);
+/* Remove the whitespace at the start, in place (the rest moves down);
+ * only the first str_len bytes are looked at (all of it if str_len < 0).
+ * Sets *_new_len and returns str. NULL returns NULL. */
 public U8 *StrTrimStart(U8 *str, I64 str_len=-1, I64 *_new_len=NULL);
+/* Remove the whitespace at the end, in place, by writing a NUL; only the
+ * first str_len bytes are looked at (all of it if str_len < 0). Sets
+ * *_new_len and returns str. NULL returns NULL. */
 public U8 *StrTrimEnd(U8 *str, I64 str_len=-1, I64 *_new_len=NULL);
+/* TempleOS: TRUE if filename ends in ".Z" and has another '.' before it
+ * ("Doc.HC.Z"); "a.Z" is FALSE. */
 public Bool IsDotZ(U8 *filename);
+/* TempleOS: TRUE if filename ends in ".C" and has another '.' before it. */
 public Bool IsDotC(U8 *filename);
+/* Internal output helper of StrPrint: write ch and a NUL at *_dst and
+ * advance it, growing *_buf (MAlloc'd) when full if _buf isn't NULL. */
 public U0 SPutChar(U8 **_dst, U8 ch, U8 **_buf);
+/* Internal output helper of StrPrint: write instr padded to len. */
 public U0 OutStr(U8 *instr, U8 **_buf, U8 **_dst, I64 len, I64 flags,
                  I64 prec = -1);
+/* How many times ch occurs in src (0 for NULL). */
 public I64 StrOcc(U8 *src, I64 ch);
+/* A pointer to the first character of src that is one of the characters
+ * in marker, or NULL (also for a NULL src or marker). */
 public U8 *StrFirstOcc(U8 *src, U8 *marker);
+/* A pointer to the last character of src that is in marker, or NULL. */
 public U8 *StrLastOcc(U8 *src, U8 *marker);
+/* Split off the part after the last marker character: it goes into dst
+ * (if not NULL) and src is cut there, in place ("a/b/c" -> "a/b" and
+ * "c"). Without a marker all of src moves to dst and src becomes "".
+ * Returns dst. */
 public U8 *StrLastRem(U8 *src, U8 *marker, U8 *dst = NULL);
+/* Reverse the first length bytes of buf in place. */
 public U0 StrReverse(U8 *buf, I64 length);
+/* Internal helper: writes the digits of |num| into buf LEAST significant
+ * first (12 -> "21"), with no sign (*_is_neg says if num < 0), and
+ * returns how many. Use StrPrint for normal formatting. */
 public I64 I64ToStr(U8 *buf, I64 num, Bool *_is_neg = NULL, I64 _len = 5000);
+/* Internal helper: the digits of num, least significant first. */
 public U64 U64ToStr(U8 *dst, U64 num, I64 len = 5000);
+/* StrMerge for an argument array. */
 public U8 *StrMergeJoin(I64 argc, U64 *argv);
+/* A new string with all the string arguments joined: StrMerge("a", "b"). */
 public U8 *StrMerge(...);
+/* Format like printf (see the library guide for the conversions). With
+ * dst NULL it returns a new string to Free; otherwise it writes into dst,
+ * which must be big enough - nothing checks, see StrNPrint - and returns
+ * it. */
 public U8 *StrPrint(U8 *dst=NULL, U8 *fmt, ...);
 /* Format into `dst`, which has room for `size` bytes, like C's snprintf:
  * at most size-1 characters are written, always followed by a '\0' (size
  * <= 0 writes nothing), and longer output is cut short. Returns dst.
  * StrPrint(dst, ...) has no bound, so use this for a fixed buffer. */
 public U8 *StrNPrint(U8 *dst, I64 size, U8 *fmt, ...);
+/* StrPrint for an argument array. */
 public U8 *StrPrintJoin(U8 *_dst, U8 *fmt, I64 argc, I64 *argv);
+/* A new "MM/DD/YYYY" string to Free. */
 public U8 *MPrintDate(CDate cdt);
+/* A new "HH:MM:SS" string to Free. */
 public U8 *MPrintTime(CDate cdt);
+/* A new "YYYY-MM-DD HH:MM:SS" string of the local time now, to Free. */
 public U8 *MPrintTimestampNow();
+/* A new copy of buf to Free; "" for NULL. */
 public U8 *StrNew(U8 *buf);
+/* Split off the part before the first marker character: it goes into dst
+ * (if not NULL) and src keeps what follows the marker, in place ("a/b/c"
+ * -> "b/c" and "a"). Returns dst. */
 public U8 *StrFirstRem(U8 *src, U8 *marker, U8 *dst = NULL);
+/* Write num as "0x" and 16 upper-case hex digits into dst (19 bytes with
+ * the NUL); returns 18. */
 public I64 StrIntToHex(U8 *dst, I64 num);
+/* A new string with ptr escaped for a C string literal: \n \r \t \v \f,
+ * \" and \\, other control bytes as \xNN. What %Q prints. */
 public U8 *MPrintQ(U8 *ptr, I64 flags = 0);
+/* StrPrint(NULL, ...) into an exactly sized new string. */
 public U8 *MStrPrint(U8 *fmt, ...);
+/* Append the formatted text to the heap string _dst (or start one if it
+ * is NULL) and return it: write s = CatPrint(s, ...), it may move. Each
+ * call measures _dst, so long loops are O(n^2): use CatLenPrint there. */
 public U8 *CatPrint(U8 *_dst, U8 *fmt, ...);
+/* CatPrint that keeps the length in *_len (start it at 0 with a NULL
+ * _dst), so appending doesn't rescan the string. */
 public U8 *CatLenPrint(U8 *_dst, I64 *_len, U8 *fmt, ...);
+/* Parse strdate with a strptime-like format: %Y %m %d %H %M %s (or %S)
+ * %a/%b (day/month name, full or three letters) %p %z %%. Unset date
+ * fields are -1, time fields 0. FALSE for empty, short or mismatching
+ * input, an unknown conversion or a field out of range. */
 public Bool Str2CDateStruct(U8 *strdate, U8 *format, CDateStruct *t);
+/* Glob match of all of test_str: '*' any run of characters, '?' any one.
+ * FALSE if either is NULL. */
 public Bool WildMatch(U8 *test_str, U8 *wild_str);
+/* Str2CDateStruct into a CDate; 0 if parsing fails or the format has no
+ * year, month and day. */
 public CDate StrToCDate(U8 *_str, U8 *fmt);
 
 #define F_DUPFD 0 /* Duplicate a file descriptor */

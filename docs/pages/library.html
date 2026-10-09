@@ -46,6 +46,14 @@ is not, so leaking one goes unreported, and a block of yours that the library re
 (<code>CatPrint</code>, <code>CatLenPrint</code>) is reported as never freed.</p>
 
 <h2 id="strings">Strings</h2>
+<p>A string is a NUL-terminated <code>U8</code> array. Functions that make a string
+(<code>StrNew</code>, <code>StrPrint(NULL, ...)</code>, <code>MStrPrint</code>,
+<code>StrMerge</code>, <code>StrNCpy</code>, <code>MPrintQ</code>, <code>MPrintDate</code>,
+<code>MPrintTime</code>, <code>MPrintTimestampNow</code>) return a new block that you
+<code>Free</code>. The trimming and <code>...Rem</code> functions change the string you
+pass, in place, so give them a copy rather than a literal. Case conversion and the
+case-insensitive compares only know ASCII letters.</p>
+
 <h3>Building strings</h3>
 <p><code>StrPrint(NULL, fmt, ...)</code> returns a newly allocated formatted string, and
 <code>CatPrint(s, fmt, ...)</code> appends the formatted text to the heap string <code>s</code>
@@ -53,15 +61,10 @@ and returns it, so write <code>s = CatPrint(s, fmt, ...)</code>: when <code>s</c
 is grown, which may move it and frees the old block. <code>s</code> must come from
 <code>MAlloc</code>, <code>StrNew</code>, <code>StrPrint(NULL, ...)</code> or an earlier
 <code>CatPrint</code>, or be <code>NULL</code> to start a new string; never pass a string
-literal or a stack buffer. Each <code>CatPrint</code> measures the whole of <code>s</code> to
-find its end, so thousands of appends to a long string get slow; <code>CatLenPrint(s, &amp;len,
-fmt, ...)</code> keeps the length in <code>len</code> instead. Unlike print statements, their <code>%d</code> is a
-full 64-bit integer. <code>%f</code>, <code>%e</code> and <code>%g</code> print a float the
-way C's <code>printf</code> does, with the same rounding.</p>
-<p><code>StrPrint(buf, fmt, ...)</code> writes into <code>buf</code> with no bound. For a
-fixed-size buffer use <code>StrNPrint(buf, size, fmt, ...)</code>, which works like C's
-<code>snprintf</code>: it writes at most <code>size - 1</code> characters and always ends them
-with a <code>'\0'</code>, cutting longer output short.</p>
+literal or a stack buffer. <code>CatPrint</code> measures <code>s</code> on every call, so
+appending in a long loop is quadratic; <code>CatLenPrint(s, &amp;len, fmt, ...)</code> keeps
+the length in <code>len</code> and doesn't. <code>StrMerge("a", "b", ...)</code> joins strings and <code>MStrPrint(fmt, ...)</code> is
+<code>StrPrint</code> into an exactly sized block.</p>
 <pre data-run><code>
 U0 Main()
 {
@@ -74,20 +77,88 @@ U0 Main()
   }
   "%s\n", csv;
 
+  I64 len = 0;
+  U8 *log = NULL;
+  for (I64 i = 0; i < 3; i++) {
+    log = CatLenPrint(log, &len, "[%d]", i * i);
+  }
+  "%s (%d)\n", log, len;
+
   U8 *joined = StrMerge("con", "cat", "enate");
   "%s\n", joined;
   Free(s);
   Free(csv);
+  Free(log);
   Free(joined);
 }
 </code></pre>
 <pre class="output">
 5000000000|00042|x|3.14
 id,1,2,3
+[0][1][4] (9)
 concatenate
 </pre>
 
+<h3>Format conversions</h3>
+<p><code>StrPrint</code>, <code>CatPrint</code> and the other formatting functions share one
+format language with print statements. Integers are always 64-bit, and the C length
+modifiers <code>l</code>, <code>ll</code>, <code>h</code>, <code>hh</code>, <code>z</code> and
+<code>j</code> are accepted and ignored, so C formats can be pasted in.</p>
+<table>
+  <thead><tr><th>Conversion</th><th>Prints</th></tr></thead>
+  <tbody>
+    <tr><td><code>%d</code> <code>%i</code></td><td>a signed integer</td></tr>
+    <tr><td><code>%u</code></td><td>an unsigned integer</td></tr>
+    <tr><td><code>%x</code> <code>%X</code> <code>%o</code></td><td>hexadecimal (lower / upper case), octal</td></tr>
+    <tr><td><code>%f</code> <code>%e</code> <code>%g</code></td><td>an <code>F64</code>, as C's <code>printf</code> prints it</td></tr>
+    <tr><td><code>%s</code></td><td>a string</td></tr>
+    <tr><td><code>%c</code> <code>%C</code></td><td>a character; a multi-character constant like <code>'abc'</code> prints all its characters (up to 8), <code>%C</code> in upper case; the value 0 prints nothing</td></tr>
+    <tr><td><code>%p</code></td><td>a pointer as <code>0x</code> and 16 hex digits</td></tr>
+    <tr><td><code>%D</code> <code>%T</code></td><td>a <code>CDate</code> as <code>MM/DD/YYYY</code> / <code>HH:MM:SS</code></td></tr>
+    <tr><td><code>%Q</code></td><td>a string escaped for a C literal (<code>MPrintQ</code>)</td></tr>
+    <tr><td><code>%F</code></td><td>the contents of the file whose name is the argument (nothing if it can't be read)</td></tr>
+    <tr><td><code>%%</code></td><td>a <code>%</code> (a width on it is ignored)</td></tr>
+  </tbody>
+</table>
+<p>Between the <code>%</code> and the letter come, in order: the flags <code>-</code> (left
+justify), <code>0</code> (pad with zeros), <code>+</code> (always a sign), a space (a space
+where a plus sign would go) and <code>#</code> (<code>0x</code> / <code>0</code> prefix for
+hex and octal); a width; and a precision after a <code>.</code>, which is the number of
+decimals for floats, the maximum length for <code>%s</code> and the minimum number of digits
+for integers (<code>%.3d</code> of 7 is <code>007</code>). Width and precision can be
+<code>*</code>, taken from the arguments. An unknown conversion is printed as it was written,
+with a warning on stderr, and still uses up its argument, so the ones after it stay in
+place.</p>
+<p><code>StrPrint(buf, fmt, ...)</code> writes into <code>buf</code> with no bound. For a
+fixed-size buffer use <code>StrNPrint(buf, size, fmt, ...)</code>, which works like C's
+<code>snprintf</code>: it writes at most <code>size - 1</code> characters and always ends them
+with a <code>'\0'</code>, cutting longer output short. It returns <code>buf</code>.</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 *s = StrPrint(NULL, "%+d|% d|%#x|%#o|%.3d|%ld|%-4s|%5.1f", 7, 7, 255, 8, 7,
+                   5000000000, "ab", 2.25);
+  "%s\n", s;
+  Free(s);
+
+  U8 small[8];
+  StrNPrint(small, sizeof(small), "%s-%d", "overflow", 12345);
+  "[%s] %d\n", small, StrLen(small);
+}
+</code></pre>
+<pre class="output">
++7| 7|0xff|010|007|5000000000|ab  |  2.2
+[overflo] 7
+</pre>
+
 <h3>Inspecting strings</h3>
+<p><code>StrCmp</code>, <code>StrNCmp</code> and <code>StrNICmp</code> return a negative,
+zero or positive number like C's <code>strcmp</code>, comparing bytes as unsigned, and sort a
+<code>NULL</code> before every string. <code>StrFirstOcc</code> and <code>StrLastOcc</code>
+find the first or last character of the first string that is any of the characters in the
+second. <code>WildMatch</code> matches a whole string against a pattern where
+<code>*</code> is any run of characters and <code>?</code> any one character.
+<code>StrHash</code> gives a well mixed 64-bit hash of a string.</p>
 <pre data-run><code>
 U0 Main()
 {
@@ -98,7 +169,8 @@ U0 Main()
   "%s\n", StrFirstOcc("key=value", "=");       // from the first match
   "%s\n", StrLastOcc("a/b/c.HC", "/");         // from the last match
   "%s\n", FileExtDot("archive.tar.gz");
-  "%d %d\n", WildMatch("main.HC", "*.HC"), WildMatch("main.c", "*.HC");
+  "%d %d %d\n", WildMatch("main.HC", "*.HC"), WildMatch("main.c", "*.HC"),
+    WildMatch("banana", "b?n*a");
   "%d\n", Atoi("1234") + 1;
   "%c %c %d\n", ToUpper('q'), ToLower('Q'), IsSpace(' ');
 }
@@ -111,33 +183,81 @@ U0 Main()
 =value
 /c.HC
 .tar.gz
-1 0
+1 0 1
 1235
 Q q 1
 </pre>
+<p><code>NULL</code> is safe in the inspecting functions: the compares sort it first,
+<code>StrFirstOcc</code>, <code>StrLastOcc</code> and <code>FileExtDot</code> return
+<code>NULL</code>, <code>WildMatch</code> and <code>IsDotC</code>/<code>IsDotZ</code>
+<code>FALSE</code>, <code>StrOcc</code> and <code>Atoi</code> 0.</p>
 
 <h3>Copying and trimming</h3>
+<p><code>StrNew</code> copies a whole string and <code>StrNCpy(s, n)</code> at most the first
+<code>n</code> bytes of it, like C's <code>strndup</code> (a negative <code>n</code> is 0).
+<code>StrCpy</code> copies into a buffer you provide. <code>StrTrimStart</code> and
+<code>StrTrimEnd</code> remove whitespace in place and return the same pointer; pass a length
+as the second argument to look only at that many bytes, or -1 for the whole string.</p>
 <pre data-run><code>
 U0 Main()
 {
   U8 *copy = StrNew("  padded  ");
   I64 len;
-  U8 *start = StrTrimStart(copy, -1, &len);
-  "[%s] %d\n", start, len;
+  StrTrimStart(copy, -1, &len);
+  "[%s] %d\n", copy, len;
+  StrTrimEnd(copy, -1, &len);
+  "[%s] %d\n", copy, len;
 
-  U8 *end = StrTrimEnd(StrNew("trailing   "), -1, &len);
-  "[%s] %d\n", end, len;
+  U8 *part = StrNCpy("truncate me", 8);
+  "[%s]\n", part;
 
   U8 buf[16];
   StrCpy(buf, "fixed");
   "%s\n", buf;
+  Free(copy);
+  Free(part);
 }
 </code></pre>
 <pre class="output">
 [padded  ] 8
-[trailing] 8
+[padded] 6
+[truncate]
 fixed
 </pre>
+
+<h3>Splitting paths and names</h3>
+<p>These follow TempleOS. <code>StrFirstRem(s, markers, dst)</code> moves the part before
+the first marker character into <code>dst</code> and leaves the rest in <code>s</code>;
+<code>StrLastRem</code> does the same with the part after the last marker. Both change
+<code>s</code> in place, and <code>dst</code> may be <code>NULL</code>.
+<code>FileExtRem(name, dst)</code> cuts the extension off <code>name</code> and puts it,
+without the dot, in <code>dst</code>. <code>FileExtDot</code> finds the first <code>.</code>
+that isn't followed by <code>/</code> or <code>.</code>, and <code>IsDotZ</code> /
+<code>IsDotC</code> are TRUE for TempleOS names like <code>Doc.HC.Z</code>: the name must end
+in <code>.Z</code> / <code>.C</code> and have another dot before it.</p>
+<pre data-run><code>
+U0 Main()
+{
+  U8 path[32], first[16], last[16], ext[8];
+  StrCpy(path, "usr/lib/libtos.a");
+  StrFirstRem(path, "/", first);
+  "%s + %s\n", first, path;
+  StrLastRem(path, "/", last);
+  "%s + %s\n", path, last;
+  FileExtRem(last, ext);
+  "%s . %s\n", last, ext;
+  "%d %d\n", IsDotZ("Doc.HC.Z"), IsDotZ("Doc.Z");
+}
+</code></pre>
+<pre class="output">
+usr + lib/libtos.a
+lib + libtos.a
+libtos . a
+1 0
+</pre>
+<p><code>I64ToStr</code> and <code>U64ToStr</code> are internal helpers of the formatter: they
+write the digits least significant first and without a sign. Use <code>StrPrint</code> to
+turn a number into text.</p>
 
 <h2 id="files">Files</h2>
 <p><code>FileWrite</code> writes a buffer to a file and returns whether it worked.
@@ -583,6 +703,7 @@ U0 Main()
 
   U8 *stamp = MPrintTimestampNow();     // like 2026-10-08 19:01:37
   "timestamp is %d characters\n", StrLen(stamp);
+  Free(stamp);
 
   "elapsed ms is never negative: %d\n", NowMilliseconds() >= start;
 
@@ -593,7 +714,10 @@ U0 Main()
   ds.hour = 12;
   ds.min = 34;
   CDate leap = Struct2Date(&ds);
-  "%s %s\n", MPrintDate(leap), MPrintTime(leap);
+  U8 *date = MPrintDate(leap), *time = MPrintTime(leap);
+  "%s %s\n", date, time;
+  Free(date);
+  Free(time);
 
   CDateStruct back;
   Date2Struct(&back, leap);
@@ -618,6 +742,36 @@ elapsed ms is never negative: 1
 underneath, so <code>CDate d = 5;</code> and <code>I64 x = d;</code> need no cast,
 and <code>F64 f = d;</code> converts it to a float like any integer (a float assigned to a
 <code>CDate</code> is truncated, as it would be for an <code>I64</code>).</p>
+
+<p><code>StrToCDate(text, format)</code> parses a date with a <code>strptime</code>-like
+format and <code>Str2CDateStruct(text, format, &amp;ds)</code> fills a
+<code>CDateStruct</code>. The conversions are <code>%Y</code>, <code>%m</code>,
+<code>%d</code>, <code>%H</code>, <code>%M</code>, <code>%s</code> (or <code>%S</code>) for
+seconds, <code>%a</code> and <code>%b</code> for day and month names (full or three letters,
+any case), <code>%p</code> for AM/PM, <code>%z</code> for a zone offset and <code>%%</code>; a
+space in the format matches any run of spaces, other characters must match exactly.
+Missing time fields are 0. <code>Str2CDateStruct</code> returns <code>FALSE</code> and
+<code>StrToCDate</code> 0 for empty or short input, text that doesn't match, an unknown
+conversion or an impossible value (month 13, February 30, hour 24, ...);
+<code>StrToCDate</code> also needs the year, month and day.</p>
+<pre data-run><code>
+U0 Main()
+{
+  CDate d = StrToCDate("Mar 5 2024 1:30 PM", "%b %d %Y %H:%M %p");
+  U8 *date = MPrintDate(d), *time = MPrintTime(d);
+  "%s %s\n", date, time;
+  Free(date);
+  Free(time);
+
+  CDateStruct ds;
+  "%d %d\n", Str2CDateStruct("2023-02-29", "%Y-%m-%d", &ds),
+    StrToCDate("2024-03", "%Y-%m-%d") == 0;
+}
+</code></pre>
+<pre class="output">
+03/05/2024 13:30:00
+0 1
+</pre>
 
 <h2 id="maths">Maths</h2>
 <p>The C maths library is declared under its usual names (<code>sqrt</code>,
