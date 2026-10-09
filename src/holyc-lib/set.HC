@@ -64,8 +64,8 @@ static RBNode *RBNodeNew(U0 *key, U0 *value)
 static U0 RBNodeRelease(RBTree *tree, RBNode *n)
 {
   if (n && n != RB_SENTINAL) {
-    if (tree->free_key) tree->free_key(n);
-    if (tree->free_value) tree->free_value(n);
+    if (tree->free_key) tree->free_key(n->key);
+    if (tree->free_value) tree->free_value(n->value);
     Free(n);
   }
 }
@@ -251,7 +251,7 @@ static U0 RBTransplant(RBTree *tree, RBNode *u, RBNode *v)
 
 static RBNode *RBNodeMin(RBNode *n)
 {
-  while (n && n->left) n = n->left;
+  while (n->left != RB_SENTINAL) n = n->left;
   return n;
 }
 
@@ -286,8 +286,8 @@ static U0 RBTreeFixDelete(RBTree *tree, RBNode *x)
     } else {
       w = x->parent->left;
       if (w->color == __RB_RED__) {
-        w->color = __RB_RED__;
-        x->parent->color = __RB_BLACK__;
+        w->color = __RB_BLACK__;
+        x->parent->color = __RB_RED__;
         RBRightRot(tree, x->parent);
         w = x->parent->left;
       }
@@ -314,23 +314,10 @@ static U0 RBTreeFixDelete(RBTree *tree, RBNode *x)
 
 U0 RBTreeDelete(RBTree *tree, U0 *key)
 {
-  RBNode *cur = tree->root;
-  RBNode *z = NULL;
+  RBNode *z = RBNodeFind(tree, tree->root, key);
   RBNode *y = NULL;
   RBNode *x = NULL;
-  I64 cmp = 0;
   I64 original_color = -1;
-
-  while (cur) {
-    cmp = tree->key_cmp(key, x->key);
-    if (cmp == 0) {
-      z = cur;
-    } else if (cmp > 0) {
-      cur = cur->right;
-    } else {
-      cur = cur->left;
-    }
-  }
 
   if (z == NULL) {
     return;
@@ -339,10 +326,10 @@ U0 RBTreeDelete(RBTree *tree, U0 *key)
   y = z;
   original_color = y->color;
 
-  if (z->left == NULL) {
+  if (z->left == RB_SENTINAL) {
     x = z->right;
     RBTransplant(tree, z, z->right);
-  } else if (z->right == NULL) {
+  } else if (z->right == RB_SENTINAL) {
     x = z->left;
     RBTransplant(tree, z, z->left);
   } else {
@@ -366,9 +353,7 @@ U0 RBTreeDelete(RBTree *tree, U0 *key)
     RBTreeFixDelete(tree, x);
   }
 
-  if (z) {
-    RBNodeRelease(tree, z);
-  }
+  RBNodeRelease(tree, z);
   tree->size--;
 }
 
