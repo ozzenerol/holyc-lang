@@ -413,7 +413,7 @@ public U8 *IntMapKeysToString(IntMap *map)
 }
 
 
-public Bool StrMapSet(StrMap *map, I64 key, U0 *value);
+public Bool StrMapSet(StrMap *map, U8 *key, U0 *value);
 public StrMap *StrMapNew(U64 capacity=32);
 public U0 StrMapSetFreeValue(StrMap *map, U0 (*_free_value)(U0 *value));
 public U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key));

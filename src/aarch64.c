@@ -1997,10 +1997,9 @@ static void aarch64EmitFunctionPrologue(Cctrl *cc, AoStr *buf, Ast *func,
     char *fname = asmNormaliseFunctionName(cc, func->fname);
     aoStrCatFmt(buf,
                 ".text\n\t"
-                ".p2align 2\n\t"
-                ".globl %s\n"
-                "%s:\n\t",
-                fname, fname);
+                ".p2align 2\n\t");
+    asmEmitFunctionGlobal(cc, buf, fname);
+    aoStrCatFmt(buf, "%s:\n\t", fname);
     if (omit_frame) return;
     /* Standard prologue: push fp/lr pair, set new fp = sp, sub sp. */
     aoStrCatFmt(buf,
@@ -2229,8 +2228,9 @@ static void aarch64PasteAsmBlocks(AoStr *buf, Cctrl *cc) {
              fl = fl->next)
         {
             Ast *asm_func = (Ast *)fl->value;
-            aoStrCatFmt(buf, ".text\n.globl %s\n%s:\n",
-                        asm_func->asmfname->data, asm_func->asmfname->data);
+            aoStrCatFmt(buf, ".text\n");
+            asmEmitFunctionGlobal(cc, buf, asm_func->asmfname->data);
+            aoStrCatFmt(buf, "%s:\n", asm_func->asmfname->data);
             asmEmitBlockBytes(cc, buf, asm_func->body->asm_stmt, 0);
         }
     }

@@ -2320,10 +2320,9 @@ static void x86_64EmitFunctionPrologue(Cctrl *cc,
      * convention for the I-cache fetch boundary). */
     aoStrCatFmt(buf,
                 ".text\n\t"
-                ".p2align 4\n\t"
-                ".globl %s\n"
-                "%s:\n\t",
-                fname, fname);
+                ".p2align 4\n\t");
+    asmEmitFunctionGlobal(cc, buf, fname);
+    aoStrCatFmt(buf, "%s:\n\t", fname);
     /* Leaf function with empty frame: skip the rbp dance entirely
      * (saves 3 instructions per call). Caller-saved rbp survives
      * untouched, no slot accesses to anchor, no callee-saved regs
@@ -2590,8 +2589,7 @@ static void x86_64PasteAsmBlocks(AoStr *buf, Cctrl *cc) {
         {
             Ast *asm_func = (Ast *)fl->value;
             aoStrCatPrintf(buf, ".text\n");
-            aoStrCatPrintf(buf, ".globl %s\n",
-                           asm_func->asmfname->data);
+            asmEmitFunctionGlobal(cc, buf, asm_func->asmfname->data);
             aoStrCatPrintf(buf, "%s:\n", asm_func->asmfname->data);
             asmEmitBlockBytes(cc, buf, asm_func->body->asm_stmt, 0);
         }

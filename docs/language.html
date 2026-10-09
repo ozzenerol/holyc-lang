@@ -439,7 +439,13 @@ U0 Main()
 <pre class="output">144
 </pre>
 <p>Declare a prototype to call a function before its definition:
-<code>I64 Later(I64 x);</code></p>
+<code>I64 Later(I64 x);</code> Every prototype and the definition must agree on the return
+and parameter types; a mismatch is an error ("conflicting types") at the later one.</p>
+<p>A program may define its own version of a standard-library function, with the same
+signature as in <code>tos.HH</code> (<code>CDate Now()</code>, say): the program's calls go to
+its own version, in the JIT and in a compiled binary. The library's own internal calls are
+not redirected under the JIT; in a compiled binary, which links the static
+<code>libtos.a</code>, they may go to your version too, so keep its behaviour compatible.</p>
 <p>A returned value is converted to the function's return type, as in C: an integer returned
 from an <code>F64</code> function becomes a float. In a
 <code>U0</code> function, <code>return expr;</code> is a warning ("unexpected return

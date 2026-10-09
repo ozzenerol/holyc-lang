@@ -5,14 +5,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>Redefining a standard-library function works in the JIT but not AOT</td>
-        <td>Defining your own <code>Now()</code> runs under <code>-jit</code>, but in AOT the link fails ("multiple definition of `Now'") as soon as the program uses anything else from the library, with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
-        <td>Use a different name for your own functions</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h3>Diagnostics</h3>
 <table>

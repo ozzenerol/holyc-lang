@@ -83,6 +83,7 @@ int tokenRingBufferEmpty(TokenRingBuffer *ring_buffer);
 void tokenRingBufferPush(TokenRingBuffer *ring_buffer, Lexeme *token);
 Lexeme *tokenRingBufferPop(TokenRingBuffer *ring_buffer);
 Lexeme *tokenRingBufferPeek(TokenRingBuffer *ring_buffer);
+Lexeme *tokenRingBufferPeekBy(TokenRingBuffer *ring_buffer, s64 offset);
 int tokenRingBufferRewind(TokenRingBuffer *ring_buffer);
 
 /* A macro use and its expansion: a copy of the macro's value placed
@@ -233,6 +234,11 @@ typedef struct Cctrl {
 
     /* Are we compiling position independent code? */
     int is_pic;
+
+    /* Building a library (`-lib`): its functions are emitted as weak
+     * definitions, so a program that defines a function of the same
+     * name links with its own one (see asmEmitFunctionGlobal). */
+    int is_library;
 
     /* .so files that may have been passed on the commandline or recorded
      * by a `#link "<path>"` directive, these should be usable with the

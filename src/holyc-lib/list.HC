@@ -47,7 +47,7 @@ U0 ListAppend(List *head, U0 *value)
   head->prev = node;
 }
 
-U0 *ListDeque(U0 *l)
+U0 *ListDeque(List *l)
 {
   if (!l) return NULL;
   List *ll = l(List *);
@@ -77,7 +77,7 @@ U0 ListInsertValueBefore(List *ll, U0 *value)
   ListInsertBefore(ll,prev);
 }
 
-U0 *ListPop(U0 *l) {
+U0 *ListPop(List *l) {
   List *ll = l(List *);
   if (ll->next == ll) {
     return NULL;
