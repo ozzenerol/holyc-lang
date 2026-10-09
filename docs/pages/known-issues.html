@@ -65,9 +65,6 @@ there works as shown.</p>
     <tr><td><code>NetSetSocketNoDelay</code> returns the opposite of what happened</td>
         <td>It returns <code>FALSE</code> when <code>setsockopt</code> succeeds</td>
         <td>Ignore its result, or call <code>setsockopt</code> yourself</td></tr>
-    <tr><td><code>ThreadPoolRelease</code> hangs</td>
-        <td>After <code>ThreadPoolWait</code>, <code>ThreadPoolRelease</code> never returns: the workers are never woken before <code>pthread_cond_destroy</code>, and detached threads are joined</td>
-        <td>Don't release the pool; let the process exit</td></tr>
     <tr><td><code>System</code> and <code>Sh</code> return the raw wait status</td>
         <td><code>System("exit 3")</code> returns 768, not 3</td>
         <td>Shift it: <code>(System(cmd) &gt;&gt; 8) &amp; 0xFF</code></td></tr>
