@@ -1290,6 +1290,172 @@ int parseValidPostControlFlowToken(Lexeme *tok) {
  * style `if (init-statement; condition)` and a declaration used directly
  * as the condition. The declared variable is registered in the current
  * (if-scoped) localenv. */
+/* Recovery from an error inside the `( ... )` of an if, while, do-while,
+ * for or switch. Without it the statement-level recovery resyncs to the
+ * next `;`, which inside `if (cond) a; else b;` is the one before the
+ * `else`, and the `else` is then reported as a second, bogus error. With
+ * it the rest of the parentheses is skipped and the statement - its body
+ * and any `else` - is parsed as usual, so only real errors are reported.
+ *
+ * The end of the parentheses is found in the source text when they are
+ * opened (the token buffer can't look that far ahead): the matching
+ * close, or, when that is missing, the `{`, `}` (or `;` where one can't
+ * appear: anywhere but the top level of `for (a; b; c)` and
+ * `if (init; cond)`) that the condition runs into, which is left for the
+ * body. */
+typedef struct ParseCondGuard {
+    int armed;
+    int end_line, end_col;  /* the closing token, or the one to stop at */
+    int stop_before;        /* the close is missing: keep the end token */
+    jmp_buf *outer;
+    Map *localenv;
+} ParseCondGuard;
+
+/* `open` is the `(` (or `[`) just consumed. `allow_semi` for the `;`s of
+ * `for (a; b; c)` and `if (init; cond)`. */
+static void parseCondGuardInit(Cctrl *cc, ParseCondGuard *g, Lexeme *open,
+                               int allow_semi)
+{
+    g->armed = 0;
+    g->outer = cc->current_recovery;
+    g->localenv = cc->localenv;
+    if (!open || !cc->lexer_ || !cc->lexer_->cur_file ||
+        !cc->lexer_->cur_file->src || open->line <= 0 || open->col <= 0) {
+        return;
+    }
+    char *src = cc->lexer_->cur_file->src->data;
+    s64 size = cc->lexer_->cur_file->src->len;
+    s64 i = 0, line = 1;
+    while (i < size && line < open->line) {
+        if (src[i] == '\n') line++;
+        i++;
+    }
+    s64 line_start = i;
+    i += open->col - 1;
+    if (i >= size || (src[i] != '(' && src[i] != '[')) {
+        return; /* not where the token says: a macro, an include */
+    }
+    char close = src[i] == '(' ? ')' : ']';
+    int depth = 1;
+    /* The first `;` at the top: where an unclosed condition most likely
+     * ends, as in `if (F((1, 2)) a; else b;` */
+    s64 semi = -1, semi_line = 0, semi_line_start = 0;
+    s64 limit = i + 20000;
+    i++;
+    while (i < size && i < limit && src[i]) {
+        char c = src[i];
+        if (c == '\n') {
+            line++;
+            line_start = i + 1;
+        } else if (c == '"' || c == '\'') {
+            /* a string or character constant: skip to its end */
+            i++;
+            while (i < size && src[i] && src[i] != c) {
+                if (src[i] == '\\' && i + 1 < size) i++;
+                if (src[i] == '\n') {
+                    line++;
+                    line_start = i + 1;
+                }
+                i++;
+            }
+        } else if (c == '/' && i + 1 < size && src[i + 1] == '/') {
+            while (i < size && src[i] && src[i] != '\n') i++;
+            continue;
+        } else if (c == '/' && i + 1 < size && src[i + 1] == '*') {
+            i += 2;
+            while (i + 1 < size && !(src[i] == '*' && src[i + 1] == '/')) {
+                if (src[i] == '\n') {
+                    line++;
+                    line_start = i + 1;
+                }
+                i++;
+            }
+            i++;
+        } else if (c == '(' || c == '[') {
+            depth++;
+        } else if (c == ')' || c == ']') {
+            if (--depth == 0) {
+                if (c != close) return;
+                g->stop_before = 0;
+                break;
+            }
+        } else if (c == '{' || c == '}' ||
+                   (c == ';' && (!allow_semi || depth > 1))) {
+            /* A `;` is only at the top of `for (a; b; c)` */
+            g->stop_before = 1;
+            if (c != ';' && semi >= 0) {
+                i = semi;
+                line = semi_line;
+                line_start = semi_line_start;
+            }
+            break;
+        } else if (c == ';' && semi < 0) {
+            semi = i;
+            semi_line = line;
+            semi_line_start = line_start;
+        }
+        i++;
+    }
+    if (i >= size || i >= limit || !src[i]) {
+        return;
+    }
+    g->end_line = (int)line;
+    g->end_col = (int)(i - line_start + 1);
+    g->armed = 1;
+}
+
+/* Called from the guard's setjmp: the error is reported, skip what is
+ * left of the parentheses. An error after them (a range `for` parses its
+ * body inside its parentheses) goes on to the outer recovery. */
+static void parseCondGuardRecover(Cctrl *cc, ParseCondGuard *g) {
+    cc->current_recovery = g->outer;
+    cc->localenv = g->localenv;
+    Lexeme *tok = cctrlTokenPeek(cc);
+    if (tok && (tok->line > g->end_line ||
+                (tok->line == g->end_line && tok->col > g->end_col))) {
+        /* Past the end: fine when the close itself was the last token
+         * read (`while ()`), else the error was after the parentheses */
+        cctrlTokenRewind(cc);
+        Lexeme *last = cctrlTokenGet(cc);
+        if (last && last->line == g->end_line && last->col == g->end_col) {
+            /* The `{` a condition missing its `)` runs into is the
+             * body's: give it back */
+            if (g->stop_before) cctrlTokenRewind(cc);
+            return;
+        }
+        cctrlTerminate(cc);
+    }
+    while ((tok = cctrlTokenPeek(cc)) != NULL) {
+        if (tok->line > g->end_line ||
+            (tok->line == g->end_line && tok->col >= g->end_col)) {
+            if (!g->stop_before && tok->line == g->end_line &&
+                tok->col == g->end_col) {
+                cctrlTokenGet(cc);
+            }
+            break;
+        }
+        cctrlTokenGet(cc);
+    }
+}
+
+/* A copy of the token just consumed */
+static Lexeme parseConsumedToken(Cctrl *cc) {
+    cctrlTokenRewind(cc);
+    return *cctrlTokenGet(cc);
+}
+
+/* Arm the guard: errors from here jump to `jb` */
+static void parseCondGuardArm(Cctrl *cc, ParseCondGuard *g, jmp_buf *jb) {
+    if (g->armed) {
+        cc->current_recovery = jb;
+    }
+}
+
+/* The parentheses parsed: errors go to the outer recovery again */
+static void parseCondGuardDone(Cctrl *cc, ParseCondGuard *g) {
+    cc->current_recovery = g->outer;
+}
+
 /* An expression where one is required: parseExpr gives NULL when the next
  * token can't start one (`while ()`), which compiled to nothing or
  * crashed later. Reported at that token. */
@@ -1346,6 +1512,8 @@ static Ast *parseIfClause(Cctrl *cc, char *term_out) {
     if (tokenPunctIs(t, ';'))      *term_out = ';';
     else if (tokenPunctIs(t, ')')) *term_out = ')';
     else {
+        /* Point at `t`, not at the token after it */
+        if (t) cctrlTokenRewind(cc);
         cctrlRaiseException(cc,
             "Expected ';' or ')' in `if (...)`, got `%.*s`",
             t ? t->len : 0, t ? t->start : "");
@@ -1355,6 +1523,7 @@ static Ast *parseIfClause(Cctrl *cc, char *term_out) {
 
 Ast *parseIfStatement(Cctrl *cc) {
     cctrlTokenExpect(cc,'(');
+    Lexeme open = parseConsumedToken(cc);
 
     /* C++17 `if (init; cond)`: zero or more `;`-separated init statements
      * followed by the condition. The init declarations and a
@@ -1362,20 +1531,31 @@ Ast *parseIfStatement(Cctrl *cc) {
      * open a child environment and, when present, desugar to a block. */
     cc->localenv = cctrlCreateAstMap(cc->localenv);
     List *pre = listNew();
-    Ast *cond_clause = NULL;
-    while (1) {
-        char term = 0;
-        Ast *clause = parseIfClause(cc, &term);
-        if (term == ')') {
-            if (!clause) {
-                /* `if ()`: the `)` was the last token read */
-                cctrlRaiseException(cc,
-                        "Expected the `if` condition, got `)`");
+    Ast *volatile cond_clause = NULL;
+    ParseCondGuard guard;
+    jmp_buf cond_recovery;
+    parseCondGuardInit(cc, &guard, &open, 1);
+    if (setjmp(cond_recovery) != 0) {
+        /* Reported; the error stops the compile, parse on for the body */
+        parseCondGuardRecover(cc, &guard);
+        cond_clause = astI64Type(1);
+    } else {
+        parseCondGuardArm(cc, &guard, &cond_recovery);
+        while (1) {
+            char term = 0;
+            Ast *clause = parseIfClause(cc, &term);
+            if (term == ')') {
+                if (!clause) {
+                    /* `if ()`: the `)` was the last token read */
+                    cctrlRaiseException(cc,
+                            "Expected the `if` condition, got `)`");
+                }
+                cond_clause = clause;
+                break;
             }
-            cond_clause = clause;
-            break;
+            if (clause) listAppend(pre, clause);   /* an init statement */
         }
-        if (clause) listAppend(pre, clause);   /* an init statement */
+        parseCondGuardDone(cc, &guard);
     }
 
     /* A declaration used as the condition evaluates to the declared
@@ -1674,7 +1854,8 @@ Ast *parseForLoopInitialiser(Cctrl *cc) {
 }
 
 Ast *parseForStatement(Cctrl *cc) {
-    Ast *forinit, *forcond, *forstep, *forbody;
+    Ast *volatile forinit, *volatile forcond, *volatile forstep;
+    Ast *forbody;
     AoStr *for_begin, *for_end, *for_middle,
           *prev_begin, *prev_end;
     cctrlTokenExpect(cc,'(');
@@ -1690,26 +1871,39 @@ Ast *parseForStatement(Cctrl *cc) {
     cc->tmp_loop_end = for_end;
 
     cc->localenv = cctrlCreateAstMap(cc->localenv);
-    forinit = parseForLoopInitialiser(cc);
-    //parseOptDeclOrStmt(cc);
-
-    if (forinit && forinit->kind == AST_FOR) {
-        forinit->for_begin = for_begin;
-        forinit->for_middle = for_middle;
-        forinit->for_end = for_end;
-        cc->localenv = cc->localenv->parent;
-        cc->tmp_loop_begin = prev_begin;
-        cc->tmp_loop_end = prev_end;
-        return forinit;
-    }
-
-    forcond = parseOptExpr(cc);
-    if (tokenPunctIs(cctrlTokenPeek(cc), ')')) {
-        forstep = NULL;
+    Lexeme open = parseConsumedToken(cc);
+    ParseCondGuard guard;
+    jmp_buf cond_recovery;
+    parseCondGuardInit(cc, &guard, &open, 1);
+    if (setjmp(cond_recovery) != 0) {
+        parseCondGuardRecover(cc, &guard);
+        forinit = forcond = forstep = NULL;
     } else {
-        forstep = parseExpr(cc,16);
+        parseCondGuardArm(cc, &guard, &cond_recovery);
+        forinit = parseForLoopInitialiser(cc);
+        //parseOptDeclOrStmt(cc);
+
+        if (forinit && forinit->kind == AST_FOR) {
+            /* A range loop, body and all */
+            parseCondGuardDone(cc, &guard);
+            forinit->for_begin = for_begin;
+            forinit->for_middle = for_middle;
+            forinit->for_end = for_end;
+            cc->localenv = cc->localenv->parent;
+            cc->tmp_loop_begin = prev_begin;
+            cc->tmp_loop_end = prev_end;
+            return forinit;
+        }
+
+        forcond = parseOptExpr(cc);
+        if (tokenPunctIs(cctrlTokenPeek(cc), ')')) {
+            forstep = NULL;
+        } else {
+            forstep = parseExpr(cc,16);
+        }
+        cctrlTokenExpect(cc,')');
+        parseCondGuardDone(cc, &guard);
     }
-    cctrlTokenExpect(cc,')');
 
     Lexeme *peek = cctrlTokenPeek(cc);
     if (peek == NULL) {
@@ -1728,7 +1922,8 @@ Ast *parseForStatement(Cctrl *cc) {
 }
 
 Ast *parseWhileStatement(Cctrl *cc) {
-    Ast *whilecond, *whilebody;
+    Ast *volatile whilecond;
+    Ast *whilebody;
     AoStr *while_begin, *while_end,
           *prev_begin, *prev_end;
     cctrlTokenExpect(cc,'(');
@@ -1742,8 +1937,19 @@ Ast *parseWhileStatement(Cctrl *cc) {
     cc->tmp_loop_end = while_end;
 
     cc->localenv = cctrlCreateAstMap(cc->localenv);
-    whilecond = parseRequiredExpr(cc, "the `while` condition");
-    cctrlTokenExpect(cc,')');
+    Lexeme open = parseConsumedToken(cc);
+    ParseCondGuard guard;
+    jmp_buf cond_recovery;
+    parseCondGuardInit(cc, &guard, &open, 0);
+    if (setjmp(cond_recovery) != 0) {
+        parseCondGuardRecover(cc, &guard);
+        whilecond = astI64Type(0);
+    } else {
+        parseCondGuardArm(cc, &guard, &cond_recovery);
+        whilecond = parseRequiredExpr(cc, "the `while` condition");
+        cctrlTokenExpect(cc,')');
+        parseCondGuardDone(cc, &guard);
+    }
 
     Lexeme *peek = cctrlTokenPeek(cc);
     if (peek == NULL) {
@@ -1762,7 +1968,8 @@ Ast *parseWhileStatement(Cctrl *cc) {
 }
 
 Ast *parseDoWhileStatement(Cctrl *cc) {
-    Ast *whilecond, *whilebody;
+    Ast *volatile whilecond;
+    Ast *whilebody;
     Lexeme *tok;
     AoStr *while_begin, *while_end,
           *prev_begin, *prev_end;
@@ -1800,8 +2007,19 @@ Ast *parseDoWhileStatement(Cctrl *cc) {
     }
 
     cctrlTokenExpect(cc, '(');
-    whilecond = parseRequiredExpr(cc, "the `while` condition");
-    cctrlTokenExpect(cc,')');
+    Lexeme open = parseConsumedToken(cc);
+    ParseCondGuard guard;
+    jmp_buf cond_recovery;
+    parseCondGuardInit(cc, &guard, &open, 0);
+    if (setjmp(cond_recovery) != 0) {
+        parseCondGuardRecover(cc, &guard);
+        whilecond = astI64Type(0);
+    } else {
+        parseCondGuardArm(cc, &guard, &cond_recovery);
+        whilecond = parseRequiredExpr(cc, "the `while` condition");
+        cctrlTokenExpect(cc,')');
+        parseCondGuardDone(cc, &guard);
+    }
     cctrlTokenExpect(cc,';');
     cc->localenv = cc->localenv->parent;
     cc->tmp_loop_begin = prev_begin;
@@ -2032,12 +2250,13 @@ Ast *parseDefaultStatement(Cctrl *cc) {
 }
 
 Ast *parseSwitchStatement(Cctrl *cc) {
-    Ast *cond, *tmp, *original_default_label;
+    Ast *volatile cond;
+    Ast *tmp, *original_default_label;
     Lexeme *peek;
     Vec *original_cases;
     AoStr *end_label,*tmp_name,*original_break;
-    int switch_bounds_checked = 1;
-    char terminating_char = ')';
+    volatile int switch_bounds_checked = 1;
+    volatile char terminating_char = ')';
 
     peek = cctrlTokenPeek(cc);
 
@@ -2053,11 +2272,22 @@ Ast *parseSwitchStatement(Cctrl *cc) {
     }
 
     cctrlTokenGet(cc);
-    cond = parseRequiredExpr(cc, "the `switch` value");
-    if (!astIsIntType(cond->type)) {
-        cctrlRaiseException(cc,"Switch can only have int's at this time");
+    Lexeme open = parseConsumedToken(cc);
+    ParseCondGuard guard;
+    jmp_buf cond_recovery;
+    parseCondGuardInit(cc, &guard, &open, 0);
+    if (setjmp(cond_recovery) != 0) {
+        parseCondGuardRecover(cc, &guard);
+        cond = astI64Type(0);
+    } else {
+        parseCondGuardArm(cc, &guard, &cond_recovery);
+        cond = parseRequiredExpr(cc, "the `switch` value");
+        if (!astIsIntType(cond->type)) {
+            cctrlRaiseException(cc,"Switch can only have int's at this time");
+        }
+        cctrlTokenExpect(cc,terminating_char);
+        parseCondGuardDone(cc, &guard);
     }
-    cctrlTokenExpect(cc,terminating_char);
 
     original_break = cc->tmp_loop_end;
     original_default_label = cc->tmp_default_case;
