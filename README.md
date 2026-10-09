@@ -55,7 +55,8 @@ U0 Main()
 ## Building
 
 Requirements: a C compiler (gcc or clang), `make`, `cmake`, and Python 3 for
-the docs checks. Linux (x86_64, arm64) and macOS (arm64) are tested; on Windows
+the docs checks. Linux (x86_64, arm64) and macOS (arm64) are supported and tested;
+macOS on Intel is not supported. On Windows
 use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install).
 
 ```sh
@@ -68,7 +69,7 @@ Other flags: `--debug` (AddressSanitizer build), `--sqlite` (link libtos with
 SQLite), `--clean`. Environment overrides: `CC`, `JOBS`, `INSTALL_PREFIX`.
 Run it as your normal user, not with sudo.
 
-Prebuilt binaries for Linux x86_64/aarch64 and macOS are attached to
+Prebuilt binaries for Linux x86_64/aarch64 and macOS (Apple Silicon) are attached to
 [releases](https://github.com/ozzenerol/holyc-lang/releases); install one with
 `packaging/install.sh`. What changed in each version is on the
 [Releases page](https://ozzenerol.github.io/holyc-lang/releases.html).
