@@ -2160,7 +2160,13 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
                 aoStrCatFmt(buf, ".data\n\t.p2align 3\n%S:\n\t.quad %S\n\t",
                             label, declinit->slabel);
             } else {
-                aoStrCatFmt(buf, "%S:\n\t.asciz \"%S\"\n\t",
+                /* Writable storage: without a section directive it went
+                 * wherever the previous global left off, after the
+                 * string literals in a read-only section. */
+                if (!declvar->is_static) {
+                    aoStrCatFmt(buf, ".globl %S\n", label);
+                }
+                aoStrCatFmt(buf, ".data\n%S:\n\t.asciz \"%S\"\n\t",
                             label, declinit->sval);
                 /* `U8 buf[8] = "abc"`: zero-fill past the string. */
                 int pad = declvar->type->size - (int)declinit->real_len;
