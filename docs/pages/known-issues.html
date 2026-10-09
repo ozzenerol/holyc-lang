@@ -11,9 +11,6 @@ there works as shown.</p>
     <tr><td>A local declaration accepts a class value into an integer</td>
         <td><code>P p; I64 z = p;</code> inside a function is only a warning and stores the class's address; assigning (<code>y = p</code>) or a global <code>I64 gz = gp;</code> are errors</td>
         <td>Treat the warning as an error, or build with <code>-Werror</code></td></tr>
-    <tr><td>The C transpiler crashes on a cast after a double dereference</td>
-        <td><code>I64 v = **pp(I64 *);</code> with <code>Pt **pp</code> makes <code>-transpile</code> print "Unary type is being assigned as NULL" and segfault</td>
-        <td>The transpiler is experimental; split the expression</td></tr>
   </tbody>
 </table>
 
