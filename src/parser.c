@@ -3331,7 +3331,13 @@ static void parseCheckFunctionRedeclaration(Cctrl *cc, AstType *rettype,
 {
     if (cc->flags & CCTRL_REPL) return;
     Ast *prev = mapGetLen(cc->global_env, fname, len);
-    if (!prev || (prev->kind != AST_FUN_PROTO && prev->kind != AST_FUNC)) {
+    if (!prev) {
+        /* `_extern _LABEL T Name(...)` bindings live in asm_funcs */
+        prev = mapGetLen(cc->asm_funcs, fname, len);
+        if (prev && prev->kind != AST_ASM_FUNC_BIND) return;
+    }
+    if (!prev || (prev->kind != AST_FUN_PROTO && prev->kind != AST_FUNC &&
+                  prev->kind != AST_ASM_FUNC_BIND)) {
         return;
     }
     AstType *type = astMakeFunctionType(rettype, params);
