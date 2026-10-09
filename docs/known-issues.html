@@ -56,9 +56,6 @@ there works as shown.</p>
         <td><code>-transpile</code> writes a nested named class after the struct that uses it</td>
         <td>The transpiler is experimental; fix the C output by hand</td></tr>
   </tbody>
-    <tr><td>An array declaration with no size and no <code>]</code> crashes hcc</td>
-        <td><code>U0 Main() { I64 a[; }</code> segfaults instead of reporting the missing size</td>
-        <td>Close the brackets; the error is in your code</td></tr>
     <tr><td>Two binary operators in a row can crash hcc</td>
         <td><code>I64 d = 1 +* 2;</code> prints "Unary type is being assigned as NULL" and segfaults instead of a syntax error</td>
         <td>Fix the expression; the error is in your code</td></tr>
