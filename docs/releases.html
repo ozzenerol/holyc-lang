@@ -36,6 +36,41 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.2.0 <small>(2026-10-09)</small></h2>
+<p>Networking and parser fixes: sockets now work the same on Linux and macOS, and five
+more compiler bugs are gone, each with a regression test.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>NetAccept</code> returns an <code>I32</code>: the new socket, or -1 on failure (it used to
+  return a value you couldn't check).</li>
+  <li><code>\x</code> in strings and character constants takes at most two hex digits, as in C, so
+  <code>"\x01b"</code> is the bytes 1 and <code>'b'</code>, the same in AOT and the JIT.</li>
+  <li><code>sizeof</code> of a string literal always counts its terminating NUL
+  (<code>sizeof("\xa3\xFF")</code> is 3).</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Socket address layouts and constants follow the platform: <code>sockaddr</code> layouts, the
+  Linux <code>TCP_*</code> options, <code>AI_NUMERICSERV</code>; <code>IPPROTO_*</code> are exported.</li>
+  <li>The arm64 JIT sign-extends <code>I32</code> locals at large frame offsets (negative values
+  read back as large positive ones).</li>
+  <li>A modulo or division by a variable inside an array subscript no longer crashes hcc;
+  division or modulo by a constant 0 is reported as an error.</li>
+  <li>Two bad statements in a row no longer crash hcc; error recovery skips a stray
+  <code>}</code> at the top level.</li>
+  <li>Brace elision works for class-typed and array fields of initialiser lists
+  (<code>Q q = {1, 2, 3};</code> where the middle field is a class).</li>
+  <li>String escapes are emitted so the assembler can't misread them, so AOT and JIT strings
+  are byte-for-byte the same.</li>
+  <li>Character constants accept every escape strings do: <code>'\b'</code> is 8, not 92.</li>
+  <li><code>make build</code> works, and <code>make</code> no longer copies <code>build.sh</code> over the
+  <code>build</code> directory.</li>
+  <li>The test suite runs on macOS, which has no <code>timeout</code> command.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.1.0 <small>(2026-10-09)</small></h2>
 <p>The first release of this fork, which is developed independently of
 <a href="https://github.com/Jamesbarford/holyc-lang">Jamesbarford/holyc-lang</a>
