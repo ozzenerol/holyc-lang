@@ -58,6 +58,8 @@ class pthread_t
 
 #elifdef IS_LINUX /* Linux definitions, this needs to be auto generated */
 
+/* glibc's bits/pthreadtypes-arch.h: the sizes differ between x86_64 and aarch64 */
+#ifdef IS_X86_64
 #define __SIZEOF_PTHREAD_MUTEX_T   40
 #define __SIZEOF_PTHREAD_ATTR_T    56
 #define __SIZEOF_PTHREAD_RWLOCK_T  56
@@ -68,6 +70,18 @@ class pthread_t
 #define __SIZEOF_PTHREAD_CONDATTR_T    4
 #define __SIZEOF_PTHREAD_RWLOCKATTR_T  8
 #define __SIZEOF_PTHREAD_BARRIERATTR_T 4
+#else /* aarch64 */
+#define __SIZEOF_PTHREAD_MUTEX_T   48
+#define __SIZEOF_PTHREAD_ATTR_T    64
+#define __SIZEOF_PTHREAD_RWLOCK_T  56
+#define __SIZEOF_PTHREAD_BARRIER_T 32
+
+#define __SIZEOF_PTHREAD_MUTEXATTR_T   8
+#define __SIZEOF_PTHREAD_COND_T        48
+#define __SIZEOF_PTHREAD_CONDATTR_T    8
+#define __SIZEOF_PTHREAD_RWLOCKATTR_T  8
+#define __SIZEOF_PTHREAD_BARRIERATTR_T 8
+#endif
 
 union pthread_mutexattr_t
 {
@@ -116,7 +130,7 @@ class __pthread_mutex_s
 union pthread_mutex_t 
 {
   __pthread_mutex_s __data;
-  I32 __size[__SIZEOF_PTHREAD_MUTEX_T];
+  I8  __size[__SIZEOF_PTHREAD_MUTEX_T];
   I64 __align;
 };
 
