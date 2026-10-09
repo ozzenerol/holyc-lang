@@ -2100,6 +2100,8 @@ void parseCompoundStatementInternal(Cctrl *cc, Ast *body) {
                                                         : NULL;
         List *volatile locals_tail = cc->tmp_locals ? cc->tmp_locals->prev
                                                     : NULL;
+        /* Where this statement starts in the token stream */
+        volatile s64 stmt_start = cc->token_buffer->pos;
 
         if (setjmp(stmt_recovery) != 0) {
             cc->localenv = block_scope;
@@ -2111,6 +2113,13 @@ void parseCompoundStatementInternal(Cctrl *cc, Ast *body) {
                 locals_tail->next = cc->tmp_locals;
                 cc->tmp_locals->prev = locals_tail;
             }
+            /* A diagnostic can rewind to the token it points at, and
+             * that may be before this statement: resync from no
+             * earlier than its start. Syncing from an earlier `;`
+             * would parse this statement again, fail the same way
+             * and never get past it. */
+            while (cc->token_buffer->pos < stmt_start &&
+                   cctrlTokenGet(cc) != NULL);
             cctrlSyncStatement(cc);
             tok = cctrlTokenPeek(cc);
             continue;
@@ -3041,7 +3050,9 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
         /* End of input after the type, `I64` or `static I64 *`. */
         name = cctrlTokenGetRequired(cc);
 
-        if (name->tk_type == TK_KEYWORD) {
+        /* A keyword after a type: `I64 class X`. Without a type (a
+         * stray punct before `class`) it is reported below. */
+        if (name->tk_type == TK_KEYWORD && type != NULL) {
             switch (name->i64) {
                 case KW_CLASS:
                     if (!astIsIntType(type)) {

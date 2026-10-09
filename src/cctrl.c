@@ -358,6 +358,7 @@ TokenRingBuffer *tokenRingBufferStaticNew(void) {
     ring_buffer->head = 0;
     ring_buffer->size = 0;
     ring_buffer->got_eof = 0;
+    ring_buffer->pos = 0;
     ring_buffer->entries = token_ring_buffer;
     ring_buffer->capacity = CCTRL_TOKEN_BUFFER_SIZE;
     for (s64 i = 0; i < CCTRL_TOKEN_BUFFER_SIZE; ++i) {
@@ -372,6 +373,7 @@ TokenRingBuffer *tokenRingBufferNew(void) {
     ring_buffer->head = 0;
     ring_buffer->size = 0;
     ring_buffer->got_eof = 0;
+    ring_buffer->pos = 0;
     return ring_buffer;
 }
 
@@ -576,6 +578,7 @@ void cctrlTokenRewind(Cctrl *cc) {
     if (!tokenRingBufferRewind(ring_buffer)) {
         return;
     }
+    ring_buffer->pos--;
 }
 
 /* Register `filename` in cc->file_map, returning its 1-based id -
@@ -613,6 +616,7 @@ Lexeme *cctrlTokenGet(Cctrl *cc) {
         if (cc->token_buffer->size < 3 && cc->lexer_) {
             cctrLoadNextTokens(cc,5);
         }
+        cc->token_buffer->pos++;
         cc->lineno = token->line;
         ast_line_hint = token->line;
         ast_col_hint = token->col;
@@ -1244,11 +1248,19 @@ static void cctrlSyncCommon(Cctrl *cc, int stop_at_toplevel_kw) {
             continue;
         }
         if (tokenPunctIs(peek, '}')) {
-            if (depth == 0) {
+            if (depth == 0 && !stop_at_toplevel_kw) {
                 /* Hit the closing brace of our containing block;
                  * leave it in place so the parent parser can consume
                  * it and exit cleanly. */
                 return;
+            }
+            if (depth == 0) {
+                /* Nothing encloses the top level: a `}` there is
+                 * stray (the rest of a block the error cut short).
+                 * Left in place, the next declaration would start
+                 * with it. */
+                cctrlTokenGet(cc);
+                continue;
             }
             depth--;
             cctrlTokenGet(cc);

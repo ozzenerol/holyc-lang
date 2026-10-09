@@ -71,6 +71,9 @@ typedef struct TokenRingBuffer {
     /* The last cctrlTokenGet found no token (end of input); a rewind
      * then has nothing to give back. */
     int got_eof;
+    /* Tokens taken by cctrlTokenGet minus those given back by
+     * cctrlTokenRewind: orders two positions in the token stream. */
+    s64 pos;
 } TokenRingBuffer;
 
 TokenRingBuffer *tokenRingBufferNew(void);
