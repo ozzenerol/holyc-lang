@@ -1339,6 +1339,28 @@ LexerType *lexPreProcDirective(Lexer *l) {
     return type;
 }
 
+/* `ch`, at `start`, is not a character HolyC has a use for here (`?`,
+ * a backtick, `$`/`@` outside an asm block, a stray control or
+ * non-ASCII byte): report it and step over it. A UTF-8 character is
+ * stepped over whole so it is reported once, not once per byte. The
+ * CCF_PERMISSIVE re-lexer echoes it as written and stays quiet. */
+static void lexUnknownChar(Lexer *l, char *start, char ch) {
+    unsigned char uch = (unsigned char)ch;
+    int is_utf8 = uch >= 0xC0;
+    if (is_utf8) {
+        while (((unsigned char)*l->ptr & 0xC0) == 0x80) l->ptr++;
+    }
+    if (l->flags & (CCF_PERMISSIVE|CCF_COND_SKIP)) return;
+    if (is_utf8 || isprint(uch)) {
+        lexReportAt(l, l->tok_start_line, l->tok_start_col, 1,
+                    "unexpected character '%.*s'",
+                    (int)(l->ptr - start), start);
+    } else {
+        lexReportAt(l, l->tok_start_line, l->tok_start_col, 1,
+                    "unexpected character '\\x%02x'", uch);
+    }
+}
+
 static int lexCore(Lexer *l, Lexeme *le) {
     char ch, *start;
     int tk_type;
@@ -1372,6 +1394,8 @@ static int lexCore(Lexer *l, Lexeme *le) {
                 break;
 
             case '\t':
+            case '\v':
+            case '\f':
             case ' ':
                 if (l->flags & (CCF_ACCEPT_WHITESPACE)) {
                     lexemeAssignOp(le,start,1,ch,l->lineno);
@@ -1599,6 +1623,7 @@ static int lexCore(Lexer *l, Lexeme *le) {
                     lexemeAssignOp(le,start,1,ch,l->lineno);
                     return 1;
                 }
+                lexUnknownChar(l, start, ch);
                 break;
             case '.':
                 if (isNum(lexPeek(l))) {
@@ -1719,6 +1744,7 @@ static int lexCore(Lexer *l, Lexeme *le) {
                     }
                     return 1;
                 }
+                lexUnknownChar(l, start, ch);
                 break;
             }
         }
@@ -2508,6 +2534,15 @@ static int lexIsCondOpen(Lexeme *le) {
     }
 }
 
+/* lex() a token of a skipped #if group */
+static int lexSkippedToken(Lexer *l, Lexeme *le) {
+    int had = l->flags & CCF_COND_SKIP;
+    l->flags |= CCF_COND_SKIP;
+    int rc = lex(l, le);
+    if (!had) l->flags &= ~CCF_COND_SKIP;
+    return rc;
+}
+
 /* Skip the dead text of the innermost conditional: up to a branch to
  * take (an #elif that holds or an #else, while no branch has been
  * taken) or its #endif, which closes it. Conditionals nested in the
@@ -2518,7 +2553,7 @@ static int lexCondSkip(Map *macro_defs, Lexer *l) {
     LexCond *cond = lexCondTop(l);
     int depth = 0;
 
-    while (lex(l, &le)) {
+    while (lexSkippedToken(l, &le)) {
         if (lexIsCondOpen(&le)) {
             depth++;
             continue;

@@ -164,6 +164,10 @@
  * body). Used by the diagnostic renderer's per-line re-lexer,
  * which only needs to colourise, not validate. */
 #define CCF_PERMISSIVE        (1<<8)
+/* Lexing a skipped #if group: like C, a character with no use outside
+ * an asm block (`@@1` in an `#ifdef IS_X86_64` asm block skipped on
+ * arm64) is not an error there. */
+#define CCF_COND_SKIP         (1<<9)
 
 #define LEXEME_RAW_PUNCT              (1<<0)
 #define LEXEME_ENCODE_PUNCT           (1<<1)
