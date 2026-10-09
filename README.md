@@ -17,6 +17,8 @@ U0 Main()
 }
 ```
 
+**Documentation: [ozzenerol.github.io/holyc-lang](https://ozzenerol.github.io/holyc-lang/)**
+
 > [!NOTE]
 > This is an independent fork of
 > [Jamesbarford/holyc-lang](https://github.com/Jamesbarford/holyc-lang). It has
@@ -45,8 +47,8 @@ U0 Main()
 - **Tests everywhere**: ~180 numbered tests run both compiled and in the JIT,
   LSP tests, checked documentation examples, and a cross-architecture matrix in
   Docker.
-- **Documentation** in [`docs/`](docs/index.html): getting started, the language,
-  the library, tools, examples and a [known-issues](docs/known-issues.html) page
+- **Documentation** at **[ozzenerol.github.io/holyc-lang](https://ozzenerol.github.io/holyc-lang/)** (built from `docs/`): getting started, the language,
+  the library, tools, examples and a [known-issues](https://ozzenerol.github.io/holyc-lang/known-issues.html) page
   where every open bug has a reproduction and a workaround. Every example in the
   docs is compiled and run by the test suite.
 
@@ -127,7 +129,7 @@ vim.api.nvim_create_autocmd("FileType", {
 ### Other tools
 `-cfg` / `-cfg-png` / `-cfg-svg` draw a function's control-flow graph
 (needs [graphviz](https://graphviz.org/)); `-transpile` turns HolyC into C
-(experimental). See [Tools](docs/tools.html).
+(experimental). See [Tools](https://ozzenerol.github.io/holyc-lang/tools.html).
 
 ## Testing
 
@@ -148,11 +150,11 @@ before the fix and passes after it.
 - `auto` type inference and `typeof(expr)` (a compile-time string).
 - Range-based `for` over arrays and over any class with `entries` and `size`.
 - `extern "c"` to call any C function, and `#link` for shared libraries.
-- See the [language page](docs/language.html) for the full list.
+- See the [language page](https://ozzenerol.github.io/holyc-lang/language.html) for the full list.
 
 ## Known issues
 Open bugs, each with a reproduction and a workaround, are on the
-[known-issues page](docs/known-issues.html).
+[known-issues page](https://ozzenerol.github.io/holyc-lang/known-issues.html).
 
 ## Credits
 hcc was created by [James Barford-Evans](https://github.com/Jamesbarford); this
