@@ -80,6 +80,10 @@ int compileToAst(Cctrl *cc, CliArgs *args, int lexer_flags) {
     /* library files */
     /* the structure is a so this will get popped first */
     lexPushFile(l,builtin_path);
+    if (l->cur_file && l->cur_file->src) {
+        cc->header_src = l->cur_file->src->data;
+        cc->header_len = l->cur_file->src->len;
+    }
 
     cctrlInitParse(cc,l);
 

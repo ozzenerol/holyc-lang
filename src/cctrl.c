@@ -284,6 +284,9 @@ Cctrl *cctrlNew(enum CliTarget target) {
     cc->macro_defs = cctrlCreateLexemeMap();
     cc->x86_registers = setNew(32, &set_cstring_type);
     cc->libc_functions = setNew(32, &set_cstring_type);
+    cc->header_names = setNew(256, &set_cstring_type);
+    cc->header_src = NULL;
+    cc->header_len = 0;
     cc->strs = mapNew(32, &map_ast_type);
     cc->asm_blocks = listNew();
     cc->asm_functions = mapNew(32, &map_ast_type);
@@ -600,6 +603,37 @@ u32 cctrlRegisterFile(Cctrl *cc, AoStr *filename) {
     u32 id = (u32)cc->file_map->size + 1;
     mapAddIntOrErr(cc->file_map, id, aoStrDup(filename));
     return id;
+}
+
+/* Record `start`..`len` as a name the builtin header declares, if the
+ * token is in the header's source */
+void cctrlNoteHeaderName(Cctrl *cc, char *start, int len) {
+    if (!cc || !cc->header_src || !start || len <= 0) return;
+    if (start < cc->header_src || start >= cc->header_src + cc->header_len) {
+        return;
+    }
+    if (setHasLen(cc->header_names, start, len)) return;
+    setAdd(cc->header_names, mprintf("%.*s", len, start));
+}
+
+/* Library symbols tos.HH doesn't declare that are used from outside
+ * libtos all the same */
+static const char *cctrl_libtos_extra_exports[] = {
+    "argc", "argv",   /* provided by the C startup glue */
+    NULL
+};
+
+/* Whether a function or global named `name` gets a global symbol. Every
+ * one does in a program or a user library. libtos is one translation
+ * unit, so in it only what tos.HH declares is exported (and argc/argv);
+ * everything else is local and a program can't replace it. */
+int cctrlIsExported(Cctrl *cc, AoStr *name) {
+    if (!cc->is_libtos || !name) return 1;
+    if (setHasLen(cc->header_names, name->data, name->len)) return 1;
+    for (int i = 0; cctrl_libtos_extra_exports[i]; ++i) {
+        if (!strcmp(name->data, cctrl_libtos_extra_exports[i])) return 1;
+    }
+    return 0;
 }
 
 AoStr *cctrlLookUpFile(Cctrl *cc, u32 file_id) {

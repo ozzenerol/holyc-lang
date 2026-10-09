@@ -234,6 +234,16 @@ typedef struct Cctrl {
      * definitions, so a program that defines a function of the same
      * name links with its own one (see asmEmitFunctionGlobal). */
     int is_library;
+    /* Building the standard library itself (`-lib tos`) */
+    int is_libtos;
+    /* The builtin header (tos.HH) as read: a name whose declaring token
+     * lies in this buffer is part of the library's public API */
+    char *header_src;
+    s64 header_len;
+    /* Names the header declares (functions, asm-bound labels, data).
+     * When building the library, only these are exported; every other
+     * library symbol is local (libtos is one translation unit). */
+    Set *header_names;
 
     /* .so files that may have been passed on the commandline or recorded
      * by a `#link "<path>"` directive, these should be usable with the
@@ -255,6 +265,8 @@ Cctrl *cctrlNew(enum CliTarget target);
 Cctrl *ccMacroProcessor(Map *macro_defs);
 /* File-id registry over cc->file_map; ids are what Ast->file_id holds. */
 u32 cctrlRegisterFile(Cctrl *cc, AoStr *filename);
+void cctrlNoteHeaderName(Cctrl *cc, char *start, int len);
+int cctrlIsExported(Cctrl *cc, AoStr *name);
 AoStr *cctrlLookUpFile(Cctrl *cc, u32 file_id);
 
 Lexeme *cctrlTokenGet(Cctrl *cc);

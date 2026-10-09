@@ -467,6 +467,8 @@ static Cctrl *mainNewCctrl(CliArgs *args) {
     cc->install_dir = args->install_dir;
     cc->is_pic = args->fPIC;
     cc->is_library = args->emit_dylib;
+    cc->is_libtos = args->emit_dylib && args->lib_name &&
+                    !strcmp(args->lib_name, "tos");
 
     cc->object_files = args->object_files;
     cc->shared_object_files = args->shared_object_files;

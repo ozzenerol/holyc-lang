@@ -2175,6 +2175,9 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
     /* Mach-O: escape an uppercase-`L` symbol so `.globl` accepts it. Must
      * match the references emitted via asmNormaliseGlobalLabel elsewhere. */
     label = asmNormaliseGlobalLabel(cc, label);
+    /* A local symbol: `static`, or a library global the header
+     * doesn't declare */
+    int local = declvar->is_static || !cctrlIsExported(cc, declvar->gname);
 
     if (ast->flags & AST_FLAG_EXTERN) return;
     if (declvar->flags & AST_FLAG_EXTERN) return;
@@ -2191,7 +2194,7 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
              * literal (emitted separately in the cstring section), not
              * inline storage. `U8 buf[] = "..."` keeps the bytes inline. */
             if (declvar->type && declvar->type->kind == AST_TYPE_POINTER) {
-                if (!declvar->is_static) {
+                if (!local) {
                     aoStrCatFmt(buf, ".globl %S\n", label);
                 }
                 aoStrCatFmt(buf, ".data\n\t.p2align 3\n%S:\n\t.quad %S\n\t",
@@ -2200,7 +2203,7 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
                 /* Writable storage: without a section directive it went
                  * wherever the previous global left off, after the
                  * string literals in a read-only section. */
-                if (!declvar->is_static) {
+                if (!local) {
                     aoStrCatFmt(buf, ".globl %S\n", label);
                 }
                 aoStrCatFmt(buf, ".data\n%S:\n\t.asciz \"%S\"\n\t",
@@ -2213,7 +2216,7 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
             }
             return;
         }
-        if (!declvar->is_static) {
+        if (!local) {
             aoStrCatFmt(buf, ".globl %S\n", label);
         }
         aoStrCatFmt(buf, ".data\n");
@@ -2229,7 +2232,7 @@ void aarch64GlobalVar(Cctrl *cc, Set *seen_globals, AoStr *buf, Ast *ast) {
             aarch64DataInternal(buf, declinit);
         }
     } else {
-        if (declvar->is_static) {
+        if (local) {
             /* Mach-O's .lcomm takes no default alignment; ELF's
              * aligns by size. */
             if (cc->target == TARGET_AARCH64_APPLE_DARWIN) {
@@ -2267,7 +2270,11 @@ static void aarch64PasteAsmBlocks(AoStr *buf, Cctrl *cc) {
         {
             Ast *asm_func = (Ast *)fl->value;
             aoStrCatFmt(buf, ".text\n");
-            asmEmitFunctionGlobal(cc, buf, asm_func->asmfname->data);
+            /* An asm function the header doesn't bind is internal to the
+             * library */
+            if (cctrlIsExported(cc, asm_func->asmfname)) {
+                asmEmitFunctionGlobal(cc, buf, asm_func->asmfname->data);
+            }
             aoStrCatFmt(buf, "%s:\n", asm_func->asmfname->data);
             asmEmitBlockBytes(cc, buf, asm_func->body->asm_stmt, 0);
         }
