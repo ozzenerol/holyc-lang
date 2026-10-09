@@ -264,6 +264,8 @@ double evalFloatExprOrErr(Ast *ast, int *_ok) {
             switch (ast->unop) {
                 case AST_UN_OP_PLUS:  return +eval(ast->operand, _ok);
                 case AST_UN_OP_MINUS: return -eval(ast->operand, _ok);
+                case AST_UN_OP_LOG_NOT:
+                    return (double)evalIntConstExprOrErr(ast, _ok);
                 default: {
                     *_ok = 0;
                     return 0;
@@ -282,6 +284,10 @@ double evalFloatExprOrErr(Ast *ast, int *_ok) {
                 case AST_BIN_OP_GE: return eval(ast->left, _ok) >= eval(ast->right, _ok);
                 case AST_BIN_OP_EQ: return eval(ast->left, _ok) == eval(ast->right, _ok);
                 case AST_BIN_OP_NE: return eval(ast->left, _ok) != eval(ast->right, _ok);
+                /* 0 or 1, from the integer folder: `(0.5 && 1) * 1.5` */
+                case AST_BIN_OP_LOG_AND:
+                case AST_BIN_OP_LOG_OR:
+                    return (double)evalIntConstExprOrErr(ast, _ok);
                 default: {
                     *_ok = 0;
                     return 0;
@@ -384,6 +390,15 @@ static int evalIsUnsignedBinOp(Ast *ast) {
            astIsU64Type(ast->left->type) || astIsU64Type(ast->right->type);
 }
 
+/* An operand of &&, || or ! is true when it isn't 0, compared as a
+ * float if it is one: `0.5 && 1` is 1, not `0 && 1`. */
+static int evalIsTrue(Ast *ast, int *_ok) {
+    if (astIsFloatType(ast->type)) {
+        return evalFloatExprOrErr(ast, _ok) != 0.0;
+    }
+    return evalIntConstExprOrErr(ast, _ok) != 0;
+}
+
 s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
     switch (ast->kind) {
         case AST_CAST: {
@@ -406,7 +421,7 @@ s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
             switch (ast->unop) {
                 case AST_UN_OP_PLUS: return +(evalIntConstExprOrErr(ast->operand, _ok));
                 case AST_UN_OP_MINUS: return -(evalIntConstExprOrErr(ast->operand, _ok));
-                case AST_UN_OP_LOG_NOT: return !(evalIntConstExprOrErr(ast->operand, _ok));
+                case AST_UN_OP_LOG_NOT: return !evalIsTrue(ast->operand, _ok);
                 case AST_UN_OP_BIT_NOT: return ~(evalIntConstExprOrErr(ast->operand, _ok));
                 case AST_UN_OP_ADDR_OF:
                     if (ast->operand->kind == AST_CLASS_REF) {
@@ -513,11 +528,11 @@ s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
                     return evalIntConstExprOrErr(ast->left, _ok) |
                         evalIntConstExprOrErr(ast->right, _ok);
                 case AST_BIN_OP_LOG_AND:
-                    return evalIntConstExprOrErr(ast->left, _ok) &&
-                        evalIntConstExprOrErr(ast->right, _ok);
+                    return evalIsTrue(ast->left, _ok) &&
+                        evalIsTrue(ast->right, _ok);
                 case AST_BIN_OP_LOG_OR:
-                    return evalIntConstExprOrErr(ast->left, _ok) ||
-                        evalIntConstExprOrErr(ast->right, _ok);
+                    return evalIsTrue(ast->left, _ok) ||
+                        evalIsTrue(ast->right, _ok);
                 default: {
                     *_ok = 0;
                     return 0;
