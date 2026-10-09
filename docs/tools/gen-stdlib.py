@@ -30,7 +30,7 @@ MODULES = [
     ("vector.HC",    "Vectors",           "Growable arrays."),
     ("hashtable.HC", "Hash tables",       "String-keyed and integer-keyed hash tables."),
     ("set.HC",       "Sets",              "Integer and string sets."),
-    ("bitvec.HC",    "Bit vectors",       "Fixed-size bit sets."),
+    ("bitvec.HC",    "Bit vectors",       "Growable bit sets."),
     ("math.HC",      "Maths",             "Numeric helpers and libm bindings."),
     ("date.HC",      "Dates and time",    "TempleOS-style CDate values and conversions."),
     ("json.HC",      "JSON",              "Parsing, querying and printing JSON."),

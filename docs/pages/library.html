@@ -636,6 +636,33 @@ instead of copying it. Use keys that live as long as the map, such as
 key destructor registered, an update frees the key you passed: don't use it after
 <code>StrMapSet</code> returns.</p></div>
 
+<h2 id="bit-vectors">Bit vectors</h2>
+<p>A <code>BitVec</code> is a set of numbered bits, all 0 to begin with. <code>BitVecSet</code>
+grows it to fit any index (a <code>U64</code>), <code>BitVecTest</code> and
+<code>BitVecUnSet</code> treat bits past the end as 0, and <code>BitVecClear</code> zeroes
+every bit. <code>BitVecSet</code> returns <code>FALSE</code> when it runs out of memory
+growing. <code>BitVecRelease(NULL)</code> does nothing.</p>
+<pre data-run><code>
+U0 Main()
+{
+  BitVec *seen = BitVecNew();
+  I64 primes[5] = {2, 3, 5, 7, 1000003};
+  for (I64 i = 0; i < 5; i++) BitVecSet(seen, primes[i]);
+  BitVecUnSet(seen, 5);
+
+  for (I64 n = 0; n < 10; n++) {
+    if (BitVecTest(seen, n)) "%d ", n;
+  }
+  "\n1000003: %d, 1000004: %d, 99999999: %d\n",
+    BitVecTest(seen, 1000003), BitVecTest(seen, 1000004), BitVecTest(seen, 99999999);
+  BitVecRelease(seen);
+}
+</code></pre>
+<pre class="output">
+2 3 7 
+1000003: 1, 1000004: 0, 99999999: 0
+</pre>
+
 <h2 id="json">JSON</h2>
 <h3>Parsing and selecting</h3>
 <p><code>JsonParse(text)</code> parses text into a tree of <code>Json</code> nodes and

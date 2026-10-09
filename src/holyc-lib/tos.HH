@@ -2122,3 +2122,26 @@ public IntSetEntry *IntSetIterNext(IntSetIter *iter);
 public U0 IntSetIterRelease(IntSetIter *iter);
 public IntSetIter *IntSetIterNew(IntSet *set);
 public I64 IntSetSize(IntSet *set);
+
+/* A growable set of bits, all 0 at first, indexed from 0. Setting a bit
+ * past the end grows the vector; reading or clearing one there does
+ * nothing (it is 0). Bit `i` lives in `entries[i / 32]` as `1 << (i % 32)`;
+ * `blocks` is the number of U32 entries. */
+public class BitVec
+{
+  I64 blocks;
+  U32 *entries;
+};
+
+public BitVec *BitVecNew();
+/* Free the bit vector. NULL is ignored. */
+public U0 BitVecRelease(BitVec *bv);
+/* Set bit `idx`, growing the vector if needed; FALSE when out of memory
+ * (the vector is unchanged) or `bv` is NULL. */
+public Bool BitVecSet(BitVec *bv, U64 idx);
+/* Clear bit `idx` */
+public U0 BitVecUnSet(BitVec *bv, U64 idx);
+/* TRUE when bit `idx` is set; FALSE past the end or for a NULL vector */
+public Bool BitVecTest(BitVec *bv, U64 idx);
+/* Clear every bit; the storage is kept */
+public U0 BitVecClear(BitVec *bv);
