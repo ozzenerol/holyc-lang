@@ -1672,22 +1672,9 @@ IrValue *irLowerClassRef(IrCtx *ctx, Ast *ast) {
 IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
     if (astIsUnOpKind(ast, AST_UN_OP_DEREF)) {
         /* `*p`: evaluate the pointer expression, then load through it.
-         *
-         * Parser quirk: `*pp` where the result is pointer-to-scalar
-         * (int / pointer / F64) is a no-op in the AST codegen
-         * (`leaq (%rax), %rax`). Match it by returning the operand pointer
-         * directly. This is what makes `&arr[i]` (parsed as `*((&arr) + i)`)
-         * yield a real pointer rather than dereffing through the slot. */
+         * A pointer result (`*pp` on an `I64 **`, `pb[i]` on an
+         * `I64 *pb[]`) is loaded like any other scalar. */
         IrValue *ptr = irExpr(ctx, ast->operand);
-        if (astTypeIsPtr(ast->type) && ast->type->ptr) {
-            AstTypeKind ptr_kind = ast->type->ptr->kind;
-            if (ptr_kind == AST_TYPE_INT ||
-                ptr_kind == AST_TYPE_POINTER ||
-                ptr_kind == AST_TYPE_FLOAT)
-            {
-                return ptr;
-            }
-        }
         /* `*p` where the result type is itself an array
          * (multi-dim indexing intermediates, e.g. the inner
          * `*matrix` in `matrix[i][j]`): array decays to its
@@ -1706,13 +1693,7 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
         return irPromoteNarrowInt(ctx, load_dst, ast->type);
     }
     if (astIsUnOpKind(ast, AST_UN_OP_ADDR_OF)) {
-        /* `&lvar` / `&gvar` / `&fn`: produce a pointer value.
-         *
-         * Parser quirk (matches asmAddr): when the operand is a
-         * pointer-typed LVAR pointing at a SCALAR (int/F64/ptr -
-         * NOT array/char/class), `&lvar` returns the pointer's
-         * VALUE rather than the slot address. So `&arr[2]` for
-         * `I64 *arr;` is `arr + 2` (arr's value plus 2*sizeof). */
+        /* `&lvar` / `&gvar` / `&fn`: produce a pointer value. */
         Ast *operand = ast->operand;
         /* `&*x` cancels to x. Used by the parser for `&arr[i]`
          * which is `&*(arr+i)`. */
@@ -1723,19 +1704,6 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
         if (operand->kind == AST_LVAR) {
             src = irFnGetVar(ctx->cur_func, operand->lvar_id);
             if (!src) loggerPanic("&lvar on unknown lvar\n");
-            AstType *ot = operand->type;
-            if (ot && astTypeIsPtr(ot) && ot->ptr) {
-                AstTypeKind ptr_kind = ot->ptr->kind;
-                if (ptr_kind != AST_TYPE_ARRAY &&
-                    ptr_kind != AST_TYPE_CHAR &&
-                    ptr_kind != AST_TYPE_CLASS)
-                {
-                    /* Load the pointer's value. */
-                    IrValue *dst = irTmp(IR_TYPE_PTR, 8);
-                    irBlockAddInstr(ctx, irLoad(dst, src));
-                    return dst;
-                }
-            }
         } else if (operand->kind == AST_GVAR) {
             src = irGlobalValue(operand);
         } else if (operand->kind == AST_FUNC ||
