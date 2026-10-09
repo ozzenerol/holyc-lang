@@ -1,6 +1,3 @@
-#include <defs.HH>
-#include <memory.HC>
-
 #define BIT_VEC_BITS 32
 
 class BitVec
@@ -12,55 +9,58 @@ class BitVec
 BitVec *BitVecNew()
 {
   BitVec *bv = MAlloc(sizeof(BitVec));
-  bv->entries = MAlloc(sizeof(U32));
-  bv->entries[0] = 0;
+  bv->entries = CAlloc(sizeof(U32));
   bv->blocks = 1;
   return bv;
 }
 
 U0 BitVecRelease(BitVec *bv)
 {
+  if (!bv) return;
   Free(bv->entries);
   Free(bv);
 }
 
-U0 BitVecSet(BitVec *bv, U64 idx)
+Bool BitVecSet(BitVec *bv, U64 idx)
 {
-  U32 block_idx = idx/BIT_VEC_BITS;
+  if (!bv) return FALSE;
+  U64 block_idx = idx / BIT_VEC_BITS;
   if (block_idx >= bv->blocks) {
-    auto old = bv->entries;
-    U32 *new = MAlloc(sizeof(U32)*block_idx+1);
-    for (I64 i = 0; i < block_idx; ++i) {
-      new[i] = 0;
-    }
-    MemCpy(new,old,sizeof(U32)*bv->blocks);
-    bv->blocks = block_idx+1;
-    bv->entries = new;
-    Free(old);
+    /* at least double, so setting bits in increasing order is linear */
+    U64 blocks = block_idx + 1;
+    if (blocks < bv->blocks * 2) blocks = bv->blocks * 2;
+    U32 *entries = CAlloc(sizeof(U32) * blocks);
+    if (!entries) return FALSE;
+    MemCpy(entries, bv->entries, sizeof(U32) * bv->blocks);
+    Free(bv->entries);
+    bv->entries = entries;
+    bv->blocks = blocks;
   }
   bv->entries[block_idx] |= 1 << (idx & (BIT_VEC_BITS - 1));
+  return TRUE;
 }
 
-public U0 BitVecUnSet(BitVec *bv, U64 idx) 
+U0 BitVecUnSet(BitVec *bv, U64 idx)
 {
-  U32 block_idx = idx/BIT_VEC_BITS;
+  if (!bv) return;
+  U64 block_idx = idx / BIT_VEC_BITS;
   if (block_idx < bv->blocks) {
-    bv->entries[block_idx] &= ~(1 << idx & (BIT_VEC_BITS - 1));
+    bv->entries[block_idx] &= ~(1 << (idx & (BIT_VEC_BITS - 1)));
   }
 }
 
-public Bool BitVecTest(BitVec *bv, U64 idx)
+Bool BitVecTest(BitVec *bv, U64 idx)
 {
-  U32 block_idx = idx/BIT_VEC_BITS;
+  if (!bv) return FALSE;
+  U64 block_idx = idx / BIT_VEC_BITS;
   if (block_idx < bv->blocks) {
-    return bv->entries[block_idx] >> ((idx & (BIT_VEC_BITS - 1)) & 1);
+    return (bv->entries[block_idx] >> (idx & (BIT_VEC_BITS - 1))) & 1;
   }
   return FALSE;
 }
 
-public U0 BitVecClear(BitVec *bv)
+U0 BitVecClear(BitVec *bv)
 {
-  for (I64 i = 0; i < bv->blocks; ++i) {
-    bv->entries[i] = 0;
-  }
+  if (!bv) return;
+  MemSet(bv->entries, 0, sizeof(U32) * bv->blocks);
 }
