@@ -4,6 +4,56 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.9.0 <small>(2026-10-09)</small></h2>
+<p>A systems and networking release. Exceptions, sockets and threads were audited and every bug
+found is fixed, with a regression test that runs compiled and in the JIT on Linux x86_64, Linux
+arm64 and macOS arm64. macOS on Intel is no longer a supported target.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>Fs</code> is per thread: it is now a function, <code>HCFs *Fs()</code>. Code that reads
+  <code>Fs-&gt;except_ch</code> or <code>Fs-&gt;catch_top</code> compiles unchanged.</li>
+  <li>An uncaught <code>throw</code> prints to stderr, as text when every byte is printable
+  (<code>uncaught throw: 'Late'</code>) and as a number otherwise. The exit code is still 1.</li>
+  <li><code>throw</code> converts its value to <code>U64</code> like a normal argument, so
+  <code>throw(42.75)</code> throws 42.</li>
+  <li><code>NetCreateServer</code> honours <code>addrfam</code> (<code>AF_INET</code>,
+  <code>AF_INET6</code>, <code>AF_UNSPEC</code>; <code>"::*"</code> is any IPv6 address) and its bind
+  address must be numeric: <code>"localhost"</code> gives -1. <code>NetConnect</code> connects over
+  IPv4 or IPv6 and tries every address a name resolves to.</li>
+  <li>Ports outside 0-65535 give -1 instead of being truncated.</li>
+  <li><code>NetCreateUnixServerSocket</code> only replaces a stale socket: a file, a directory or a
+  socket another server is listening on makes it fail.</li>
+  <li><code>ThreadPoolNew</code> returns <code>NULL</code> for a count of 0 or less, or when a thread
+  can't be created.</li>
+  <li><code>pthread_create</code> returns an <code>I32</code>.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Leaving a <code>try</code> with <code>return</code>, <code>break</code>, <code>continue</code> or
+  <code>goto</code> left its frame on the exception chain: the next <code>throw</code> crashed or
+  looped forever.</li>
+  <li><code>try</code>/<code>catch</code> in two threads at once crashed ("stack smashing detected").</li>
+  <li><code>throw</code> of an <code>F64</code> passed garbage.</li>
+  <li>On Linux arm64 the pthread attribute types were too small, so
+  <code>pthread_attr_init</code> wrote past them.</li>
+  <li><code>ThreadPoolNew</code> ignored <code>pthread_create</code> failures and
+  <code>ThreadPoolRelease</code> then crashed; <code>ThreadPoolEnqueue</code>, <code>Wait</code> and
+  <code>Stop</code> accept a <code>NULL</code> pool.</li>
+  <li><code>NetCreateServer</code> and <code>NetConnect</code> ignored <code>addrfam</code> and only did
+  IPv4.</li>
+  <li><code>NetGetIpv4AddressFromAcceptedSocket</code> returned garbage for IPv6 peers.</li>
+  <li><code>msghdr</code> had the wrong layout, so <code>sendmsg</code> could fail.</li>
+  <li><code>NetCreateUnixServerSocket</code> deleted whatever was at its path, including regular
+  files and a live server's socket.</li>
+  <li><code>NetConnect</code> gave up after the first address that refused.</li>
+  <li><code>coroutines.HC</code> (a stand-alone x86_64 demo) crashed on first use; its stacks are
+  aligned now and have a guard page.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>. Writing to a socket whose peer has
+closed still raises SIGPIPE, which ends the program; that is next.</p>
+
 <h2>v0.8.0 <small>(2026-10-09)</small></h2>
 <p>A standard-library release. Memory, maths, sets, bit vectors, files, directories, the shell
 helpers, CSV and dates were audited like strings and JSON before them: the code was read
