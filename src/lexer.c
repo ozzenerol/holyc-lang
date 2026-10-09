@@ -250,13 +250,18 @@ Lexeme *lexemeNewOp(char *start, int len, s64 op, int line) {
 
 static Cctrl *macro_proccessor = NULL;
 
-/* Queue a user-visible lex error on the lexer's Cctrl; with no
- * Cctrl back-pointer (re-lexer, macro stub) print it and exit, the
- * loggerPanic-style fallback. It is reported at `line`:`col`, `len`
- * wide, or with `line` 0 at the token being lexed. */
-static void lexReportVa(Lexer *l, s64 line, s64 col, s64 len,
-                        const char *fmt, va_list ap)
+/* Queue a user-visible lex diagnostic on the lexer's Cctrl; with no
+ * Cctrl back-pointer (re-lexer, macro stub) print it, and for an error
+ * exit, the loggerPanic-style fallback. It is reported at `line`:`col`,
+ * `len` wide, or with `line` 0 at the token being lexed. A CCTRL_WARN
+ * is an error under -Werror, like cctrlWarning. */
+static void lexDiagVa(Lexer *l, int severity, s64 line, s64 col, s64 len,
+                      const char *fmt, va_list ap)
 {
+    if (severity == CCTRL_WARN && l && l->cc &&
+        (l->cc->flags & CCTRL_WERROR)) {
+        severity = CCTRL_ERROR;
+    }
     if (l && l->cc) {
         char *body = mprintVa((char *)fmt, ap, NULL);
 
@@ -272,13 +277,13 @@ static void lexReportVa(Lexer *l, s64 line, s64 col, s64 len,
         if (len < 1) len = 1;
 
         AoStr *buf = cctrlCreateErrorLineAt(l->cc, line, col, len,
-                                            bold->data, CCTRL_ERROR, NULL);
+                                            bold->data, severity, NULL);
         aoStrRelease(bold);
 
         /* cctrlMakeDiag fills line/col from cctrlTokenPeek by
          * default; override with the lexer's view since peek will
          * be holding a stale token from before the broken lexeme. */
-        CctrlDiagnostic *d = cctrlMakeDiag(l->cc, CCTRL_ERROR, buf, NULL);
+        CctrlDiagnostic *d = cctrlMakeDiag(l->cc, severity, buf, NULL);
         d->line = (int)line;
         d->col = (int)col;
         d->end_line = (int)line;
@@ -286,10 +291,22 @@ static void lexReportVa(Lexer *l, s64 line, s64 col, s64 len,
         cctrlDiagPush(l->cc, d);
         return;
     }
+    if (severity == CCTRL_WARN) {
+        fprintf(stderr, "\033[0;35mWARNING: \033[0m");
+        vfprintf(stderr, fmt, ap);
+        fprintf(stderr, "\n");
+        return;
+    }
     fprintf(stderr, "\033[0;31mERROR: \033[0m");
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     exit(EXIT_FAILURE);
+}
+
+static void lexReportVa(Lexer *l, s64 line, s64 col, s64 len,
+                        const char *fmt, va_list ap)
+{
+    lexDiagVa(l, CCTRL_ERROR, line, col, len, fmt, ap);
 }
 
 /* Report a lex error and keep lexing. For errors that leave the lexer
@@ -320,6 +337,17 @@ static void lexReportAt(Lexer *l, s64 line, s64 col, s64 len,
     va_list ap;
     va_start(ap, fmt);
     lexReportVa(l, line, col, len, fmt, ap);
+    va_end(ap);
+}
+
+/* A lex warning at the token being lexed; compilation carries on.
+ * Quiet in a skipped #if group and in the CCF_PERMISSIVE re-lexer,
+ * which sees the same text again to colour an error line. */
+static void lexWarning(Lexer *l, const char *fmt, ...) {
+    if (l->flags & (CCF_COND_SKIP|CCF_PERMISSIVE)) return;
+    va_list ap;
+    va_start(ap, fmt);
+    lexDiagVa(l, CCTRL_WARN, 0, 0, 0, fmt, ap);
     va_end(ap);
 }
 
@@ -1319,6 +1347,29 @@ u64 lexCharConst(Lexer *l) {
     return TK_CHAR_CONST;
 }
 
+/* HolyC has no octal literals: `0644` is the decimal number 644, where
+ * C reads 420. The meaning stays (TempleOS reads it the same way), but
+ * code copied from C would silently change value, so warn when C would
+ * read a different number: only octal digits after the leading zero
+ * and a value of 8 or more (`00`, `07` are the same in both; `08` is
+ * not octal at all, so C code never has it). */
+static void lexLeadingZeroWarning(Lexer *l, char *start, int numlen) {
+    int i, ndigits = numlen;
+    unsigned long long oct = 0;
+
+    if (start[0] != '0' || numlen < 2) return;
+    if (start[numlen - 1] == 'U' || start[numlen - 1] == 'u') ndigits--;
+    for (i = 1; i < ndigits; i++) {
+        if (start[i] < '0' || start[i] > '7') return;
+        oct = oct * 8 + (start[i] - '0');
+    }
+    if (oct < 8) return;
+    lexWarning(l, "leading zero: %.*s is the decimal number %llu (HolyC has "
+               "no octal literals); use 0x%llX for octal %.*s",
+               ndigits, start, (unsigned long long)l->cur_i64,
+               oct, ndigits, start);
+}
+
 int lexNumeric(Lexer *l, int _isfloat) {
     int ishex, isbin, isfloat, err, numlen;
     char *endptr;
@@ -1374,6 +1425,7 @@ int lexNumeric(Lexer *l, int _isfloat) {
         l->cur_i64 = strtoull(start + 2, &endptr, 2);
     } else {
         l->cur_i64 = strtoull(start, &endptr, 10);
+        lexLeadingZeroWarning(l, start, numlen);
     }
     /* A literal above I64_MAX only fits in a U64, so it is typed U64. */
     l->isu64 = l->cur_i64 < 0;

@@ -49,9 +49,6 @@ there works as shown.</p>
     <tr><td>Some pointer conversions are accepted silently</td>
         <td><code>I64 *q; q -= q;</code> and <code>F64 f; I64 *q = &amp;f;</code> compile with no diagnostic</td>
         <td>Review pointer arithmetic and pointer types by hand</td></tr>
-    <tr><td>A leading <code>0</code> doesn't make a number octal</td>
-        <td><code>0644</code> is decimal 644, with no warning (in C it is octal 420)</td>
-        <td>Write octal values in hex: <code>0x1A4</code></td></tr>
     <tr><td>The C transpiler orders nested classes wrongly and turns <code>F32</code> into <code>double</code></td>
         <td><code>-transpile</code> writes a nested named class after the struct that uses it</td>
         <td>The transpiler is experimental; fix the C output by hand</td></tr>
