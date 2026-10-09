@@ -36,7 +36,7 @@ static Bool RBIsNil(RBNode *n)
 }
 
 RBTree *RBTreeNew(U0 (*free_key)(U0 *), U0 (*free_value)(U0 *), 
-                  U0 (*key_cmp)(U0 *, U0 *))
+                  I64 (*key_cmp)(U0 *, U0 *))
 {
   RBTree *tree = MAlloc(sizeof(RBTree));
   RBNode *nil = MAlloc(sizeof(RBNode));

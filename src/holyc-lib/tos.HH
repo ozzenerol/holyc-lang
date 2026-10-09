@@ -110,14 +110,23 @@ public class CsvParser {
   I64 state;
 };
 
+/* A slice of the CSV buffer: idx is the field's number in its row (or
+ * the row's number), off and len where it is in the buffer. */
 public class CsvSlice {
   U64 idx, off, len;
 };
+/* Start parsing the len bytes at csv. Nothing is copied or allocated:
+ * the slices CsvParse returns point into csv, which must outlive them. */
 public U0 CsvParserInit(CsvParser *p, U8 *csv, U64 len);
+/* The next piece of the CSV: CSV_FIELD for each field of a row, then
+ * CSV_ROW for the whole row, CSV_EOF at the end. A slice is the raw
+ * text: a quoted field keeps its quotes and doubled "" (`"a ""b"""`),
+ * commas and newlines inside quotes don't split, and a row's len
+ * includes its line terminator (\n or \r\n). */
 public I64 CsvParse(CsvParser *p, CsvSlice *s);
 
-#define CDATE_YEAR_DAYS        365.24225
-#define CDATE_YEAR_DAYS_INT    36524225
+#define CDATE_YEAR_DAYS        365.2425
+#define CDATE_YEAR_DAYS_INT    36524250
 #define CDATE_BASE_DAY_OF_WEEK 0
 
 /* XXX: Normalise stat ? */
@@ -151,6 +160,13 @@ public class tm
 public extern "c" tm *localtime(I64 *clock);
 public extern "c" I32 gettimeofday(timeval *tp, U0 *tzp);
 
+/* A date and time in one I64, as in TempleOS. date is the day number,
+ * counting from day 0 = Jan 2 of year 0 (day -1 is Jan 1), and time the
+ * fraction of that day in units of 1/2^32 day (about 20 us). The
+ * calendar is the proleptic Gregorian one (leap years every 4, not every
+ * 100, every 400), also for year 0, a leap year, and the years before
+ * it. Years 1 to 3999 have the day numbers of TempleOS's calendar, which
+ * had no leap day in years divisible by 4000. */
 public I64 class CDate {
   U32 time;
   I32 date;
@@ -161,25 +177,49 @@ public I64 class CDate {
  * second is sec100/100 + sec10000/10000. mon is 1-12, day_of_mon 1-31,
  * day_of_week 0 (Sunday) - 6. zone_diff is the offset from UTC as
  * +-hhmm (e.g. 100 for +01:00, -130 for -01:30), set by
- * NowDateTimeStruct and by Str2CDateStruct's %z; Struct2Date and
- * Date2Struct ignore it. */
+ * NowDateTimeStruct and by Str2CDateStruct's %z (CDATE_NO_ZONE without
+ * one); Struct2Date and Date2Struct ignore it. */
 public class CDateStruct {
   U64 sec10000, sec100, sec, min, hour, day_of_week, day_of_mon, mon;
   I32 year;
   I64 zone_diff;
 };
+/* zone_diff when there is no zone (Str2CDateStruct without %z); no
+ * +-hhmm offset can be this. */
+#define CDATE_NO_ZONE I64_MIN
 
+/* Milliseconds since the Unix epoch (1970-01-01 00:00 UTC). */
 public U64 NowMilliseconds();
+/* Fill _ds with the current local time (the TZ time zone), zone_diff
+ * included. */
 public U0 NowDateTimeStruct(CDateStruct *_ds);
+/* The CDate day number of Jan 1 of year. */
 public I64 YearStartDate(I64 year);
+/* The day of the week of day number i: 0 Sunday ... 6 Saturday. */
 public I64 DayOfWeek(I64 i);
+/* Split cdt into _ds (every field but zone_diff, which is left alone). */
 public U0 Date2Struct(CDateStruct *_ds, CDate cdt);
+/* The CDate of _ds (zone_diff and day_of_week are ignored, _ds is not
+ * changed). Out-of-range fields carry over: day_of_mon 32 of January is
+ * Feb 1, mon 13 is January of the next year and mon 0 December of the
+ * year before. Time fields carry too, into the date as well: hour 24 is
+ * midnight of the next day, sec 60 the next minute, and negative values
+ * borrow (hour -1 is 23:00 the day before). */
 public CDate Struct2Date(CDateStruct *_ds);
+/* The day number of the first day of the month that day number i is in. */
 public I32 FirstDayOfMon(I64 i);
+/* The day number of the last day of the month that day number i is in. */
 public I64 LastDayOfMon(I64 i);
+/* The day number of Jan 1 of the year that day number i is in. */
 public I32 FirstDayOfYear(I64 i);
+/* The day number of Dec 31 of the year that day number i is in. */
 public I64 LastDayOfYear(I64 i);
+/* The current local date and time (the TZ time zone), not UTC. */
 public CDate Now();
+/* Write ts (seconds and nanoseconds since the Unix epoch, e.g. a Stat
+ * time) into buf as UTC ISO 8601, "2026-07-05T14:30:00.123456789Z":
+ * 30 characters and a NUL, so buf needs 31 bytes. Uses the proleptic
+ * Gregorian calendar, as CDate does. */
 public U0 IsoFromTimespec(cTimespec *ts, U8 *buf);
 
 /* The `order` of a deleted hash table node (a tombstone) */
@@ -664,13 +704,26 @@ public U0 Exit(I64 exit_code = EXIT_FAIL);
  * a command it can't find. */
 public I64 System(U8 *command);
 
+/* write(2) len bytes of buf to fd: the number written, or -1. */
 public I64 Write(I64 fd, U8 *buf, I64 len);
 
-/* Call the shell with `printf`-like formatting. Returns what System
- * returns: the exit code (0-255), or -1 if the command was killed by a
- * signal, could not be run, or fmt is NULL. */
+/* Call the shell with `printf`-like formatting. fmt is always formatted,
+ * also without arguments, so write %% for a literal %. Returns what
+ * System returns: the exit code (0-255), or -1 if the command was killed
+ * by a signal, could not be run, or fmt is NULL. */
 public I32 Sh(U8 *fmt, ...);
+/* Run a shell command, built with `printf`-like formatting (always
+ * formatted: %% for a literal %), and return what it printed to stdout
+ * in a heap allocated string (Free it). One trailing newline is removed.
+ * The exit status is not returned: a failing command gives whatever it
+ * printed, often "". stderr is not captured. Returns NULL if fmt is NULL
+ * or the output can't be read. */
 public U8 *Shlurp(U8 *fmt, ...);
+/* s in single quotes for sh, as a new string to Free: each ' becomes
+ * '\'' and NULL gives ''. The shell expands nothing in it, so use it for
+ * any text that goes into a command: q = ShQuote(s); Sh("ls %s", q);
+ * Free(q). */
+public U8 *ShQuote(U8 *s);
 
 /* TempleOS-style try/catch/throw. CatchFrame is 256 bytes (matches
  * what the compiler reserves per `try` block); the runtime stores its
@@ -767,6 +820,8 @@ public extern "c" F64 fmax(F64 f1, F64 f2);
 public extern "c" F64 fmin(F64 f1, F64 f2);
 public extern "c" F64 fma(F64 f1, F64 f2, F64 f3);
 #ifdef IS_X86_64
+/* The absolute value of an integer, as an I64. Abs(I64_MIN) is I64_MIN
+ * because 2^63 does not fit, like C's labs. For an F64 use fabs. */
 public _extern _ABS I64 Abs(I64 num);
 #endif
 
@@ -774,7 +829,14 @@ public _extern _ABS I64 Abs(I64 num);
 public I64 Abs(I64 num);
 #endif
 public U64 Gcd(I64 a, I64 b);
+/* `a` to the power `b`. An integral `b` in the I64 range is done by
+ * repeated squaring, so Pow(2, 10) is exactly 1024.0 and Pow(x, 0) is 1;
+ * any other `b` (fractional, NaN, infinite or beyond I64) goes to pow,
+ * so Pow(4.0, 0.5) is 2.0. An I64 exponent beyond 2^53 is rounded when
+ * it becomes an F64. */
 public F64 Pow(F64 a, F64 b);
+/* @TempleOS: returns *k % m and sets *k to *k / m, unsigned. A divisor of
+ * 0 traps (SIGFPE), like any integer division by zero. */
 public U64 ModU64(U64 *k, U64 m);
 
 public extern "c" U0 *memchr(U0 *__s, I32 __c, U64 __n);
@@ -783,15 +845,32 @@ public extern "c" U0 *memmove(U0 *__dst, U0 *__src, U64 __len);
 public extern "c" U0 free(U0 *ptr);
 public extern "c" U0 *malloc(U64 size);
 
-/* MAlloc has a hand-rolled asm trampoline (`_MALLOC`) on both arches,
- * so its binding is declared unconditionally. The remaining core memory
- * ops are asm on x86 but ordinary HolyC on ARM, so those stay split. */
+/* The core memory functions are hand-written assembly on both x86_64 and
+ * arm64 (memory.HC). Each block from MAlloc, CAlloc and ReAlloc is
+ * preceded by a hidden 8-byte header holding the size it was asked for,
+ * so only these blocks can be passed to Free, MSize and ReAlloc, not
+ * pointers from C's malloc. */
+
+/* `size` uninitialised bytes; NULL when out of memory or when `size` is
+ * too large (such as a negative number passed as a U64). */
 public _extern _MALLOC U0 *MAlloc(U64 size);
+/* Free a block from MAlloc, CAlloc or ReAlloc. NULL is ignored. */
 public _extern _FREE U0 Free(U0 *ptr);
+/* The size the block was asked for (not the capacity malloc rounded it up
+ * to); 0 for NULL. */
 public _extern _MSIZE U64 MSize(U0 *ptr);
+/* Set `len` bytes at `dst` to the low byte of `ch`; returns `dst`. */
 public _extern _MEMSET U0 *MemSet(U0 *dst, I32 ch, U64 len);
+/* Copy `len` bytes from `src` to `dst`, front to back; returns `dst`.
+ * Overlapping buffers are not supported: use memmove for those. */
 public _extern _MEMCPY U0 *MemCpy(U0 *dst, U0 *src, U64 len);
+/* `new_size` zeroed bytes. One argument, the total size, unlike C's
+ * calloc(count, size). NULL when out of memory. */
 public _extern _CALLOC U0 *CAlloc(U64 new_size);
+/* A new block of `new_size` bytes holding the start of `ptr` (as much as
+ * fits); `ptr` is freed and the result is always a different pointer.
+ * ReAlloc(NULL, n) is MAlloc(n). When out of memory it returns NULL and
+ * leaves `ptr` as it was, still yours to free. */
 public _extern _REALLOC U0 *ReAlloc(U0 *ptr, U64 new_size);
 
 /* The size StrPrint and MPrintQ start a new buffer at (it grows). */
@@ -981,8 +1060,9 @@ public U8 *CatPrint(U8 *_dst, U8 *fmt, ...);
 public U8 *CatLenPrint(U8 *_dst, I64 *_len, U8 *fmt, ...);
 /* Parse strdate with a strptime-like format: %Y %m %d %H %M %s (or %S)
  * %a/%b (day/month name, full or three letters) %p %z %%. Unset date
- * fields are -1, time fields 0. FALSE for empty, short or mismatching
- * input, an unknown conversion or a field out of range. */
+ * fields are -1, time fields 0 and zone_diff CDATE_NO_ZONE. FALSE for
+ * empty, short or mismatching input, an unknown conversion or a field
+ * out of range. */
 public Bool Str2CDateStruct(U8 *strdate, U8 *format, CDateStruct *t);
 /* Glob match of all of test_str: '*' any run of characters, '?' any one.
  * FALSE if either is NULL. */
@@ -1023,8 +1103,8 @@ public CDate StrToCDate(U8 *_str, U8 *fmt);
 /* record locking flags */
 #ifdef IS_LINUX
   #define F_RDLCK 0 /* Establish a read lock */
-  #define F_WRLCK 1 /* Remove a lock */
-  #define F_UNLCK 2 /* Establish a write lock */
+  #define F_WRLCK 1 /* Establish a write lock */
+  #define F_UNLCK 2 /* Remove a lock */
 #else
   #define F_RDLCK 1
   #define F_UNLCK 2
@@ -1036,7 +1116,7 @@ public CDate StrToCDate(U8 *_str, U8 *fmt);
 #define O_RDWR    0x0002 /* Open for reading and writing */
 #define O_ACCMODE 0x0003 /* Mask to extract access modes */
 
-/* Record locking flags */
+/* open() flags whose values differ between Linux and macOS */
 #ifdef IS_LINUX
   #define O_CREAT    0x040 /* Create file if it doesn't exist */
   #define O_TRUNC    0x200 /* Truncate existing file to zero length */
@@ -1074,8 +1154,19 @@ public extern "c" I64 write(I32 __fd, U0 *__buf, U64 __nbyte);
 public extern "c" I64 lseek(I32 __fd, I64 __offset, I32 __whence);
 public extern "c" I32 chdir(U8 *path);
 
+/* Read the whole regular file at path into a new NUL-terminated buffer
+ * (Free it) and set *_size to its length. Returns NULL, with *_size 0,
+ * if path is NULL, can't be opened, is not a regular file (a directory,
+ * FIFO or device) or can't be read completely. */
 public U8 *FileRead(U8 *path, I64 *_size = NULL);
+/* Write size bytes of buf to filename. The default flags create the file
+ * (mode 0644 minus the umask) or truncate it first, so it holds exactly
+ * buf; pass O_CREAT|O_WRONLY|O_APPEND to add to the end instead. Returns
+ * FALSE, without creating anything, for a NULL filename or buf or a
+ * negative size, and FALSE if the file can't be opened or written. */
 public Bool FileWrite(U8 *filename, U8 *buf, I64 size, I64 flags = O_CREAT | O_WRONLY | O_TRUNC);
+/* Change the working directory; "~" and "~/..." start at $HOME. 0 on
+ * success, -1 on failure. */
 public I32 Cd(U8 *path);
 
 #define DT_UNKNOWN 0  /* Type not determined */
@@ -1094,23 +1185,24 @@ class cDIR;
 #define DIR_MAXPATHLEN (1024)
 class Dirent
 {
-  U64 ino;
-  U64 off;
+  U64 ino;           /* file number of entry */
+  U64 seekoff;       /* seek offset (optional, used by servers) */
   U16 reclen;        /* length of this record */
   U16 namlen;        /* length of string in d_name */
-  U8 type;         /* file type, see below */
-  I8 name[DIR_MAXPATHLEN]; /* entry name (up to MAXPATHLEN bytes) */
+  U8 type;           /* file type, one of the DT_* above */
+  I8 name[DIR_MAXPATHLEN]; /* entry name, NUL-terminated */
 };
 #endif
 
 #ifdef IS_LINUX
 #define DIR_MAXPATHLEN (256)
 class Dirent {
-  U64 ino;         /* file number of entry */
-  U64 seekoff;       /* seek offset (optional, used by servers) */
+  U64 ino;           /* inode number (d_ino) */
+  U64 seekoff;       /* position of the next entry, for seekdir (d_off) */
   U16 reclen;        /* length of this record */
-  U8 type;         /* file type, see below */
-  I8 name[DIR_MAXPATHLEN]; /* entry name (up to MAXPATHLEN bytes) */
+  U8 type;           /* file type, one of the DT_* above; DT_UNKNOWN on
+                      * filesystems that don't report it */
+  I8 name[DIR_MAXPATHLEN]; /* entry name, NUL-terminated */
 };
 public cDIR *opendir(U8 *dirname);
 public Dirent *readdir(cDIR *dir);
@@ -1154,6 +1246,28 @@ public class cStat {
   I64 st_qspare[2];
 };
 #elifdef IS_LINUX
+#ifdef IS_ARM_64
+/* aarch64 uses the generic struct stat, not x86_64's */
+class cStat
+{
+  U64 st_dev;
+  U64 st_ino;
+  U32 st_mode;
+  U32 st_nlink;
+  U32 st_uid;
+  U32 st_gid;
+  U64 st_rdev;
+  U64 __pad1;
+  I64 st_size;
+  I32 st_blksize;
+  I32 __pad2;
+  I64 st_blocks;
+  cTimespec st_atim;
+  cTimespec st_mtim;
+  cTimespec st_ctim;
+  I32 __unused[2];
+};
+#else
 class cStat
 {
   U64 st_dev;
@@ -1172,6 +1286,7 @@ class cStat
   cTimespec st_ctim;
   I64 __glibc_reserved[3];
 };
+#endif
 
 class statx_timestamp
 {
@@ -1294,8 +1409,21 @@ class Fstat
   cTimespec st_btim;
 };
 
+/* Fill fst with the status of pathname, following symlinks (statx on
+ * Linux, stat on macOS; st_btim is the creation time where the
+ * filesystem records it). 0 on success, -1 on failure. */
 public I32 Stat(Fstat *fst, U8 *pathname);
+/* List the entries of the directory pathname (not "." and ".."), one per
+ * line, coloured like ls when stdout is a terminal. Names that both
+ * start with a number are ordered by that number, however long, and
+ * everything else, ties included, by name (byte order). Entries Stat
+ * can't follow, like dangling symlinks, are listed too. Returns the
+ * number of entries, or -1 for NULL or a path that can't be opened as a
+ * directory. */
 public I64 Dir(U8 *pathname = "./");
+/* The working directory: written into buf (buf_size bytes, NULL if it
+ * doesn't fit) and buf returned, or with no buf a new string to Free.
+ * NULL on error. */
 public U8 *Pwd(U8 *buf=NULL, U64 buf_size=0);
 
 public extern "c" I32 mkdir(U8 *dirname, I32 mode = 438);
@@ -1331,14 +1459,30 @@ public extern "c" I32 rmdir(U8 *dirname);
 #define S_ISUID 0x800  /* Set user ID on execution */
 #define S_ISGID 0x400  /* Set group ID on execution */
 #define S_ISVTX 0x200  /* Save swapped text after use (sticky) */
-#define MKDIR_DEFAULT (S_ISUID|S_IRWXU|S_IRWXG|S_IROTH|S_IXOTH) /* Default mkdir permission */
+/* Default MkDir mode, 04775 (rwxrwxr-x; the set-user-ID bit means nothing
+ * on a directory), minus the umask: drwxr-xr-x with the usual 022. */
+#define MKDIR_DEFAULT (S_ISUID|S_IRWXU|S_IRWXG|S_IROTH|S_IXOTH)
 
 #define RM_RECURSE  0x1  /* Remove directories and their contents recursively */
 #define RM_VERBOSE  0x2  /* Verbosely list files processed */
-#define RM_FORCE    0x4  /* Force removal, ignore nonexistent files and arguments */
+#define RM_FORCE    0x4  /* A path that doesn't exist is not an error for Rm */
 
+/* Remove the directory path: without RM_RECURSE only if it is empty
+ * (rmdir), with RM_RECURSE everything in it first. Symlinks inside are
+ * removed, never followed, and path itself must not be a symlink. Prints
+ * what it removes or fails to remove only with RM_VERBOSE. 0 on
+ * success, -1 on failure (also for NULL). */
 public I32 RmDir(U8 *path, Bool flags=0);
+/* DANGER: remove path, whatever flags are given. A file, symlink (never
+ * what it points to), socket or FIFO is unlinked; a directory goes to
+ * RmDir(path, flags), so it must be empty unless RM_RECURSE is given.
+ * RM_VERBOSE prints what is removed, RM_FORCE makes a path that doesn't
+ * exist a success. 0 on success, -1 on failure (also for NULL). */
 public I32 Rm(U8 *path, Bool flags=0);
+/* Make the directory path with mode (minus the umask), and with recurse
+ * every missing parent too. Returns 0 if path is a directory afterwards,
+ * made now or already there, and -1 if not (NULL or "", a file in the
+ * way, a missing parent without recurse, no permission). */
 public I32 MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE);
 
 #define FZF_CASE_SMART   0
@@ -2081,16 +2225,30 @@ public class RBTree
   RBNode *nil; /* this tree's sentinel leaf */
 };
 
+/* A sorted map from U0 * keys to U0 * values (a red-black tree): insert,
+ * lookup and delete are O(log n). `key_cmp(a, b)` orders the keys: less
+ * than 0 when a comes first, 0 when equal, more than 0 otherwise.
+ * `free_key` and `free_value` may be NULL; when set, the tree frees keys
+ * and values with them. */
 public RBTree *RBTreeNew(U0 (*free_key)(U0 *),
                          U0 (*free_value)(U0 *), 
-                         U0 (*key_cmp)(U0 *, U0 *));
+                         I64 (*key_cmp)(U0 *, U0 *));
 /* Insert or update. Updating an existing key keeps the stored key; the
- * destructors (if set) free the passed duplicate key and the old value. */
+ * destructors (if set) free the passed duplicate key and the old value.
+ * A NULL tree is ignored. */
 public U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value);
+/* The value stored for `key`, or NULL when it is missing, which is also
+ * what a stored NULL gives: use RBTreeHas to tell them apart. A NULL
+ * tree gives NULL. */
 public U0 *RBTreeGet(RBTree *tree, U0 *key);
+/* TRUE when `key` is in the tree (FALSE for a NULL tree) */
 public Bool RBTreeHas(RBTree *tree, U0 *key);
-/* Remove `key`, freeing its key and value with the destructors, if set. */
+/* Remove `key`, freeing its key and value with the destructors, if set.
+ * Nothing happens if it is not there, or if the tree is NULL. */
 public U0 RBTreeDelete(RBTree *tree, U0 *key);
+/* Call `callback(user_data, key, value)` for every entry, in key order.
+ * Don't insert or delete entries from the callback. A NULL tree calls
+ * nothing. */
 public U0 RBTreeForEach(RBTree *tree,
                         U0 *user_data,
                         U0 (*callback)(U0 *user_data,
@@ -2107,8 +2265,14 @@ public class RBIter
   RBNode *cur;
 };
 
+/* An iterator over the tree's entries in key order:
+ *   while ((node = RBIterNext(it))) ... node->key, node->value ...
+ * Don't insert or delete entries while iterating. A NULL tree gives an
+ * iterator that yields nothing. */
 public RBIter *RBIterNew(RBTree *tree);
+/* Free the iterator (not the tree). NULL is ignored. */
 public U0 RBIterRelease(RBIter *it);
+/* The next node, or NULL after the last one */
 public RBNode *RBIterNext(RBIter *it);
 
 public class IntSet
