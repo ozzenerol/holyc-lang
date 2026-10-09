@@ -142,7 +142,9 @@ IntMap *IntMapNew(U64 capacity)
 
 U0 IntMapSetFreeValue(IntMap *map, U0 (*_free_value)(U0 *value))
 {
-  map->_free_value = _free_value;
+  if (map) {
+    map->_free_value = _free_value;
+  }
 }
 
 IntMapNode *IntMapNodeNew(I64 key, U0 *value)
@@ -282,12 +284,19 @@ static Bool IntMapRehash(IntMap *map, U64 new_capacity)
 
 public Bool IntMapResize(IntMap *map)
 {// Double the hashtable, will return false if OMM
+  if (!map) {
+    return FALSE;
+  }
   return IntMapRehash(map,map->capacity << 1);
 }
 
 auto IntMapSet(IntMap *map, I64 key, U0 *value)
 {
   Bool is_free;
+
+  if (!map) {
+    return FALSE;
+  }
 
   /* `indexes->size` is the live entries plus the holes deletes left, so this
    * also bounds the tombstones. A table that is mostly tombstones is rebuilt
@@ -332,6 +341,9 @@ auto IntMapSet(IntMap *map, I64 key, U0 *value)
 public Bool IntMapDelete(IntMap *map, I64 key)
 {// Remove `key`, freeing its value if a destructor is registered. Returns
  // FALSE if the key was not in the map.
+  if (!map) {
+    return FALSE;
+  }
   auto idx = IntMapGetIdx(map,key);
   if (idx != HT_DELETED) {
     auto n = map->entries[idx];
@@ -349,21 +361,53 @@ public Bool IntMapDelete(IntMap *map, I64 key)
 
 public Bool IntMapHas(IntMap *map, I64 key)
 {
+  if (!map) {
+    return FALSE;
+  }
   auto idx = IntMapGetIdx(map,key);
   return idx != HT_DELETED;
 }
 
-public U0 *IntMapGet(IntMap *map, I64 key)
-{
-  auto idx = IntMapGetIdx(map,key);
-  if (idx != HT_DELETED) {
-    return map->entries[idx]->value;
+public U0 *IntMapGet(IntMap *map, I64 key, Bool *_ok=NULL)
+{// The value stored for `key`, or NULL. `*_ok` (when given) tells a
+ // missing key (FALSE) from a stored NULL or 0 (TRUE).
+  if (map) {
+    auto idx = IntMapGetIdx(map,key);
+    if (idx != HT_DELETED) {
+      if (_ok) *_ok = TRUE;
+      return map->entries[idx]->value;
+    }
   }
+  if (_ok) *_ok = FALSE;
   return NULL;
+}
+
+public U0 IntMapClear(IntMap *map)
+{// Remove every entry, freeing the values if a destructor is registered.
+ // The capacity is kept.
+  if (!map) {
+    return;
+  }
+  for (I64 i = 0; i < map->capacity; ++i) {
+    auto n = map->entries[i];
+    if (n) {
+      /* A tombstone's value was freed by IntMapDelete. */
+      if (map->_free_value && n->order != HT_DELETED) {
+        map->_free_value(n->value);
+      }
+      Free(n);
+      map->entries[i] = NULL;
+    }
+  }
+  map->indexes->size = 0;
+  map->size = 0;
 }
 
 public Bool IntMapIter(IntMap *map, I64 *_idx, IntMapNode **_node)
 {
+  if (!map) {
+    return FALSE;
+  }
   I64 idx = *_idx;
   auto indexes = map->indexes->entries;
 
@@ -401,6 +445,9 @@ public Bool IntMapKeyIter(IntMap *map, I64 *_idx, I64 *_key)
 
 public U8 *IntMapToString(IntMap *map, U8 *(*stringify_value)(U0 *))
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
   if (map_size == 0) {
     return StrPrint(NULL,"{}");
@@ -423,6 +470,9 @@ public U8 *IntMapToString(IntMap *map, U8 *(*stringify_value)(U0 *))
 
 public U8 *IntMapKeysToString(IntMap *map)
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
   if (map_size == 0) {
     return StrPrint(NULL,"{}");
@@ -474,12 +524,28 @@ StrMap *StrMapNew(U64 capacity)
 
 U0 StrMapSetFreeValue(StrMap *map, U0 (*_free_value)(U0 *value))
 {
-  map->_free_value = _free_value;
+  if (map) {
+    map->_free_value = _free_value;
+  }
 }
 
 U0 StrMapSetFreeKey(StrMap *map, U0 (*_free_key)(U0 *key))
 {
-  map->_free_key = _free_key;
+  if (map) {
+    map->_free_key = _free_key;
+  }
+}
+
+static U0 StrMapFreeEntry(StrMap *map, StrMapNode *n)
+{/* Free a live entry's value and key with the registered destructors. A
+  * key that is also the value (`StrMapSet(m,s,s)`) is freed once, as the
+  * value. */
+  if (map->_free_value) {
+    map->_free_value(n->value);
+  }
+  if (map->_free_key && !(n->key == n->value && map->_free_value)) {
+    map->_free_key(n->key);
+  }
 }
 
 static U64 StrMapHash(U8 *key, I64 key_len)
@@ -552,15 +618,12 @@ static I64 StrMapGetIdx(StrMap *map, U8 *key, I64 key_len)
 U0 StrMapRelease(StrMap *map)
 {// free the entire hashtable
   if (map) {
-    U0 (*free_value)(U0 *_val) = map->_free_value;
-    U0 (*free_key)(U0 *_key) = map->_free_key;
     for (auto i = 0; i < map->capacity; ++i) {
       auto n = map->entries[i];
       if (n) {
         /* A tombstone's key and value were freed by StrMapDelete. */
         if (n->order != HT_DELETED) {
-          if (free_value) free_value(n->value);
-          if (free_key)   free_key(n->key);
+          StrMapFreeEntry(map,n);
         }
         Free(n);
       }
@@ -636,12 +699,19 @@ static Bool StrMapRehash(StrMap *map, U64 new_capacity)
 
 public Bool StrMapResize(StrMap *map)
 {// Double the hashtable, will return false if OMM
+  if (!map) {
+    return FALSE;
+  }
   return StrMapRehash(map,map->capacity << 1);
 }
 
 Bool StrMapSet(StrMap *map, U8 *key, U0 *value)
 {
   Bool is_free;
+
+  if (!map || !key) {
+    return FALSE;
+  }
 
   /* `indexes->size` is the live entries plus the holes deletes left, so this
    * also bounds the tombstones. A table that is mostly tombstones is rebuilt
@@ -682,12 +752,25 @@ Bool StrMapSet(StrMap *map, U8 *key, U0 *value)
      * registered the map owns every key it is given, so the duplicate is
      * freed here instead of leaking (unless it is the stored key itself).
      * Likewise the replaced value is freed when a value destructor is
-     * registered, unless the same pointer is being set again. */
-    if (map->_free_key && n->key != key) {
-      map->_free_key(key);
+     * registered, unless the same pointer is being set again.
+     * A pointer that is both a key and a value is freed once:
+     *   - the stored key was also the old value, which is freed now: the
+     *     passed key becomes the stored key instead;
+     *   - the passed key is also the new value: it is kept, not freed. */
+    U8 *old_key = n->key;
+    U0 *old_value = n->value;
+    Bool free_old_value = map->_free_value && old_value != value;
+    U8 *dropped = key;
+    if (free_old_value && old_key == old_value) {
+      n->key = key;
+      dropped = old_key;
     }
-    if (map->_free_value && n->value != value) {
-      map->_free_value(n->value);
+    if (free_old_value) {
+      map->_free_value(old_value);
+    }
+    if (map->_free_key && dropped != n->key && dropped != value &&
+        dropped != old_value) {
+      map->_free_key(dropped);
     }
     n->value = value;
     return TRUE;
@@ -697,13 +780,15 @@ Bool StrMapSet(StrMap *map, U8 *key, U0 *value)
 public Bool StrMapDelete(StrMap *map, U8 *key)
 {// Remove `key`, freeing the stored key and value if destructors are
  // registered. Returns FALSE if the key was not in the map.
+  if (!map || !key) {
+    return FALSE;
+  }
   I64 idx = StrMapGetIdx(map,key,StrLen(key));
   if (idx == HT_DELETED) {
     return FALSE;
   }
   auto n = map->entries[idx];
-  if (map->_free_key)   map->_free_key(n->key);
-  if (map->_free_value) map->_free_value(n->value);
+  StrMapFreeEntry(map,n);
   map->indexes->entries[n->order] = HT_DELETED;
   n->order = HT_DELETED;
   n->key = NULL;
@@ -713,23 +798,56 @@ public Bool StrMapDelete(StrMap *map, U8 *key)
   return TRUE;
 }
 
-public U0 *StrMapGetLen(StrMap *map, U8 *key, I64 key_len)
-{
-  auto idx = StrMapGetIdx(map,key,key_len);
-  if (idx != HT_DELETED) {
-    return map->entries[idx]->value;
+public U0 *StrMapGetLen(StrMap *map, U8 *key, I64 key_len, Bool *_ok=NULL)
+{// The value stored for the `key_len` bytes at `key`, or NULL. `*_ok`
+ // (when given) tells a missing key (FALSE) from a stored NULL (TRUE).
+  if (map && key) {
+    auto idx = StrMapGetIdx(map,key,key_len);
+    if (idx != HT_DELETED) {
+      if (_ok) *_ok = TRUE;
+      return map->entries[idx]->value;
+    }
   }
+  if (_ok) *_ok = FALSE;
   return NULL;
 }
 
-public U0 *StrMapGet(StrMap *map, U8 *key)
-{
+public U0 *StrMapGet(StrMap *map, U8 *key, Bool *_ok=NULL)
+{// See StrMapGetLen
+  if (!map || !key) {
+    if (_ok) *_ok = FALSE;
+    return NULL;
+  }
   I64 key_len = StrLen(key);
-  return StrMapGetLen(map,key,key_len);
+  return StrMapGetLen(map,key,key_len,_ok);
+}
+
+public U0 StrMapClear(StrMap *map)
+{// Remove every entry, freeing keys and values if destructors are
+ // registered. The capacity is kept.
+  if (!map) {
+    return;
+  }
+  for (I64 i = 0; i < map->capacity; ++i) {
+    auto n = map->entries[i];
+    if (n) {
+      /* A tombstone's key and value were freed by StrMapDelete. */
+      if (n->order != HT_DELETED) {
+        StrMapFreeEntry(map,n);
+      }
+      Free(n);
+      map->entries[i] = NULL;
+    }
+  }
+  map->indexes->size = 0;
+  map->size = 0;
 }
 
 public Bool StrMapHasLen(StrMap *map, U8 *key, I64 key_len)
 {
+  if (!map || !key) {
+    return FALSE;
+  }
   I64 idx = StrMapGetIdx(map,key,key_len);
   if (idx != HT_DELETED) {
     return TRUE;
@@ -739,12 +857,18 @@ public Bool StrMapHasLen(StrMap *map, U8 *key, I64 key_len)
 
 public Bool StrMapHas(StrMap *map, U8 *key)
 {
+  if (!map || !key) {
+    return FALSE;
+  }
   I64 key_len = StrLen(key);
   return StrMapHasLen(map,key,key_len);
 }
 
 public Bool StrMapIter(StrMap *map, I64 *_idx, StrMapNode **_node)
 {
+  if (!map) {
+    return FALSE;
+  }
   I64 idx = *_idx;
   auto indexes = map->indexes->entries;
   auto size = map->indexes->size;
@@ -783,6 +907,9 @@ public Bool StrMapKeyIter(StrMap *map, I64 *_idx, U8 **_key)
 
 public U8 *StrMapToString(StrMap *map, U8 *(*stringify_value)(U0 *))
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
 
   if (map_size == 0) {
@@ -807,6 +934,9 @@ public U8 *StrMapToString(StrMap *map, U8 *(*stringify_value)(U0 *))
 
 public U8 *StrMapKeysToString(StrMap *map)
 {
+  if (!map) {
+    return StrPrint(NULL,"{}");
+  }
   auto map_size = map->size;
   if (map_size == 0) {
     return StrPrint(NULL,"{}");
