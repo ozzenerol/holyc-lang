@@ -62,9 +62,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>A wrong argument count is underlined at the wrong place</td>
-        <td><code>U0 Main() { I64 x = One(1); I64 y = Two(1); }</code>: the error for <code>Two</code> underlines <code>Main()</code></td>
-        <td>Read the function name in the message</td></tr>
     <tr><td>Warnings for compound assignments and some pointer/array mismatches point at the nearest <code>=</code></td>
         <td><code>y = y + q; arr = arr + 1;</code>: the warning for the second statement is placed on the first</td>
         <td>Read the types in the message</td></tr>
