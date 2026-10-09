@@ -5,14 +5,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>A function pointer can't be called as <code>(*fp)()</code></td>
-        <td><code>U0 (*fp)() = &amp;G; (*fp)();</code> is an error ("The `*` operator cannot be applied to a function pointer"); C accepts it</td>
-        <td>Call it as <code>fp()</code></td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h3>Diagnostics</h3>
 <table>

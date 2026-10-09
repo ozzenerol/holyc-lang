@@ -1529,6 +1529,23 @@ Ast *parseGetClassField(Cctrl *cc, Ast *cls) {
     return class_ref;
 }
 
+/* A function pointer value that `(` after it calls: a class field, an
+ * array element or, after a parenthesised `(*fp)`/`(fp)`, the variable
+ * itself. A function name is not one: `F` alone is already a call. */
+static int parseIsCallableFnPtr(Ast *ast) {
+    if (!ast || !ast->type || ast->type->kind != AST_TYPE_FUNC) return 0;
+    switch (ast->kind) {
+        case AST_CLASS_REF:
+        case AST_UNOP:
+        case AST_FUNPTR:
+        case AST_LVAR:
+        case AST_GVAR:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 /* Call a function pointer that is a class field or an array element
  * (`fns[i](x)`), the '(' has been consumed */
 static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
@@ -1542,6 +1559,12 @@ static Ast *parseClassFnPtrCall(Cctrl *cc, Ast *class_ref) {
         if (base->kind == AST_LVAR) name = base->lname->data;
         else if (base->kind == AST_GVAR) name = base->gname->data;
         else if (base->kind == AST_CLASS_REF) name = base->field;
+    } else if (class_ref->kind == AST_FUNPTR && class_ref->fname) {
+        name = class_ref->fname->data;
+    } else if (class_ref->kind == AST_LVAR) {
+        name = class_ref->lname->data;
+    } else if (class_ref->kind == AST_GVAR) {
+        name = class_ref->gname->data;
     }
     int len = strlen(name);
     ParseCallLoc loc = parseCallLocStart(cc, name, len);
@@ -1697,8 +1720,7 @@ Ast *parseExpr(Cctrl *cc, int prec) {
              * parsePostFixExpr, so a function pointer field followed by
              * something that is not a type is a call, not a cast */
             Lexeme *peek = cctrlTokenPeek(cc);
-            if ((LHS->kind == AST_CLASS_REF || LHS->kind == AST_UNOP) &&
-                LHS->type->kind == AST_TYPE_FUNC &&
+            if (parseIsCallableFnPtr(LHS) &&
                 (peek == NULL || !cctrlIsKeyword(cc,peek->start,peek->len))) {
                 LHS = parseClassFnPtrCall(cc,LHS);
                 continue;
@@ -1960,7 +1982,7 @@ static Ast *parsePostFixOps(Cctrl *cc, Ast *ast) {
                 ast = astCast(ast,type);
                 continue;
             } else if (ast->kind == AST_CLASS_REF ||
-                       (ast->kind == AST_UNOP && ast->type->kind == AST_TYPE_FUNC)) {
+                       parseIsCallableFnPtr(ast)) {
                 ast = parseClassFnPtrCall(cc,ast);
                 continue;
             }
@@ -2060,10 +2082,9 @@ static void parseCheckDerefOperand(Cctrl *cc, Ast *operand,
                         "only pointers can be dereferenced",
                         astKindToHumanReadable(operand),
                         astTypeKindToHumanReadable(ty));
-    /* `(*fp)()` isn't supported, a function pointer is called as `fp()` */
-    char *sug = ty->kind == AST_TYPE_FUNC
-        ? mprintf("call a function pointer without the `*`")
-        : mprintf("`*` on `%s` is invalid", astTypeToString(ty));
+    /* A function pointer never gets here: parseUnaryExpr makes `*fp` the
+     * function pointer itself */
+    char *sug = mprintf("`*` on `%s` is invalid", astTypeToString(ty));
     AoStr *bold = aoStrNew();
     aoStrCatColoured(bold, ESC_BOLD, msg);
     AoStr *buf = cctrlCreateErrorLineAt(cc, line, col, len, bold->data,
@@ -2183,6 +2204,11 @@ Ast *parseUnaryExpr(Cctrl *cc) {
                 break;
             }
             case AST_UN_OP_DEREF:
+                /* As in C, `*fp` of a function (pointer) is the function
+                 * again: `(*fp)()`, `(**fp)()` and `(*s.cb)(x)` call it */
+                if (operand->type && operand->type->kind == AST_TYPE_FUNC) {
+                    return operand;
+                }
                 parseCheckDerefOperand(cc, operand, op_line, op_col, op_len);
                 type = operand->type->ptr;
                 break;

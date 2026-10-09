@@ -586,6 +586,9 @@ U0 Main()
 <pre class="output">
 10 24
 </pre>
+<p>As in C, <code>*</code> on a function pointer gives the function pointer back, so
+<code>(*f)(acc, x)</code>, <code>(*c.op)(5)</code> and <code>(*ops[i])(5)</code> call it just
+like <code>f(acc, x)</code>.</p>
 <p>An array of function pointers puts the size after the name, as in C. It works for
 locals, globals, class fields and parameters:</p>
 <pre data-run><code>
