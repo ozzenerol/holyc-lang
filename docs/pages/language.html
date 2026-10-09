@@ -727,7 +727,10 @@ one. Function-like macros (<code>#define F(x) ...</code>, no space before the
 <code>(</code>) are not supported: they are a compile error ("function-like macros are not
 supported"), so write a function instead. With a space, <code>#define CALC (2 * 21)</code>
 is an ordinary macro whose value is the expression in brackets. Names in a macro's value
-must be other macros. A postfix cast to a built-in type works and gives the macro that type:
+must be other macros. A numeric macro has the type of its value, as in C: if any operand
+is a float the macro is an <code>F64</code> (<code>#define AREA (1.5 * SIDE)</code> and
+<code>(SIDE * 1.5)</code> both are), otherwise an <code>I64</code>.
+A postfix cast to a built-in type works and gives the macro that type:
 <code>#define BIG (5(U64) % 3)</code> is a <code>U64</code>, <code>#define HALF (5(F64) / 2)</code>
 an <code>F64</code> (2.5). Classes are not known to the preprocessor, so
 <code>0(MyClass*)</code> is an error in a macro.</p>
@@ -736,14 +739,17 @@ an <code>F64</code> (2.5). Classes are not known to the preprocessor, so
 #define APP_NAME  "demo"
 #define RATE      0.5
 #define BUFFER    (MAX_USERS * 16)
+#define BUDGET    (MAX_USERS * RATE)
 
 U0 Main()
 {
   "%s %d %.1f %d\n", APP_NAME, MAX_USERS, RATE, BUFFER;
+  "%.1f %s\n", BUDGET, typeof(BUDGET);
 }
 </code></pre>
 <pre class="output">
 demo 64 0.5 1024
+32.0 F64
 </pre>
 
 <h3>Conditional compilation</h3>

@@ -55,9 +55,10 @@ I32 Main()
   /* The same expressions outside a macro. */
   if ((5(U64) % 3) == CAST_MOD && (5(F64) / 2) == CAST_F64_OP) correct++;
 
-  /* Defines without a cast are unchanged. */
+  /* Without a cast a define has the type of its value: any float
+   * operand makes it an F64 (test 127). */
   if (PLAIN_INT == 3 && !StrCmp(typeof(PLAIN_INT), "I64")) correct++;
-  if (PLAIN_MIX == 3 && !StrCmp(typeof(PLAIN_MIX), "I64")) correct++;
+  if (PLAIN_MIX == 3.5 && !StrCmp(typeof(PLAIN_MIX), "F64")) correct++;
 
   PrintResult(correct, tests);
   "====\n";
