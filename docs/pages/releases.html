@@ -4,6 +4,49 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.4.0 <small>(2026-10-09)</small></h2>
+<p>Every known issue from v0.3.0 is fixed: two wrong-code bugs, standard-library fixes for
+threads, trees, processes, sockets and JSON, and diagnostics that point at the right place.
+The old x86 backend is gone. Every fix has a regression test that runs both compiled and in
+the JIT, on Linux x86_64, Linux arm64 and macOS.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>--use-legacy-x86</code> is removed: the old AST-based x86_64 code generator had several
+  wrong-code bugs, and the flag is now an error.</li>
+  <li><code>System</code> and <code>Sh</code> return the command's exit code (0 to 255), or -1 if it was
+  killed by a signal or couldn't run; they used to return the raw wait status
+  (<code>System("exit 3")</code> was 768). <code>System(NULL)</code> returns -1.</li>
+  <li><code>NetSetSocketNoDelay</code> returns <code>TRUE</code> on success; it returned the opposite.</li>
+  <li>A definition keeps its prototype's default arguments; giving the same parameter a different
+  default in both is an error.</li>
+  <li><code>JsonParse</code> honours <code>JSON_STRNUM_FLAG</code>: numbers are kept as their source text.</li>
+  <li>A function pointer can be called through <code>*</code>: <code>(*fp)()</code>, as in C.</li>
+  <li><code>RBTree</code> is 8 bytes larger (each tree has its own sentinel node).</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Classes of any size from 1 to 16 bytes are passed and returned by value correctly. Odd
+  sizes (3, 5 to 7, 9 to 15 bytes) overwrote neighbouring memory on x86_64 and didn't compile
+  on arm64.</li>
+  <li>A class item in a local initialiser list (<code>L l = {1, p0, 4};</code>) is copied; it was
+  garbage.</li>
+  <li><code>ThreadPoolRelease</code> no longer hangs; queued jobs still run before it returns.</li>
+  <li><code>RBTreeRelease</code> frees the tree and calls the key and value free functions; replacing
+  a value frees the old one. Trees used on different threads no longer corrupt each other.</li>
+  <li>An <code>asm {}</code> block no longer breaks the parsing of the code after it, depending on
+  where it sat in the file.</li>
+  <li>The C transpiler writes array members with their element count and indexing as
+  <code>a[i]</code>.</li>
+  <li>Cross-compiling for macOS from Linux (<code>--target=*-apple-darwin</code>) assembles.</li>
+  <li>Diagnostics at the right place: a wrong argument type at the argument, a class initialiser
+  warning at its item, a missing name after a comma at the bad token. A class assigned to an
+  integer is reported once, the underline under strings includes the quotes, and the
+  <code>U0</code> return warning prints the expression as written.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.3.0 <small>(2026-10-09)</small></h2>
 <p>A wrong-code fix in the optimiser, library functions you can redefine, new warnings for
 mistakes hcc used to accept silently, and three fewer ways to crash the compiler. Every fix
