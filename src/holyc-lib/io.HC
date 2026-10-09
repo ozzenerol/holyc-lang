@@ -166,24 +166,36 @@ I32 Stat(Fstat *fst, U8 *pathname)
 
 public U8 *FileRead(U8 *path, I64 *_size=NULL)
 {
+  if (_size) *_size = 0;
   if (!path) return NULL;
   I32 fd;
   I64 len, rbytes, size;
   U8 *s;
+  cStat st;
 
   if ((fd = open(path,O_RDONLY,438)) == -1) {
     return NULL;    
   }
 
+  /* Only a regular file has a size to read up to: lseek on a directory
+   * gives a huge "size" on some filesystems (LLONG_MAX on ext4) */
+  if (fstat(fd,&st) != 0 || (st.st_mode & S_IFMT) != S_IFREG) {
+    close(fd);
+    return NULL;
+  }
+
   /* get the file size */
-  if ((len = lseek(fd,0,SEEK_END)) == -1) {
+  if ((len = lseek(fd,0,SEEK_END)) < 0) {
     close(fd);
     return NULL;
   }
 
   lseek(fd,0,SEEK_SET);
 
-  s = MAlloc(len+100);
+  if ((s = MAlloc(len+100)) == NULL) {
+    close(fd);
+    return NULL;
+  }
   size = 0;
 
   /* Ask only for what is left: a `len`-byte read at `s+size` runs past
@@ -196,9 +208,6 @@ public U8 *FileRead(U8 *path, I64 *_size=NULL)
   if (size != len) {
     close(fd);
     Free(s);
-    if (_size) {
-      *_size = 0;
-    }
     return NULL;
   }
 
