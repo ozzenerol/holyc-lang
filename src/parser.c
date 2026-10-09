@@ -199,8 +199,11 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
     }
 
     if (!tokenPunctIs(tok, '{')) {
-        cctrlRaiseException(cc,"Expected intializer list starting with '{' got: '%c'",
-                (char)tok->i64);
+        /* Back onto the token so the diagnostic points at it */
+        cctrlTokenRewind(cc);
+        cctrlRaiseException(cc,
+                "Expected initializer list starting with '{', got `%.*s`",
+                tok->len, tok->start);
     }
 
     initlist = listNew();
@@ -267,6 +270,16 @@ static Ast *parseDeclArrayInitList(Cctrl *cc, AstType *type, volatile int *depth
                 cctrlRaiseException(cc,
                         "Cannot use an initialiser list for an element of type %s",
                         astTypeToString(type));
+            } else if (sub_type->kind != AST_TYPE_ARRAY &&
+                       ((sub_type->kind != AST_TYPE_CLASS &&
+                         sub_type->kind != AST_TYPE_UNION) ||
+                        sub_type->is_intrinsic))
+            {
+                /* `I64 a[2] = {1, {2}}`: a scalar element takes a value,
+                 * a list for it would be stored as its address. */
+                cctrlRaiseException(cc,
+                        "Cannot use an initialiser list for an element of type %s",
+                        astTypeToString(sub_type));
             }
             init = parseDeclArrayInitList(cc,sub_type,depth);
             parseCheckInnerArrayInit(cc,sub_type,init,depth);
@@ -882,6 +895,12 @@ Ast *parseVariableAssignment(Cctrl *cc, Ast *var, s64 terminator_flags) {
         Lexeme *tok = cctrlTokenGet(cc);
         assertTokenIsTerminator(cc,tok,terminator_flags);
         return astDecl(var,init);
+    } else if (tokenPunctIs(peek,'{')) {
+        /* `I64 x = {1};` is C but not HolyC. Reported at the `{`, which
+         * is not consumed so the recovery skips the whole list. */
+        cctrlRaiseException(cc,
+                "Cannot use an initialiser list for a variable of type %s",
+                astTypeToString(var->type));
     }
 
     init = parseExpr(cc,16);

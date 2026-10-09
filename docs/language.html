@@ -549,6 +549,9 @@ U0 Main()
 1 0 0 | 4 5 0
 7 0 0
 </pre>
+<p>Unlike C, braces only go around an array, class or union: a scalar can't be
+initialised from a list (<code>I64 x = {1};</code>), and neither can a scalar
+element or field (<code>I64 a[2] = {1, {2}};</code>). Both are compile errors.</p>
 
 <h3>Heap memory</h3>
 <p><code>MAlloc</code> allocates, <code>CAlloc</code> allocates zeroed memory,
