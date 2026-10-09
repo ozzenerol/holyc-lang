@@ -2461,16 +2461,6 @@ void x86_64InitialiseEmptyGlobal(Cctrl *cc,
 }
 
 static void x86_64DataInternal(AoStr *buf, Ast *data) {
-    if (data->kind == AST_STRING) {
-        aoStrCatPrintf(buf, ".quad %s\n\t", data->slabel->data);
-        return;
-    }
-    if (data->kind == AST_ARRAY_INIT) {
-        listForEach(data->arrayinit) {
-            x86_64DataInternal(buf, (Ast *)it->value);
-        }
-        return;
-    }
     if (data->type->kind == AST_TYPE_FLOAT) {
         if (data->type->size == 4) {
             aoStrCatPrintf(buf, ".long 0x%lX #%.9f\n\t",
@@ -2550,9 +2540,8 @@ void x86_64GlobalVar(Cctrl *cc,
         }
         aoStrCatFmt(buf, "%S:\n\t", label);
         if (declinit->kind == AST_ARRAY_INIT) {
-            listForEach(declinit->arrayinit) {
-                x86_64DataInternal(buf, (Ast *)it->value);
-            }
+            /* Fields at their offsets, padded to the full object. */
+            asmEmitInitData(buf, declinit, declvar->type);
             return;
         }
         x86_64DataInternal(buf, declinit);

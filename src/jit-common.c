@@ -227,51 +227,24 @@ static size_t jitGlobalsSize(HccJit *jit, List *from) {
     return total;
 }
 
-/* Walk an initialiser AST and write its byte image to `addr`.
- * Returns the number of bytes written. Mirrors the AOT data emitters:
- *   AST_LITERAL  - scalar, possibly float
- *   AST_STRING   - 8-byte pointer to the string's slot in the arena
- *                  (looked up via host_symbols, populated in pass 1)
- *   AST_ARRAY_INIT - recursively writes each element back-to-back */
-static size_t jitWriteInit(HccJit *jit, uint8_t *addr, Ast *init) {
-    if (!init) return 0;
-    if (init->kind == AST_LITERAL) {
-        size_t w = init->type ? (size_t)init->type->size : 8;
-        if (w > 8) w = 8;
-        if (init->type && init->type->kind == AST_TYPE_FLOAT) {
-            /* F32 must use the 32-bit IEEE encoding, not the low half of the
-             * 64-bit pattern (which would be garbage / zero). */
-            if (w == 4) {
-                uint32_t bits = ieee754_32((f32)init->f64);
-                memcpy(addr, &bits, 4);
-            } else {
-                uint64_t bits = ieee754_64(init->f64);
-                memcpy(addr, &bits, 8);
-            }
-        } else {
-            int64_t v = init->i64;
-            memcpy(addr, &v, w);
-        }
-        return w;
-    }
-    if (init->kind == AST_STRING) {
-        void *p = init->slabel ? mapGet(jit->host_symbols,
-                                        (void *)init->slabel->data) : NULL;
+/* Write an initialiser's byte image (asmInitImage: fields at their
+ * offsets, zeros elsewhere) for a `type` object to `addr`, which is
+ * already zeroed. String literals become 8-byte pointers to the
+ * string's slot in the arena (looked up via host_symbols, populated in
+ * pass 1). */
+static void jitWriteInit(HccJit *jit, uint8_t *addr, Ast *init,
+                         AstType *type)
+{
+    if (!init || type->size <= 0) return;
+    Ast **items = (Ast **)calloc((size_t)type->size, sizeof(Ast *));
+    asmInitImage(init, type, addr, items);
+    for (int i = 0; i < type->size; ++i) {
+        if (!items[i] || items[i]->kind != AST_STRING) continue;
+        void *p = mapGet(jit->host_symbols, (void *)items[i]->slabel->data);
         uintptr_t v = (uintptr_t)p;
-        memcpy(addr, &v, 8);
-        return 8;
+        memcpy(addr + i, &v, 8);
     }
-    if (init->kind == AST_ARRAY_INIT && init->arrayinit) {
-        size_t total = 0;
-        /* arrayinit is a circular sentinel list; iterate it manually. */
-        List *head = init->arrayinit;
-        for (List *n = head->next; n && n != head; n = n->next) {
-            Ast *el = (Ast *)n->value;
-            total += jitWriteInit(jit, addr + total, el);
-        }
-        return total;
-    }
-    return 0;
+    free(items);
 }
 
 /* Lay out the (from, sentinel] range's new strings + globals into a
@@ -375,7 +348,7 @@ static int jitAllocateGlobals(HccJit *jit, List *from) {
             void *src = mapGet(jit->host_symbols, (void *)init->slabel->data);
             if (src) memcpy(addr, src, (size_t)init->real_len);
         } else {
-            jitWriteInit(jit, addr, init);
+            jitWriteInit(jit, addr, init, ast->declvar->type);
         }
         off += (ast->declvar->type->size + 7) & ~7;
     }
