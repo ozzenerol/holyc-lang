@@ -373,6 +373,9 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
   addrinfo hints, *servinfo, *ptr;
   I32 rv;
 
+  if (port < 0 || port > 65535) {
+    return -1;
+  }
   snprintf(strport, sizeof(strport), "%d", port);
   MemSet(&hints, 0, sizeof(addrinfo));
   hints.ai_family = AF_INET;
@@ -434,6 +437,9 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
   U8 strport[6];
   addrinfo hints, *servinfo, *ptr;
 
+  if (port < 0 || port > 65535) {
+    return -1;
+  }
   snprintf(strport, sizeof(strport), "%d", port);
   MemSet(&hints, 0, sizeof(addrinfo));
 
