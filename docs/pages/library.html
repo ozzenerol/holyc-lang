@@ -176,7 +176,7 @@ U0 Main()
   Sh("echo %s has %d files", "/tmp", 3);    // printf-style
   U8 *out = Shlurp("echo %s", "captured");  // capture stdout
 
-  "exit status %d\n", status;
+  "wait status %d\n", status;
   "[%s]\n", out;
   Free(out);
 }
@@ -184,12 +184,15 @@ U0 Main()
 <pre class="output">
 from the shell
 /tmp has 3 files
-exit status 0
+wait status 0
 [captured]
 </pre>
 <p>Print statements are buffered, while commands write straight to the terminal. When
 output goes to a pipe or file, a command's output can appear before text you printed
 earlier.</p>
+<p><code>System</code> and <code>Sh</code> return the raw wait status from C's
+<code>system</code>, not the exit code: a command that exits with 3 gives 768. Use
+<code>(System(cmd) &gt;&gt; 8) &amp; 0xFF</code> for the exit code.</p>
 <p><code>Shlurp</code> returns what the command printed to stdout, minus one trailing
 newline, as a string to <code>Free</code>; format arguments are optional. It doesn't
 capture stderr or return the exit status: a failing command gives whatever it printed,
@@ -420,7 +423,8 @@ elapsed ms is never negative: 1
 <code>MPrintTime</code> return new strings as <code>MM/DD/YYYY</code> and
 <code>HH:MM:SS</code>. A <code>CDate</code> is an <code>I64 class</code>, an integer
 underneath, so <code>CDate d = 5;</code> and <code>I64 x = d;</code> need no cast,
-and <code>F64 f = d;</code> converts it to a float like any integer.</p>
+and <code>F64 f = d;</code> converts it to a float like any integer (a float assigned to a
+<code>CDate</code> is truncated, as it would be for an <code>I64</code>).</p>
 
 <h2 id="maths">Maths</h2>
 <p>The C maths library is declared under its usual names (<code>sqrt</code>,

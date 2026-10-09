@@ -56,7 +56,7 @@ there works as shown.</p>
         <td><code>class L { I64 t; P a; I64 z; }; L l = {1, 2, 3};</code> warns instead of filling <code>a</code>'s fields</td>
         <td>Brace the inner class: <code>{1, {2, 3}, 4}</code></td></tr>
     <tr><td>Redefining a standard-library function works in the JIT but not AOT</td>
-        <td>Defining your own <code>Now()</code> runs under <code>-jit</code> but fails at link time in AOT with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
+        <td>Defining your own <code>Now()</code> runs under <code>-jit</code>, but in AOT the link fails ("multiple definition of `Now'") as soon as the program uses anything else from the library, with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
         <td>Use a different name for your own functions</td></tr>
     <tr><td>Comparing a <code>U0 *</code> with a function pointer is an error</td>
         <td><code>U0 *w = &amp;F; if (w == &amp;F)</code>: "The `==` operator cannot be applied to a pointer type with a unary op of function"</td>
@@ -122,7 +122,7 @@ there works as shown.</p>
         <td>After <code>ThreadPoolWait</code>, <code>ThreadPoolRelease</code> never returns: the workers are never woken before <code>pthread_cond_destroy</code>, and detached threads are joined</td>
         <td>Don't release the pool; let the process exit</td></tr>
     <tr><td><code>System</code> and <code>Sh</code> return the raw wait status</td>
-        <td><code>System("exit 3")</code> returns 768, not 3 (the docs say exit status)</td>
+        <td><code>System("exit 3")</code> returns 768, not 3</td>
         <td>Shift it: <code>(System(cmd) &gt;&gt; 8) &amp; 0xFF</code></td></tr>
     <tr><td><code>JsonParse</code> ignores its <code>flags</code> argument</td>
         <td><code>JsonParse(text, -1, JSON_STRNUM_FLAG)</code> behaves like flags 0</td>
