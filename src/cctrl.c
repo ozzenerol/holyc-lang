@@ -791,6 +791,26 @@ AoStr *cctrlCreateErrorLine(Cctrl *cc, s64 lineno, char *msg,
     return cctrlCreateErrorLineAt(cc, line, col, len, msg, severity, suggestion);
 }
 
+/* A tab in an excerpt is expanded to spaces, up to the next multiple of
+ * CCTRL_TAB_WIDTH, in the echoed line and in the `^` line alike. A tab is
+ * one character of the column but several on screen, so counting it as
+ * one space left the `^` short of the text after it. */
+#define CCTRL_TAB_WIDTH 8
+
+/* The on-screen column of character `idx` of `line` once its tabs are
+ * expanded; a position past the end of the line counts 1 per character. */
+static s64 cctrlScreenCol(const char *line, s64 line_len, s64 idx) {
+    s64 screen_col = 0;
+    for (s64 i = 0; i < idx; ++i) {
+        if (i < line_len && line[i] == '\t') {
+            screen_col += CCTRL_TAB_WIDTH - screen_col % CCTRL_TAB_WIDTH;
+        } else {
+            screen_col++;
+        }
+    }
+    return screen_col;
+}
+
 /* Render a diagnostic at an *explicit* source position. Unlike
  * cctrlCreateErrorLine this never calls cctrlTokenPeek, so it works correctly
  * when the caller knows where the error is but the token buffer doesn't.
@@ -815,14 +835,30 @@ AoStr *cctrlCreateErrorLineAt(Cctrl *cc, s64 lineno, s64 col, s64 len,
     cctrlFileAndLine(cc, buf, lineno, char_pos, msg, severity);
 
     const char *line_buffer = lexerReportLine(cc->lexer_, lineno);
+    s64 line_len = strlen(line_buffer);
+    AoStr *expanded = aoStrNew();
+    for (s64 i = 0; i < line_len; ++i) {
+        if (line_buffer[i] == '\t') {
+            s64 pad = cctrlScreenCol(line_buffer, line_len, i + 1) -
+                      cctrlScreenCol(line_buffer, line_len, i);
+            while (pad-- > 0) aoStrPutChar(expanded, ' ');
+        } else {
+            aoStrPutChar(expanded, line_buffer[i]);
+        }
+    }
     s64 unused_off = -1, unused_len = -1;
     cctrlCreateColoredLine(cc, buf, lineno, 0, NULL, -1,
-                           &unused_off, &unused_len, line_buffer);
+                           &unused_off, &unused_len, expanded->data);
+    aoStrRelease(expanded);
 
     if (char_pos != -1) {
+        /* The underline's start and width on screen */
+        s64 screen_pos = cctrlScreenCol(line_buffer, line_len, char_pos);
+        s64 screen_len = cctrlScreenCol(line_buffer, line_len,
+                                        char_pos + tok_len) - screen_pos;
         aoStrCatColoured(buf, ESC_CYAN, "     |    ");
-        for (int i = 0; i < char_pos; ++i) aoStrPutChar(buf, ' ');
-        for (int i = 0; i < tok_len; ++i) {
+        for (s64 i = 0; i < screen_pos; ++i) aoStrPutChar(buf, ' ');
+        for (s64 i = 0; i < screen_len; ++i) {
             aoStrCatColoured(buf, color, "^");
         }
         if (suggestion) {
