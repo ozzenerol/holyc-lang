@@ -43,9 +43,6 @@ there works as shown.</p>
     <tr><td>Redefining a standard-library function works in the JIT but not AOT</td>
         <td>Defining your own <code>Now()</code> runs under <code>-jit</code>, but in AOT the link fails ("multiple definition of `Now'") as soon as the program uses anything else from the library, with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
         <td>Use a different name for your own functions</td></tr>
-    <tr><td>The C transpiler orders nested classes wrongly and turns <code>F32</code> into <code>double</code></td>
-        <td><code>-transpile</code> writes a nested named class after the struct that uses it</td>
-        <td>The transpiler is experimental; fix the C output by hand</td></tr>
   </tbody>
 </table>
 
