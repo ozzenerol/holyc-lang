@@ -1976,7 +1976,13 @@ Ast *parseCaseLabel(Cctrl *cc, Lexeme *tok) {
 
     do {
         Ast *stmt = parseStatement(cc);
-        if (stmt && stmt->kind != AST_CASE && stmt->kind != AST_DEFAULT) {
+        if (!stmt) {
+            /* `case 1: ;` - the empty statement */
+            peek = cctrlTokenPeek(cc);
+            if (!peek || tokenPunctIs(peek,'}')) break;
+            continue;
+        }
+        if (stmt->kind != AST_CASE && stmt->kind != AST_DEFAULT) {
             listAppend(stmts,stmt);
         }
         if (stmt->kind == AST_COMPOUND_STMT || stmt->kind == AST_CASE ||
@@ -2007,7 +2013,13 @@ Ast *parseDefaultStatement(Cctrl *cc) {
 
     do {
         Ast *stmt = parseStatement(cc);
-        if (stmt && stmt->kind != AST_CASE) {
+        if (!stmt) {
+            /* `default: ;` - the empty statement */
+            peek = cctrlTokenPeek(cc);
+            if (!peek || tokenPunctIs(peek,'}')) break;
+            continue;
+        }
+        if (stmt->kind != AST_CASE) {
             listAppend(stmts,stmt);
         }
         if (stmt->kind == AST_COMPOUND_STMT || stmt->kind == AST_CASE || stmt->kind == AST_BREAK || stmt->kind == AST_RETURN
@@ -2390,6 +2402,10 @@ void parseCompoundStatementInternal(Cctrl *cc, Ast *body) {
                             lexemeTypeToString(tok->tk_type), lexemeAsWritten(tok));
                 }
             }
+        } else if (tokenPunctIs(tok, ';')) {
+            /* The empty statement; ending the block here made the next
+             * statement a "perhaps you meant `}`" error */
+            cctrlTokenGet(cc);
         } else { 
             if ((stmt = parseStatement(cc)) != NULL) {
                 if (stmt->kind == AST_DECL && stmt->declvar->kind == AST_GVAR) {
