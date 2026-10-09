@@ -19,10 +19,18 @@ _MALLOC::
     SUB    RSP,16
     MOV    -8[RBP], RDI
     ADD    RDI, 8
+    JC     @@1           // size + 8 wrapped: fail
     CALL   malloc
+    TEST   RAX, RAX
+    JZ     @@2
     MOV    RCX, -8[RBP]
     MOV    [RAX], RCX
     ADD    RAX, 8
+    LEAVE
+    RET
+@@1:
+    MOVQ   RAX, 0
+@@2:
     LEAVE
     RET
 
@@ -34,12 +42,15 @@ _CALLOC::
     SUB    RSP,16
     MOV    -8[RBP],RDI
     CALL   _MALLOC
+    TEST   RAX, RAX
+    JZ     @@1
     MOV    -16[RBP], RAX
     MOV    RDX, -8[RBP]
     MOV    RSI, 0
     MOV    RDI, -16[RBP]
     CALL   _MEMSET
     MOV    RAX, -16[RBP]
+@@1:
     LEAVE
     RET
 
@@ -56,6 +67,8 @@ _REALLOC:: // U0 *ReAlloc(U0 *ptr, I64 size);
     MOV    RDI, RSI
     CALL   _MALLOC
     MOV    -16[RBP], RAX // new memory saved
+    TEST   RAX, RAX
+    JZ     @@2           // out of memory: keep the old block, return NULL
     MOV    RDI, -8[RBP]  // find out the old size
     CALL   _MSIZE
     MOV    RDX, RAX      // old size
@@ -134,10 +147,19 @@ _MALLOC::
     STP    X29, X30, [SP, -16]! // save FP/LR - we make a call
     STR    X0, [SP, -16]!       // save size across the call (X1 is caller-saved)
     ADD    X0, X0, 8            // add 8, big enough for a U64 header
+    LDR    X1, [SP]
+    CMP    X0, X1
+    B.LO   @@1                  // size + 8 wrapped: fail
     BL     malloc               // X0 = malloc(size + 8)
-    LDR    X1, [SP], 16         // reload size
+    CBZ    X0, @@1
+    LDR    X1, [SP]             // reload size
     STR    X1, [X0]             // store the U64 size header at [ptr]
     ADD    X0, X0, 8            // step the pointer past the header
+    B      @@2
+@@1:
+    MOV    X0, 0
+@@2:
+    LDR    X1, [SP], 16         // drop the saved size
     LDP    X29, X30, [SP], 16   // restore FP/LR
     RET
 
@@ -201,6 +223,7 @@ _REALLOC::
     STR    X1, [SP, 32] // store size
     MOV    X0, X1       // Move the size
     BL     _MALLOC
+    CBZ    X0, @@2      // out of memory: keep the old block, return NULL
     STR    X0, [SP, 24] // store new pointer
     LDR    X0, [SP, 16] // Load old pointer
     BL     _MSIZE       // find size of old pointer
