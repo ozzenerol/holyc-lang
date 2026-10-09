@@ -4,6 +4,90 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.8.0 <small>(2026-10-09)</small></h2>
+<p>A standard-library release. Memory, maths, sets, bit vectors, files, directories, the shell
+helpers, CSV and dates were audited like strings and JSON before them: the code was read
+against its documentation, random tests were checked against Python, plus valgrind and
+worst-case inputs. Every bug found is fixed and every function in these modules is
+documented. Every fix has a regression test that runs both compiled and in the JIT, on
+Linux x86_64, Linux arm64 and macOS.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>MkDir</code> returns 0 when the path is a directory afterwards and -1 otherwise, in
+  both modes, like <code>Rm</code> and <code>RmDir</code>. The recursive mode used to return
+  <code>TRUE</code> on success.</li>
+  <li><code>FileWrite</code> truncates the file by default, so a shorter write no longer leaves the
+  old tail behind. A <code>NULL</code> buffer or a negative size returns <code>FALSE</code> without
+  creating the file.</li>
+  <li><code>FileRead</code> reads only regular files: a directory, device or FIFO gives
+  <code>NULL</code> (<code>/dev/null</code> used to give ""), and <code>*_size</code> is 0 on every
+  failure.</li>
+  <li><code>Dir</code> returns -1 when the path can't be opened as a directory, so an error differs
+  from an empty directory, and lists entries it can't <code>Stat</code> (dangling symlinks).</li>
+  <li><code>Sh</code> and <code>Shlurp</code> always format their command, also without extra
+  arguments: <code>%%</code> is now <code>%</code> in both cases.</li>
+  <li><code>Abs</code> returns an <code>I64</code> (it was a <code>U64</code>, so <code>Abs(x) &gt; -1</code>
+  was false). <code>Abs(I64_MIN)</code> is <code>I64_MIN</code>, like C's <code>labs</code>.</li>
+  <li><code>Pow</code> takes an <code>F64</code> exponent: <code>Pow(4.0, 0.5)</code> is 2.0 (the
+  exponent used to be truncated to an integer). Integral exponents still use exact repeated
+  squaring; one beyond 2<sup>53</sup> is rounded when it becomes an <code>F64</code>, so
+  <code>Pow(-1, I64_MAX)</code> is now 1.0.</li>
+  <li>CDate uses the proleptic Gregorian calendar. Dates from 4000-03-01 on, and in year 0 and
+  before, move by a day (4000-02-29 exists now); years 1 to 3999 keep their day numbers. A
+  CDate of 0 prints as 01/02/0000.</li>
+  <li><code>Struct2Date</code> carries out-of-range fields all the way: month 13 is January of the
+  next year and hour 24 midnight of the next day.</li>
+  <li><code>Str2CDateStruct</code> sets <code>zone_diff</code> to <code>CDATE_NO_ZONE</code>, not -1, when
+  there is no <code>%z</code>, and rejects offsets with hours past 23 or minutes past 59.</li>
+  <li><code>BitVecSet</code> returns a <code>Bool</code>.</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li>Bit vectors: <code>BitVec</code> works and is part of the library (it was broken in every
+  operation and couldn't be included).</li>
+  <li><code>ShQuote(s)</code> quotes text for <code>Sh</code> and <code>Shlurp</code>.</li>
+  <li><code>M_PI</code>, <code>M_E</code> and the other maths constants are available to programs.</li>
+  <li><code>CDATE_NO_ZONE</code>.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>Shrinking a block with <code>ReAlloc</code> wrote past the new block (x86_64).</li>
+  <li><code>MAlloc</code>, <code>CAlloc</code> and <code>ReAlloc</code> crashed when memory ran out and
+  returned a tiny block for sizes near <code>U64_MAX</code>; they return <code>NULL</code>, and
+  <code>ReAlloc</code> keeps the old block.</li>
+  <li><code>MemSet</code> and <code>MemCpy</code> return <code>dst</code>.</li>
+  <li><code>Pow(x, I64_MIN)</code> returned 1.0.</li>
+  <li><code>RBIter</code> in <code>tos.HH</code> was bigger than what the library allocates.</li>
+  <li><code>IntSetToString</code> was quadratic (500,000 elements: 24 s to under 0.1 s).</li>
+  <li>The <code>IntSet</code> and <code>RBTree</code> functions accept a <code>NULL</code> set or tree.</li>
+  <li><code>Rm</code> and <code>RmDir</code> with <code>RM_RECURSE</code> followed a symlink to a directory
+  and deleted what was inside it; they remove the link.</li>
+  <li><code>Rm</code> with any flag didn't delete files, <code>RM_FORCE</code> did nothing, and
+  <code>Rm</code>/<code>RmDir</code> printed without <code>RM_VERBOSE</code> and reported quiet successes
+  as errors.</li>
+  <li>Recursive <code>RmDir</code> stopped at sockets, FIFOs and devices, and recursed forever on
+  filesystems that don't report entry types.</li>
+  <li>Recursive <code>MkDir</code> overflowed a stack buffer on long paths.</li>
+  <li><code>FileRead</code> on a directory crashed.</li>
+  <li><code>Free(Pwd())</code> aborted the program.</li>
+  <li><code>Dir</code> sorted names starting with the same number in no order, overflowed on huge
+  numbers and was quadratic (20,000 files: 1.6 s to 37 ms). <code>Dir(NULL)</code> and
+  <code>RmDir(NULL, RM_RECURSE)</code> crashed.</li>
+  <li><code>Shlurp("")</code> or a command ending in a backslash gave a shell syntax error.</li>
+  <li><code>Date2Struct</code> gave "December 32" for some January 1sts (1904, 1908, ...).</li>
+  <li><code>Now()</code> counted the sub-second part twice, ran up to 2 s fast and went back to the
+  start of the day just before midnight; <code>zone_diff</code> is set now.</li>
+  <li><code>Struct2Date</code> read past its month tables for months outside 1-12.</li>
+  <li><code>StrPrint</code> and <code>MStrPrint</code> with an empty result returned a string without
+  its terminating NUL, so junk could follow it (and <code>Shlurp("")</code> ran it on arm64).</li>
+  <li>On Linux arm64, <code>cStat</code> had the x86_64 layout, so <code>stat</code> results were read
+  from the wrong offsets.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.7.2 <small>(2026-10-09)</small></h2>
 <p>A follow-up to v0.7.1.</p>
 
