@@ -36,6 +36,31 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.13.0 <small>(2026-10-09)</small></h2>
+<p>A stricter redeclaration check and two internal fixes, tested compiled and in the JIT on Linux
+x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>Defining a function whose name the standard library binds with <code>_extern</code> (on x86_64:
+  <code>Exit</code>, <code>MAlloc</code>, <code>ToUpper</code>, ...) with a different signature is a
+  "conflicting types" error, as it already was for ordinary prototypes. Before, on x86_64 the program's
+  function silently replaced the library's, while arm64 failed later with a confusing type error.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>An internal list merge corrupted memory when the appended list was empty (nothing triggers it
+  since v0.12.0, but it no longer can).</li>
+</ul>
+
+<h3>Testing</h3>
+<ul>
+  <li>The SQLite leak test no longer fails at random on macOS: the macOS allocator keeps the last freed
+  block counted as in use per CPU, so the check now allows for that while still catching the real
+  leak by a wide margin.</li>
+</ul>
+
 <h2>v0.12.0 <small>(2026-10-09)</small></h2>
 <p>Compiler crash and warning fixes, a coroutine stack cache, an event-loop example, and SQLite and
 fuzzy-matcher fixes. Every change has a regression test that runs compiled and in the JIT on Linux
