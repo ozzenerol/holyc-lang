@@ -74,9 +74,6 @@ there works as shown.</p>
     <tr><td><code>System</code> and <code>Sh</code> return the raw wait status</td>
         <td><code>System("exit 3")</code> returns 768, not 3</td>
         <td>Shift it: <code>(System(cmd) &gt;&gt; 8) &amp; 0xFF</code></td></tr>
-    <tr><td><code>JsonParse</code> ignores its <code>flags</code> argument</td>
-        <td><code>JsonParse(text, -1, JSON_STRNUM_FLAG)</code> behaves like flags 0</td>
-        <td>None</td></tr>
     <tr><td><code>RBTreeRelease</code> leaks</td>
         <td>It frees the nodes but not the tree itself, and never calls the key/value free functions</td>
         <td>Free keys and values yourself before releasing</td></tr>

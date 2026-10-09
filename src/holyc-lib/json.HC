@@ -319,6 +319,29 @@ static U0 JsonParseNumber(JsonParser *p)
   JsonUnsafeAdvanceBy(p, num_len);
 }
 
+/* With JSON_STRNUM_FLAG: keep a number as the text it was written as
+ * (`J->strnum`), so nothing is lost to I64 / F64 conversion. It is
+ * checked like any other number. */
+static U0 JsonParseStrNum(JsonParser *p)
+{
+  auto current = p->ptr;
+  U8 *ptr = p->buffer + p->offset;
+  Bool is_hex = FALSE, is_exp = FALSE;
+  I64 num_len = CountNumberLen(p, ptr, &is_hex, &is_exp);
+
+  if (p->error != JSON_OK) return;
+  if (num_len == 0) {
+    JsonAdvanceToError(p, 0, JSON_INVALID_NUMBER);
+    return;
+  }
+
+  current->strnum = MAlloc(num_len + 1);
+  MemCpy(current->strnum, ptr, num_len);
+  current->strnum[num_len] = '\0';
+  current->type = JSON_STRNUM;
+  JsonUnsafeAdvanceBy(p, num_len);
+}
+
 /**
  * Parse json boolean
  * 1: true
@@ -858,8 +881,7 @@ static Bool JsonParseValue(JsonParser *p)
   switch (p->type) {
     case JSON_PARSER_NUMERIC: {
       if (p->flags & JSON_STRNUM_FLAG) {
-          J->type = JSON_STRNUM;
-          J->strnum = JsonParseString(p);
+          JsonParseStrNum(p);
       } else {
           JsonParseNumber(p);
       }
@@ -930,10 +952,14 @@ Json *JsonParseWithLenAndFlags(U8 *raw, I64 len, I32 flags)
   return J;
 }
 
+/* Parse `len` bytes of `raw` (-1: up to the NUL) into a tree of Json
+ * nodes. `flags` is 0 or JSON_STRNUM_FLAG, which keeps numbers as the
+ * text they were written as (type JSON_STRNUM, in `strnum`) instead of
+ * converting them to JSON_INT / JSON_FLOAT. */
 public Json *JsonParse(U8 *raw, I64 len=-1, I64 flags=0)
 {
   if (len == -1) len = StrLen(raw);
-  return JsonParseWithLenAndFlags(raw,len,0);
+  return JsonParseWithLenAndFlags(raw,len,flags);
 }
 
 static U8 *JsonGetStrerrorInternal(I32 error, U8 ch, I64 offset)
