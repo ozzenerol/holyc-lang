@@ -67,9 +67,14 @@ F64 FloatVecGet(FloatVec *vec, I64 idx)
   return vec->entries[idx];
 }
 
-I64 _FloatCmp(F64 f1, F64 f2)
+/* QSortGeneric hands the comparator two 64-bit slots as U0 *, in integer
+ * registers: an F64 parameter would read the float registers instead, so
+ * take the bits and reinterpret them. */
+I64 _FloatCmp(U0 *a, U0 *b)
 {
-  return (f1 < f2)(Bool);
+  F64 f1 = *(&a)(F64 *);
+  F64 f2 = *(&b)(F64 *);
+  return f1 < f2;
 }
 
 U0 FloatVecSort(FloatVec *vec)
