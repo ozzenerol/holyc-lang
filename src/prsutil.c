@@ -423,6 +423,19 @@ s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
         }
 
         case AST_BINOP:
+            /* A comparison is an integer but compares its operands as
+             * floats if either is one: `1.5 > 1` is 1, not `1 > 1`. */
+            if (astIsFloatType(ast->left->type) ||
+                astIsFloatType(ast->right->type)) {
+                switch (ast->binop) {
+                    case AST_BIN_OP_LT: case AST_BIN_OP_LE:
+                    case AST_BIN_OP_GT: case AST_BIN_OP_GE:
+                    case AST_BIN_OP_EQ: case AST_BIN_OP_NE:
+                        return (s64)evalFloatExprOrErr(ast, _ok);
+                    default:
+                        break;
+                }
+            }
             switch (ast->binop) {
                 case AST_BIN_OP_MUL:
                     return evalIntConstExprOrErr(ast->left, _ok) *
