@@ -1339,7 +1339,7 @@ public extern "c" I32 rmdir(U8 *dirname);
 
 public I32 RmDir(U8 *path, Bool flags=0);
 public I32 Rm(U8 *path, Bool flags=0);
-public Bool MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE);
+public I32 MkDir(U8 *path, I32 mode=MKDIR_DEFAULT, Bool recurse=FALSE);
 
 #define FZF_CASE_SMART   0
 #define FZF_CASE_IGNORE  1
