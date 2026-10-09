@@ -335,7 +335,7 @@ public Bool NetSetSockReuseAddr(I32 sockfd)
 }
 
 /* Set TCP no delay, turn off Nagle buffering. Makes the socket sent data as soon
- * as it is avalible
+ * as it is avalible. Returns TRUE on success and FALSE if setsockopt fails.
  *
  * https://www.extrahop.com/company/blog/2016/tcp-nodelay-nagle-quickack-best-practices/
  * */
@@ -343,10 +343,10 @@ public Bool NetSetSocketNoDelay(I32 sockfd)
 {
   I32 yes = 1;
 
-  if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(I32)))
-    return TRUE;
+  if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(I32)) == -1)
+    return FALSE;
 
-  return FALSE;
+  return TRUE;
 }
 
 static U0 *NetGetInAddress(sockaddr *sa)
