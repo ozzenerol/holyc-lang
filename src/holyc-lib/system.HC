@@ -8,17 +8,10 @@ public extern "c" I64 write(I32 fd, U0 *buf, U64 nbyte);
 asm {
 _EXIT::
     CALL    exit
-
-_SYSTEM::
-    PUSHQ  RBP
-    MOVQ   RBP, RSP
-    CALL   system
-    LEAVE
     RET
 }
 
 public _extern _EXIT U0 Exit(I64 exit_code=EXIT_FAIL);
-public _extern _SYSTEM I64 System(U8 *command);
 #endif
 
 #ifdef IS_ARM_64
@@ -26,19 +19,31 @@ public U0 Exit(I64 exit_code=EXIT_FAIL)
 {
   exit(exit_code);
 }
+#endif
 
+/* Run `command` with the shell (`sh -c`). Returns the command's exit
+ * code (0-255), or -1 if it was killed by a signal or the shell could
+ * not be run (also for a NULL command). The shell itself gives 127 for
+ * a command it can't find. */
 public I64 System(U8 *command)
 {
-  return system(command);
+  if (!command) return -1;
+  I32 status = system(command);
+  if (status == -1) return -1;
+  /* `system` returns a wait status: the low 7 bits are the signal that
+   * killed the child, the exit code is in bits 8-15 */
+  if (status & 0x7F) return -1;
+  return (status >> 8) & 0xFF;
 }
-#endif
 
 public I64 Write(I64 fd, U8 *buf, I64 len)
 {
     return write(fd, buf, len);
 }
 
-/* Call the shell with `printf`-like formatting */
+/* Call the shell with `printf`-like formatting. Returns what System
+ * returns: the exit code (0-255), or -1 if the command was killed by a
+ * signal, could not be run, or fmt is NULL. */
 public I32 Sh(U8 *fmt, ...)
 {
   if (!fmt) return -1;

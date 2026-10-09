@@ -58,7 +58,7 @@ Bool CompileFailsWith(U8 *source, U8 *expected, U8 *where, I64 errors=1)
     return FALSE;
   }
 
-  ok = res == 1 << 8 && CountErrors(out) == errors;
+  ok = res == 1 && CountErrors(out) == errors;
   err = strstr(out, "error: ");
   if (!err || StrNCmp(err + 7, expected, StrLen(expected))) ok = FALSE;
   if (!strstr(out, where)) ok = FALSE;

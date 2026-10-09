@@ -51,8 +51,7 @@ Bool RunLeadingZero(U8 *flags, U8 *source, I64 status, I64 nwarn,
     CleanupLeadingZeroTest;
     return FALSE;
   }
-  /* system() returns a wait status: the exit code is in bits 8-15 */
-  if (((res >> 8) & 0xFF) != status) ok = FALSE;
+  if (res != status) ok = FALSE;
   if (CountWarnings(out) != nwarn) ok = FALSE;
   if (want1 && !strstr(out, want1)) ok = FALSE;
   if (want2 && !strstr(out, want2)) ok = FALSE;

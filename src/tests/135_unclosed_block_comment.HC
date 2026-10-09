@@ -59,8 +59,7 @@ Bool Compile(U8 *source, U8 *inc, I64 count, U8 *loc)
   if (count == 0) {
     if (res != 0) ok = FALSE;
   } else {
-    /* system() returns a wait status: the exit code is in bits 8-15 */
-    if (((res >> 8) & 0xFF) != 1) ok = FALSE;
+    if (res != 1) ok = FALSE;
     want = MStrPrint("error: unterminated comment\n --> %s\n", loc);
     if (!strstr(out, want)) ok = FALSE;
     Free(want);

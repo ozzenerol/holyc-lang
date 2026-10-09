@@ -31,7 +31,7 @@ Bool CompileFailsWith(U8 *source, U8 *expected, U8 *where)
   }
 
   res = System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} " IF_TEST_FILE " > " IF_TEST_OUT " 2>&1");
-  if (res != 1 << 8) {
+  if (res != 1) {
     "hcc exit status %d, expected a normal compile failure\n", res;
     CleanupIfTest;
     return FALSE;

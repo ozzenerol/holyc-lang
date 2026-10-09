@@ -50,9 +50,8 @@ Bool RunHcc(U8 *args, I64 count, U8 *want)
   if (count == 0) {
     if (res != 0) ok = FALSE;
   } else {
-    /* system() returns a wait status: the exit code is in bits 8-15;
-     * `timeout` exits 124 on a hang */
-    if (((res >> 8) & 0xFF) != 1) ok = FALSE;
+    /* System returns the exit code; `timeout` exits 124 on a hang */
+    if (res != 1) ok = FALSE;
     if (!strstr(out, want)) ok = FALSE;
     if (count > 0 && CountErrors(out) != count) ok = FALSE;
   }

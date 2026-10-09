@@ -44,8 +44,7 @@ Bool RunRedefine(Bool jit, U8 *source, I64 status, U8 *want1, U8 *want2)
     CleanupRedefineTest;
     return FALSE;
   }
-  /* system() returns a wait status: the exit code is in bits 8-15 */
-  if (((res >> 8) & 0xFF) != status) ok = FALSE;
+  if (res != status) ok = FALSE;
   if (want1 && !strstr(out, want1)) ok = FALSE;
   if (want2 && !strstr(out, want2)) ok = FALSE;
   if (!ok) "jit=%d: exit status %d\n%s\n", jit, res, out;

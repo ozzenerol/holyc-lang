@@ -41,7 +41,6 @@ Bool CompileCheck(U8 *source, I64 want_status, I64 nerrors, U8 **want, I64 nwant
 
   /* 7 = exited 1, 8 = exited 0, 9 = anything else (e.g. a crash) */
   res = System("../../hcc ${HCC_INSTALL_DIR:+--install-dir=$HCC_INSTALL_DIR} " BINOP_NOISE_FILE " > " BINOP_NOISE_OUT " 2>&1; s=$?; exit $(( s == 1 ? 7 : (s == 0 ? 8 : 9) ))");
-  res = (res >> 8) & 0xFF;
   if (want_status == 1 && res != 7) ok = FALSE;
   if (want_status == 0 && res != 8) ok = FALSE;
 

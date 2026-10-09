@@ -88,8 +88,8 @@ Bool CompileFailsWith(U8 *source, U8 *expected)
     return FALSE;
   }
 
-  /* system() gives a wait status: exit code 1 is 1 << 8. */
-  ok = res == 1 << 8 && strstr(out, expected) != NULL;
+  /* System gives the exit code: 1 for a compile error. */
+  ok = res == 1 && strstr(out, expected) != NULL;
   if (!ok) "status %d\n%s\n", res, out;
 
   Free(out);
