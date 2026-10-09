@@ -70,7 +70,8 @@ Run it as your normal user, not with sudo.
 
 Prebuilt binaries for Linux x86_64/aarch64 and macOS are attached to
 [releases](https://github.com/ozzenerol/holyc-lang/releases); install one with
-`packaging/install.sh`.
+`packaging/install.sh`. What changed in each version is on the
+[Releases page](https://ozzenerol.github.io/holyc-lang/releases.html).
 
 ## Using the compiler
 

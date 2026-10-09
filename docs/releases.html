@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Releases · HolyC</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&family=VT323&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script>
+/* Theme before first paint: from ?theme= (carried between pages, since
+   file:// pages don't share storage in every browser), else saved, else
+   dark (the <html> default). */
+(function () {
+  var t = new URLSearchParams(location.search).get("theme");
+  try { if (!t) t = localStorage.getItem("holyc-theme"); } catch (e) {}
+  if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><img src="assets/favicon.png" alt="" width="25" height="28">HolyC</a>
+  <button class="menu" aria-label="Menu" aria-expanded="false">☰</button>
+  <nav class="pages"><a href="index.html">Home</a><a href="getting-started.html">Getting started</a><a href="language.html">Language</a><a href="library.html">Library guide</a><a href="stdlib.html">Library reference</a><a href="tools.html">Tools</a><a href="examples.html">Examples</a><a href="known-issues.html">Known issues</a><a href="releases.html" aria-current="page">Releases</a></nav>
+  <button class="theme" aria-label="Toggle dark mode">◐</button>
+</header>
+<div class="layout">
+  <aside class="toc" aria-label="On this page"></aside>
+  <main>
+<h1>Releases</h1>
+<p class="lede">What changed in each version of this fork of hcc. Binaries for Linux x86_64,
+Linux arm64 and macOS are attached to each release on
+<a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
+
+<h2>v0.1.0 <small>(2026-10-09)</small></h2>
+<p>The first release of this fork, which is developed independently of
+<a href="https://github.com/Jamesbarford/holyc-lang">Jamesbarford/holyc-lang</a>
+(it continues from upstream v0.0.15-beta). It is mostly about correctness: 120 fixes,
+each with a regression test that runs both compiled and in the JIT.</p>
+
+<h3>Highlights</h3>
+<ul>
+  <li><strong>Wrong code fixed</strong>: loads through pointer arrays, global initialisers laid
+  out at their field offsets and zero-filled, int/float conversions on return, assignment and
+  intrinsic classes, <code>return f();</code> in <code>U0</code> functions no longer dropped,
+  <code>&amp;&amp;</code>/<code>||</code>/<code>!</code> on floats and pointers, comparisons with the pointer on the
+  right, register clobbering in indexed loads on arm64 and x86_64, stack-passed parameters.</li>
+  <li><strong>No more compiler crashes or hangs</strong> on bad or truncated input: end of file
+  anywhere, errors inside class bodies, initialisers and directives, runaway compound
+  assignments.</li>
+  <li><strong>Language</strong>: nested <code>#if</code> handled properly, <code>#undef</code> applied in order,
+  <code>#define</code> line continuation and float typing, function-pointer arrays and file-scope
+  function pointers, nested/union/string initialisers, calling a function without
+  parentheses anywhere in an expression, C precedence for prefix operators.</li>
+  <li><strong>Diagnostics</strong> at the right place: macro uses, directives, tabs and non-ASCII text,
+  argument counts; clear messages for malformed numbers and unknown characters.</li>
+  <li><strong>Standard library</strong>: JSON <code>\u</code> escapes, top-level values and round-tripping;
+  <code>IntSet</code>, <code>CatPrint</code>, <code>FileRead</code>, <code>RBTreeDelete</code> and <code>%d</code> of the smallest
+  <code>I64</code> fixed.</li>
+  <li><strong>Building and testing</strong>: <code>./build.sh</code> builds into a local prefix and runs the
+  suites; <code>docker/test.sh</code> tests x86_64 and arm64 Linux; documentation with checked
+  examples, published at <a href="https://ozzenerol.github.io/holyc-lang/">ozzenerol.github.io/holyc-lang</a>.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
+<details>
+<summary>All 120 fixes</summary>
+<ul>
+  <li>check for array index bounds (#277)</li>
+  <li>use libc write/atol for Write() and Atoi() on x86_64</li>
+  <li>lsp memory leak, stale symbols, hover/completion gaps and utf-16 positions</li>
+  <li>lex `case 1...3` as a range instead of a malformed float</li>
+  <li>lex 0b binary literals instead of silently compiling them to 0</li>
+  <li>copy string literals into local U8 arrays and allow shorter initialisers</li>
+  <li>call function pointer fields through array elements and call results</li>
+  <li>correct the usage labels of -cfg-png, -cfg-svg and -c</li>
+  <li>allow range-based for loops without braces</li>
+  <li>compile inline functions as ordinary functions</li>
+  <li>allow several declarations in one global statement</li>
+  <li>report function-like macros and bad #define values as errors instead of crashing</li>
+  <li>make hcc -run build, run and clean up the program</li>
+  <li>pass classes by value correctly in the x86_64 JIT and spill class results safely on arm64</li>
+  <li>give small class returns their own stack slot so struct copies never overlap</li>
+  <li>make F64 comparisons used as values give 0 or 1 and handle NaN on x86_64</li>
+  <li>make %d and friends 64-bit in print statements</li>
+  <li>stop miscompiling stores across calls, fix the date helpers and wide arm64 JIT stores</li>
+  <li>support %f, %e and %g in StrPrint and never grow a caller&#x27;s buffer</li>
+  <li>make StrCmp, StrNCmp and StrNICmp follow C on x86_64</li>
+  <li>compute Gcd correctly for every input</li>
+  <li>capture Shlurp output without format arguments and always pass argc to variadic calls</li>
+  <li>use the POSIX values for STDIN, STDOUT and STDERR</li>
+  <li>let StrMapNew and IntMapNew take any capacity</li>
+  <li>keep the stored key when StrMapSet updates an existing key</li>
+  <li>let the JIT load libraries built with -lib</li>
+  <li>make the docs easier to read</li>
+  <li>lex float literals with an exponent instead of misreading 1e3 and 1.0e-7</li>
+  <li>report bad #if and #elif conditions at the directive&#x27;s file and line</li>
+  <li>make &gt;&gt;, /, % and comparisons unsigned for U64 and type big literals as U64</li>
+  <li>size intrinsic classes by their base type so sizeof(CDate) is 8</li>
+  <li>read a field off a returned or cast I64 class instead of crashing</li>
+  <li>give auto the element type in a range-for over a container field</li>
+  <li>compare floats with integers as floats and convert big U64 to float unsigned</li>
+  <li>pass variadic arguments correctly when calling through a function pointer</li>
+  <li>stop -Memsafe reporting false leaks and double frees</li>
+  <li>honour width, precision and - for %s and %d in StrPrint</li>
+  <li>make StrMapDelete and IntMapDelete remove keys without breaking the map</li>
+  <li>show one module at a time on the stdlib reference page</li>
+  <li>parse function pointers declared at file scope</li>
+  <li>allow a pointer next to a Bool in &amp;&amp; and ||, keeping their order and 0/1 result</li>
+  <li>reject extra tokens after an #if condition</li>
+  <li>reject letters after a decimal number instead of dropping them</li>
+  <li>give an assignment used as a value the type of its left side</li>
+  <li>load an intrinsic class read through a pointer instead of returning the pointer</li>
+  <li>convert between int and float when returning a value</li>
+  <li>fill default arguments when calling through a class field function pointer</li>
+  <li>make CatPrint grow and return the string it is given instead of leaking it</li>
+  <li>report #define errors without abandoning the declaration being parsed</li>
+  <li>truncate a constant assigned to a narrow integer when the assignment is used as a value</li>
+  <li>keep pointer and index parameter registers intact in indexed loads and stores</li>
+  <li>read only the bytes left in FileRead instead of past the buffer</li>
+  <li>test float operands of &amp;&amp;, || and ! against 0.0</li>
+  <li>reject 0x with no digits and digits after an f32/f64 suffix</li>
+  <li>keep the stack slot of a stack-passed parameter used as an index or return value</li>
+  <li>stop arm64 indexed accesses adding the offset into the base register</li>
+  <li>report directive and token errors without abandoning the declaration being parsed</li>
+  <li>fold postfix casts in #define values instead of crashing</li>
+  <li>keep comparison operands in order when the pointer is on the right</li>
+  <li>recover from a field error inside a class body instead of crashing on use</li>
+  <li>point directive errors at the offending token on the directive&#x27;s line</li>
+  <li>report a non-constant #define value at its location instead of exiting</li>
+  <li>track #if nesting and report unmatched conditional directives</li>
+  <li>explain why a malformed number literal is rejected</li>
+  <li>reject an initialiser list for an incomplete class instead of crashing</li>
+  <li>report an intrinsic class size error once and keep its fields</li>
+  <li>type a #define as F64 when any operand is a float</li>
+  <li>reject 0x with no digits before a case range</li>
+  <li>support brace initialisers for class-typed fields</li>
+  <li>drop the unlocated warnings printed before a binary operator type error</li>
+  <li>report unexpected end of input instead of hanging or crashing</li>
+  <li>test float operands of &amp;&amp;, || and ! against 0.0 when folding a #define</li>
+  <li>echo the source line as written in error excerpts</li>
+  <li>reject unary -, + and ~ on non-arithmetic operands and promote narrow ints</li>
+  <li>report an unterminated block comment</li>
+  <li>report an unreadable #include instead of hanging on a directory</li>
+  <li>require while after a do block and stop the undefined-call walk-back from hanging</li>
+  <li>reject nested array initialiser rows and strings that are too long</li>
+  <li>skip the whole initialiser after an error inside it</li>
+  <li>lay out global initialisers at their field offsets</li>
+  <li>zero-fill the rest of a partial initialiser and accept short top-level array lists</li>
+  <li>bind prefix operators to the whole postfix expression</li>
+  <li>assign intrinsic classes to integers silently and place assignment warnings correctly</li>
+  <li>report errors on a macro use where it is used</li>
+  <li>line up error carets on lines with tabs</li>
+  <li>report unexpected characters instead of dropping them</li>
+  <li>print the whole line of an #error directive</li>
+  <li>don&#x27;t let /*/ close the block comment it opens</li>
+  <li>report a bad compound assignment at its operator instead of looping</li>
+  <li>reject brace lists for scalar elements and name the token in the initialiser-list error</li>
+  <li>load pointer elements and take the address of pointer variables instead of returning the pointer</li>
+  <li>convert intrinsic classes to and from floats instead of copying bits</li>
+  <li>copy strings into char-array slots of initialisers as bytes</li>
+  <li>give an anonymous union one initialiser and allow brace lists for unions</li>
+  <li>store non-constant items of global initialisers at startup</li>
+  <li>align initialised and static global data to their type</li>
+  <li>call a function named without parentheses anywhere in an expression</li>
+  <li>expand macros as tokens enter the lookahead ring so #undef applies in order</li>
+  <li>give argc its own integer type so it converts to a float</li>
+  <li>parse tagged classes and unions defined inside a class body</li>
+  <li>report a missing Main when running with -jit</li>
+  <li>decode \\u escapes in JsonParse, including surrogate pairs</li>
+  <li>parse arrays of function pointers</li>
+  <li>accept any JSON value at the top level, including empty objects and arrays</li>
+  <li>escape control characters and print empty objects in JsonToString</li>
+  <li>evaluate the expression of a return in a U0 function instead of dropping it</li>
+  <li>make assigning to an array an error</li>
+  <li>show the value of a folded macro in parse errors</li>
+  <li>only suggest a missing semicolon on a line that can take one</li>
+  <li>print the smallest I64 correctly with signed formats</li>
+  <li>don&#x27;t report lexical errors inside skipped #if blocks</li>
+  <li>support backslash line continuation in #define</li>
+  <li>place error carets correctly after non-ASCII text</li>
+  <li>emit file-scope char arrays initialised from a string into writable data</li>
+  <li>make IntSet printing and iteration work and declare IntSetIntersection</li>
+  <li>lay out global class initialisers at their field offsets in the legacy x86 backend</li>
+  <li>stop RBTreeDelete dereferencing NULL and looping after a match</li>
+  <li>convert between U0 pointers and function pointers without a warning</li>
+  <li>underline the call with the wrong argument count</li>
+  <li>name array types by element count and size string literals by their decoded bytes</li>
+</ul>
+</details>
+<details>
+<summary>New features and tooling</summary>
+<ul>
+  <li>Adds build.sh to build hcc + libtos, run all tests against the in-tree lib, and install safely (sudo only for the copy). Tested on Linux x86_64 and macOS arm64</li>
+  <li>feat: add docker/test.sh to run the test matrix on x86_64 and arm64</li>
+  <li>feat: add HTML docs for the language, library and tools, with example projects</li>
+  <li>feat: added docs</li>
+</ul>
+</details>
+
+  </main>
+</div>
+<footer>Docs for <a href="https://github.com/ozzenerol/holyc-lang">hcc</a>, a HolyC compiler (a fork of <a href="https://github.com/Jamesbarford/holyc-lang">Jamesbarford/holyc-lang</a>).
+Every example on these pages is compiled and run by <code>docs/tools/check-examples.py</code>.</footer>
+</body>
+</html>
