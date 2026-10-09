@@ -1954,7 +1954,10 @@ IrValue *irExpr(IrCtx *ctx, Ast *ast) {
         case AST_ASM_FUNCALL:
         case AST_FUNPTR_CALL:
         case AST_FUNCALL:
-            return irLowerFnCall(ctx, ast);
+            /* SysV and AAPCS64 leave the bits above a narrow integer
+             * return undefined (`extern "c" I32 strcmp` gave 0x00000000ffffffff
+             * for -1), so the caller widens it, like any narrow read. */
+            return irPromoteNarrowInt(ctx, irLowerFnCall(ctx, ast), ast->type);
         case AST_FUNPTR:
             return irLowerFunPtr(ctx, ast);
 
