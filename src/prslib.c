@@ -1733,26 +1733,31 @@ Ast *parseTypeof(Cctrl *cc) {
     return cctrlGetOrSetString(cc, name->data, name->len, name->len + 1);
 }
 
-Ast *parsePostFixExpr(Cctrl *cc) {
-    Ast *ast;
+/* The postfix operators - `.`, `->`, `[]`, a postfix cast, a function
+ * pointer call and `x++`/`x--` - applied to an already parsed operand.
+ * They bind tighter than any prefix operator, so parseUnaryExpr's operand
+ * is a primary or parenthesised expression with these applied: `-a[0] == -6`
+ * is `(-(a[0])) == -6`, `&t[i].x` is `&(t[i].x)`, `-f(x)[i]` is `-(f(x)[i])` */
+static Ast *parsePostFixOps(Cctrl *cc, Ast *ast) {
     AstType *type;
     Lexeme *tok,*peek;
-
-    /* parse primary rightly or wrongly, amongst other things, either gets a 
-     * variable or parses a function call. */
-    if ((ast = parsePrimary(cc)) == NULL) {
-        return NULL;
-    }
-
-    if (parseIsFunctionCall(ast)) {
-        return ast;
-    }
 
     while (1) {
         tok = cctrlTokenGet(cc);
 
         if (tokenPunctIs(tok,'.')) {
             ast = parseGetClassField(cc,ast);
+            continue;
+        }
+
+        if (tokenPunctIs(tok,'[')) {
+            if (ast->type->kind != AST_TYPE_POINTER &&
+                ast->type->kind != AST_TYPE_ARRAY) {
+                cctrlRewindUntilPunctMatch(cc,'[',NULL);
+                cctrlRaiseException(cc,"Cannot subscript a %s, only pointers or arrays can be subscripted with '['",
+                                   astTypeKindToHumanReadable(ast->type));
+            }
+            ast = parseSubscriptExpr(cc,ast);
             continue;
         }
 
@@ -1804,9 +1809,18 @@ Ast *parsePostFixExpr(Cctrl *cc) {
         }
 
         cctrlTokenRewind(cc);
-        tok = cctrlTokenPeek(cc);
         return ast;
     }
+}
+
+Ast *parsePostFixExpr(Cctrl *cc) {
+    Ast *ast;
+    /* parse primary rightly or wrongly, amongst other things, either gets a
+     * variable or parses a function call. */
+    if ((ast = parsePrimary(cc)) == NULL) {
+        return NULL;
+    }
+    return parsePostFixOps(cc,ast);
 }
 
 /* `-x`, `+x` and `~x` need a number: an integer, an intrinsic class (an
@@ -1882,7 +1896,7 @@ Ast *parseUnaryExpr(Cctrl *cc) {
     if (tokenPunctIs(tok,'(')) {
         ast = parseExpr(cc,16);
         cctrlTokenExpect(cc,')');
-        return ast;
+        return parsePostFixOps(cc,ast);
     }
 
     if (tok->tk_type == TK_PUNCT) {
@@ -1898,68 +1912,34 @@ Ast *parseUnaryExpr(Cctrl *cc) {
             unary_op = AST_UN_OP_PRE_DEC;
         }
 
-        Lexeme *peek = cctrlTokenPeekBy(cc,1);
         Ast *operand = NULL;
         AstType *type = NULL;
         /* The operator's position, copied: parsing a long operand can
          * cycle `tok` out of the token ring before it's type checked. */
         int op_line = tok->line, op_col = tok->col, op_len = tok->len;
+        s64 op_punct = tok->i64;
 
-        /* XXX: This feels wrong but allows things like:
-         * !arr[0][1][2] to work properly */
-        if (tokenPunctIs(peek, '[') && !(unary_op == AST_UN_OP_ADDR_OF ||
-                                         unary_op == AST_UN_OP_DEREF)) {
-            operand = parseExpr(cc,16);
-        } else {
-            operand = parseUnaryExpr(cc);
-            /* parsePrimary returns NULL when it sees a punct that
-             * can't start an expression. Such as a stray
-             * slash left over from a malformed block-comment close.
-             * Bail with a real error rather than dereffing `NULL`. */
-            if (!operand) {
-                cctrlRaiseException(cc,
-                    "Expected expression after unary '%s'",
-                    lexemePunctToString(tok->i64));
-            }
-            peek = cctrlTokenPeek(cc);
-            /* Subscript binds tighter than the unary op (C precedence), so
-             * `&t[i]` / `*t[i]` is `&(t[i])` / `*(t[i])`. This must apply to
-             * a POINTER operand too, not just arrays/class-refs: otherwise
-             * `&ptr[i]` parsed as `(&ptr)[i]` = `*((&ptr)+i)`, indexing the
-             * pointer variable's address by sizeof(ptr) instead of computing
-             * `ptr + i*sizeof(*ptr)` - garbage for any non-array pointer.
-             * After the first subscript, keep consuming the postfix chain
-             * (`.field`, `->field`, further `[]`) so `&t[i].x` is
-             * `&(t[i].x)` rather than `(&t[i]).x`. */
-            if (tokenPunctIs(peek, '[') && operand->type &&
-                (operand->kind == AST_CLASS_REF ||
-                 operand->type->kind == AST_TYPE_ARRAY ||
-                 operand->type->kind == AST_TYPE_POINTER)) {
-                cctrlTokenGet(cc);
-                operand = parseSubscriptExpr(cc, operand);
-                while (1) {
-                    peek = cctrlTokenPeek(cc);
-                    if (tokenPunctIs(peek, '[')) {
-                        cctrlTokenGet(cc);
-                        operand = parseSubscriptExpr(cc, operand);
-                    } else if (tokenPunctIs(peek, '.')) {
-                        cctrlTokenGet(cc);
-                        operand = parseGetClassField(cc, operand);
-                    } else if (tokenPunctIs(peek, TK_ARROW)) {
-                        cctrlTokenGet(cc);
-                        if (operand->type->kind != AST_TYPE_POINTER) {
-                            cctrlRaiseException(cc,
-                                "Pointer expected before '->' got a %s",
-                                astTypeKindToHumanReadable(operand->type));
-                        }
-                        operand = astUnaryOperator(operand->type->ptr,
-                                                   AST_UN_OP_DEREF, operand);
-                        operand->deref_symbol = TK_ARROW;
-                        operand = parseGetClassField(cc, operand);
-                    } else {
-                        break;
-                    }
-                }
+        /* The operand is everything up to the next binary operator: the
+         * postfix operators bind tighter (parsePostFixOps), so `-a[0] == -6`
+         * negates `a[0]` and `&t[i].x` is `&(t[i].x)`. */
+        operand = parseUnaryExpr(cc);
+        /* parsePrimary returns NULL when it sees a punct that
+         * can't start an expression. Such as a stray
+         * slash left over from a malformed block-comment close.
+         * Bail with a real error rather than dereffing `NULL`. */
+        if (!operand) {
+            cctrlRaiseException(cc,
+                "Expected expression after unary '%s'",
+                lexemePunctToString(op_punct));
+        }
+
+        /* A cast is not an l-value, so `&x(T)` takes the address of `x` and
+         * casts that: `&pp[2](U8 *)` is `(&pp[2])(U8 *)`. */
+        AstType *addr_cast = NULL;
+        if (unary_op == AST_UN_OP_ADDR_OF) {
+            while (operand->kind == AST_CAST) {
+                if (!addr_cast) addr_cast = operand->type;
+                operand = operand->operand;
             }
         }
 
@@ -2003,7 +1983,8 @@ Ast *parseUnaryExpr(Cctrl *cc) {
             default:                type = operand->type; break;
         }
 
-        return astUnaryOperator(type, unary_op, operand);
+        ast = astUnaryOperator(type, unary_op, operand);
+        return addr_cast ? astCast(ast, addr_cast) : ast;
     }
     
     cctrlTokenRewind(cc);
