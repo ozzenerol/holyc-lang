@@ -732,14 +732,13 @@ public U8 *StrTrimEnd(U8 *str, I64 str_len=-1, I64 *_new_len=NULL)
   return str;
 }
 
-public U8 *StrCleanEnd(U8 *str, U8 *chars, I64 *_new_len=NULL)
+public I64 StrCleanEnd(U8 *str, U8 *chars)
 { // Mutates the string, removes any of the characters in `chars` from
-  // the end of the string. NULL returns NULL.
+  // the end of the string and returns its new length. NULL returns 0.
   I64 len,j;
 
   if (!str) {
-    if (_new_len) *_new_len = 0;
-    return NULL;
+    return 0;
   }
   len = StrLen(str);
 
@@ -755,11 +754,7 @@ public U8 *StrCleanEnd(U8 *str, U8 *chars, I64 *_new_len=NULL)
       str[--len] = '\0';
     }
   }
-
-  if (_new_len) {
-    *_new_len = len;
-  }
-  return str;
+  return len;
 }
 
 public U0 StrReverse(U8 *buf, I64 length)

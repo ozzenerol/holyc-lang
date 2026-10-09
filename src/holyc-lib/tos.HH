@@ -881,9 +881,9 @@ public U8 *StrTrimStart(U8 *str, I64 str_len=-1, I64 *_new_len=NULL);
  * *_new_len and returns str. NULL returns NULL. */
 public U8 *StrTrimEnd(U8 *str, I64 str_len=-1, I64 *_new_len=NULL);
 /* Remove every character in `chars` from the end, in place, by writing a
- * NUL: StrCleanEnd(line, "\r\n") drops a line ending. Sets *_new_len and
- * returns str. NULL str returns NULL; NULL or "" chars removes nothing. */
-public U8 *StrCleanEnd(U8 *str, U8 *chars, I64 *_new_len=NULL);
+ * NUL: StrCleanEnd(line, "\r\n") drops a line ending. Returns the new
+ * length. NULL str returns 0; NULL or "" chars removes nothing. */
+public I64 StrCleanEnd(U8 *str, U8 *chars);
 /* TempleOS: TRUE if filename ends in ".Z" and has another '.' before it
  * ("Doc.HC.Z"); "a.Z" is FALSE. */
 public Bool IsDotZ(U8 *filename);

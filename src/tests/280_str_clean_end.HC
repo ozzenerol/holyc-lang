@@ -1,17 +1,16 @@
 #include "testhelper.HC"
 
 /* StrCleanEnd(str, chars) removes every character in `chars` from the
- * end of str, in place, and stops at the first one that isn't. */
+ * end of str, in place, stops at the first one that isn't and returns the
+ * new length. */
 
 Bool Clean(U8 *in, U8 *chars, U8 *want)
 {
   U8 buf[64];
   buf[0] = '#';                 /* guard byte before the string */
   StrCpy(buf + 1, in);
-  I64 n = -5;
-  U8 *r = StrCleanEnd(buf + 1, chars, &n);
-  Bool ok = r == buf + 1 && n == StrLen(want) && !StrCmp(buf + 1, want) &&
-            buf[0] == '#';
+  I64 n = StrCleanEnd(buf + 1, chars);
+  Bool ok = n == StrLen(want) && !StrCmp(buf + 1, want) && buf[0] == '#';
   if (!ok) "Clean(\"%s\", \"%s\") -> \"%s\" %d\n", in, chars, buf + 1, n;
   return ok;
 }
@@ -40,16 +39,14 @@ I32 Main()
     correct++;
 
   tests++;
-  I64 len = -5;
-  if (StrCleanEnd(NULL, "\n", &len) == NULL && len == 0 &&
-      StrCleanEnd(NULL, "\n") == NULL)
+  if (StrCleanEnd(NULL, "\n") == 0 && StrCleanEnd(NULL, NULL) == 0)
     correct++;
 
   tests++;   /* a read() buffer: NUL it, then drop the line ending */
   U8 buffer[16];
   MemCpy(buffer, "test\r\n", 6);
   buffer[6] = '\0';
-  StrCleanEnd(buffer, "\r\n", &len);
+  I64 len = StrCleanEnd(buffer, "\r\n");
   if (len == 4 && !StrCmp(buffer, "test")) correct++;
 
   PrintResult(correct, tests);
