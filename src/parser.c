@@ -2741,6 +2741,11 @@ static int astStmtFallsThrough(Ast *s) {
              * handled every arm (the common exhaustive-switch-with-
              * returns pattern) rather than risk a false positive. */
             return s->case_default ? 0 : 1;
+        case AST_TRY:
+            /* Control leaves the try either at the end of the body or,
+             * after a throw, at the end of the handler. */
+            return astStmtFallsThrough(s->try_body) ||
+                   astStmtFallsThrough(s->catch_body);
         default:
             /* Plain statements (calls, decls, assignments, ...). */
             return 1;
