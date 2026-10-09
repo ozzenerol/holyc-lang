@@ -405,7 +405,11 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
       continue;
     }
 
-    if (connect(sockfd, ptr->ai_addr, ptr->ai_addrlen) == -1) goto error;
+    if (connect(sockfd, ptr->ai_addr, ptr->ai_addrlen) == -1) {
+      close(sockfd); /* try the next address */
+      sockfd = -1;
+      continue;
+    }
     if (!NetSetSockReuseAddr(sockfd)) goto error;
     if (non_blocking)
       if (!NetSetSocketNonBlocking(sockfd)) goto error;
@@ -472,10 +476,14 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
             ptr->ai_protocol)) == -1)
       continue;
 
-    if (!NetSetSockReuseAddr(sockfd)) goto error;
+    if (!NetSetSockReuseAddr(sockfd)) {
+      close(sockfd); /* try the next address */
+      sockfd = -1;
+      continue;
+    }
     if (!NetListen(sockfd, ptr, backlog)) {
-      sockfd = -1; /* NetListen closed it */
-      goto error;
+      sockfd = -1; /* NetListen closed it; try the next address */
+      continue;
     }
     if (non_blocking)
       if (!NetSetSocketNonBlocking(sockfd)) goto error;
