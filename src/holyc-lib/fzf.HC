@@ -436,7 +436,7 @@ U0 FzFPrefixMatch(FzFResult *res, Bool case_sensitive, FzFString *text,
 
   if (M == 0) goto no_match;
 
-  if (IsSpace(pattern->data[0])) {
+  if (!IsSpace(pattern->data[0])) {
     trimmed_len = leading_whitespaces(text);
   }
 
@@ -581,7 +581,7 @@ U0 FzFEqMatch(FzFResult *res, Bool case_sensitive, FzFString *text,
   trimmed_len = leading_whitespaces(text);
   trimmed_end_len = trailing_whitespaces(text);
 
-  if ((text->size - trimmed_len - trimmed_end_len) != 0) {
+  if ((text->size - trimmed_len - trimmed_end_len) != M) {
     start = end = -1;
     score = 0;
     goto out;
