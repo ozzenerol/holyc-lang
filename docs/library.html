@@ -241,6 +241,11 @@ two
 three
 popped three, 2 left
 </pre>
+<p><code>ListDeque</code> removes and returns the first value and <code>ListPop</code> the
+last, so <code>ListAppend</code> with <code>ListDeque</code> is a first-in first-out queue
+and <code>ListAppend</code> with <code>ListPop</code> a stack. Both return
+<code>NULL</code> for an empty list. <code>ListRelease(l, free_value)</code> frees the
+list, calling <code>free_value</code> (if not <code>NULL</code>) on each value.</p>
 
 <h2 id="vectors">Vectors</h2>
 <p>Growable arrays: <code>IntVec</code> of <code>I64</code>, <code>FloatVec</code> of
