@@ -988,11 +988,23 @@ Ast *parseFunctionArguments(Cctrl *cc, char *fname, int len, s64 terminator) {
             parsePromoteVarargFloats(argv, 1);
             return astFunctionCall(rettype,fname,len,argv);
         }
-        /* Walk back untill we fin the missing function */
+        /* Walk back until we find the missing function's name, so the
+         * error points at it. Rewind wraps around the token ring, so stop
+         * once every slot is in front of us again; if a long argument
+         * list pushed the name out of the ring, go back to where we were
+         * and report there. */
+        TokenRingBuffer *ring = cc->token_buffer;
+        int rewinds = 0;
         Lexeme *peek = cctrlTokenPeek(cc);
-        while (peek->len != len && memcmp(fname,peek->start,len) != 0) {
+        while (peek == NULL || peek->len != len ||
+               memcmp(fname,peek->start,len) != 0) {
+            if (ring->size >= ring->capacity) {
+                while (rewinds--) cctrlTokenGet(cc);
+                break;
+            }
             cctrlTokenRewind(cc);
             peek = cctrlTokenPeek(cc);
+            rewinds++;
         }
         cctrlRaiseException(cc,"Function: %.*s() not defined",len,fname);
     }
