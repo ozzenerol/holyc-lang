@@ -301,6 +301,9 @@ static void lexReportVa(Lexer *l, s64 line, s64 col, s64 len,
  * abandon that declaration halfway (a class left registered without
  * its fields) and leave its tail to misparse. */
 static void lexReport(Lexer *l, const char *fmt, ...) {
+    /* Text in a skipped #if group is only scanned for directives; like
+     * C, it reports nothing (a bad number, an unknown `#foo`) */
+    if (l->flags & CCF_COND_SKIP) return;
     va_list ap;
     va_start(ap, fmt);
     lexReportVa(l, 0, 0, 0, fmt, ap);
@@ -313,6 +316,7 @@ static void lexReport(Lexer *l, const char *fmt, ...) {
 static void lexReportAt(Lexer *l, s64 line, s64 col, s64 len,
                         const char *fmt, ...)
 {
+    if (l->flags & CCF_COND_SKIP) return;
     va_list ap;
     va_start(ap, fmt);
     lexReportVa(l, line, col, len, fmt, ap);
@@ -871,17 +875,23 @@ static void lexSkipCodeComment(Lexer *l) {
          * The CCF_PERMISSIVE re-lexer only sees one line of a
          * multi-line comment, so it stays quiet. */
         if (!(l->flags & CCF_PERMISSIVE)) {
+            /* Reported in a skipped #if group too, as in C: it swallows
+             * the #endif */
+            int skip = l->flags & CCF_COND_SKIP;
+            l->flags &= ~CCF_COND_SKIP;
             lexReportAt(l, start_line, start_col, 2,
                         "unterminated comment");
+            l->flags |= skip;
         }
     }
 }
 
 /* The CCF_PERMISSIVE re-lexer (error-line colouring) sees the same
- * malformed literal again: only the real lexer should warn about it. */
+ * malformed literal again: only the real lexer should warn about it,
+ * and not in a skipped #if group either. */
 #define lexNumWarning(l, ...)                     \
     do {                                          \
-        if (!((l)->flags & CCF_PERMISSIVE)) {     \
+        if (!((l)->flags & (CCF_PERMISSIVE|CCF_COND_SKIP))) { \
             loggerWarning(__VA_ARGS__);           \
         }                                         \
     } while (0)
@@ -1169,9 +1179,15 @@ u64 lexCharConst(Lexer *l) {
     u64 char_const = 0, idx;
     s64 hex_num = 0;
     s64 len, overflowed = 0;
-    char ch;
+    char ch = 0;
 
     for (len = 0; ; ++len) {
+        /* Skipped #if text need not be HolyC: an apostrophe there
+         * (`don't`) ends with its line, as in C, rather than running
+         * on over the #endif */
+        if ((l->flags & CCF_COND_SKIP) && lexPeek(l) == '\n') {
+            break;
+        }
         ch = lexNextChar(l);
         if (!ch || ch == '\'') {
             break;
