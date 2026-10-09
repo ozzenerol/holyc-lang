@@ -4,6 +4,9 @@
 #define FZF_CASE_IGNORE  1
 #define FZF_CASE_RESPECT 2
 
+/* strtok keeps its position in one global shared by every thread */
+extern "c" U8 *strtok_r(U8 *str, U8 *sep, U8 **saveptr);
+
 #define FZF_SCORE_MATCH 16
 #define FZF_SCORE_GAP_START -3
 #define FZF_SCORE_GAP_EXTENTION -1
@@ -705,7 +708,8 @@ FzFPattern *FzFParsePattern(I32 case_mode, U8 *pattern, Bool fuzzy=TRUE)
   U8 *pattern_copy = str_replace(pattern, "\\ ", "\t");
   Free(pattern_dup);
   U8 *delim = " ";
-  U8 *ptr = strtok(pattern_copy, delim);
+  U8 *tok_save = NULL;
+  U8 *ptr = strtok_r(pattern_copy, delim, &tok_save);
 
   FzFTermSet *set = CAlloc(sizeof(FzFTermSet));
   set->entries = ListNew();
@@ -747,7 +751,7 @@ FzFPattern *FzFParsePattern(I32 case_mode, U8 *pattern, Bool fuzzy=TRUE)
     if (set->size > 0 && !after_bar && StrCmp(text, "|") == 0) {
       switch_set = FALSE;
       after_bar = TRUE;
-      ptr = strtok(NULL, delim);
+      ptr = strtok_r(NULL, delim, &tok_save);
       if (og_str) {
         Free(og_str);
       }
@@ -814,7 +818,7 @@ FzFPattern *FzFParsePattern(I32 case_mode, U8 *pattern, Bool fuzzy=TRUE)
       }
     }
 
-    ptr = strtok(NULL, delim);
+    ptr = strtok_r(NULL, delim, &tok_save);
   }
   if (set->size > 0) {
     ListAppend(pat_obj->entries,set);
@@ -1040,18 +1044,19 @@ U0 FzFSlabRelease(FzFSlab *slab)
 public FzFPosition *FzF(U8 *text, U8 *seq, I32 case_mode=FZF_CASE_SMART,
     Bool fuzzy=TRUE)
 {
-  auto slab = FzFDefaultSlab();
+  /* No slab: the matchers here (V1 and the exact/prefix/suffix ones)
+   * never use one, and allocating the 200 KB default slab on every call
+   * only cost time. Nothing shared either, so FzF is safe from threads. */
   auto pattern = FzFParsePattern(case_mode,seq,fuzzy);
   if (!pattern) {
     return NULL;
   }
-  auto score = FzFGetScore(text,pattern,slab);
-  auto pos = FzFGetPositions(text,pattern,slab);
+  auto score = FzFGetScore(text,pattern,NULL);
+  auto pos = FzFGetPositions(text,pattern,NULL);
   if (pos) {
     pos->score = score;
   }
 
   FzFPatternRelease(pattern);
-  FzFSlabRelease(slab);
   return pos;
 }

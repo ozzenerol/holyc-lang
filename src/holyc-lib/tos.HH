@@ -1648,7 +1648,7 @@ public class FzFPosition
  * Returns NULL when text doesn't match or the pattern is empty (a
  * pattern of only `!` terms that matches gives score 1 and no
  * positions); free the result with FzFPositionRelease. pattern is not
- * modified. */
+ * modified. Safe to call from several threads at once. */
 public FzFPosition *FzF(U8 *text, U8 *pattern,I32 case_mode=FZF_CASE_SMART,
     Bool fuzzy=TRUE);
 /* Free a result of FzF. NULL is ignored. */
