@@ -122,13 +122,14 @@ U0 Main() { \"%d\\n\", X; }
     "#define X expected string but got: AST_BINOP", "1:11", "2:21");
 }
 
+/* `-` on a string is a type error now (test 134), as in `1 + -"s"` */
 Bool TestNegString(U0)
 {
   return CompileFailsAt(
 "#define X (-\"s\")
 U0 Main() { \"%d\\n\", X; }
 ",
-    "#define X expected string but got: AST_UNOP", "1:11", "2:21");
+    "#define X: " NC_MSG, "1:11", "2:21");
 }
 
 Bool TestCastString(U0)

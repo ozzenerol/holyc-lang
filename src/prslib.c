@@ -1809,6 +1809,41 @@ Ast *parsePostFixExpr(Cctrl *cc) {
     }
 }
 
+/* `-x`, `+x` and `~x` need a number: an integer, an intrinsic class (an
+ * I64 underneath) or, except for `~`, a float. Negating a string, pointer,
+ * array or class compiled to arithmetic on its address. `!x` and `&x` take
+ * anything and aren't checked here. */
+static void parseCheckArithmeticUnaryOp(Cctrl *cc, AstUnOp op, Ast *operand,
+                                        int line, int col, int len)
+{
+    AstType *ty = operand->type;
+    if (cc->flags & CCTRL_TRANSPILING) return;
+    if (!ty || astIsIntType(ty) || astIsIntrinsicClass(ty) ||
+        ty->kind == AST_TYPE_AUTO) {
+        return;
+    }
+    if (op != AST_UN_OP_BIT_NOT && astIsFloatType(ty)) return;
+
+    const char *opstr = op == AST_UN_OP_MINUS ? "-" :
+                        op == AST_UN_OP_PLUS  ? "+" : "~";
+    char *msg = mprintf("The `%s` operator cannot be applied to a %s of %s",
+                        opstr, astKindToHumanReadable(operand),
+                        astTypeKindToHumanReadable(ty));
+    char *sug = mprintf("`%s` on `%s` is invalid",
+                        opstr, astTypeToString(ty));
+    AoStr *bold = aoStrNew();
+    aoStrCatColoured(bold, ESC_BOLD, msg);
+    AoStr *buf = cctrlCreateErrorLineAt(cc, line, col, len, bold->data,
+                                        CCTRL_ERROR, sug);
+    aoStrRelease(bold);
+    CctrlDiagnostic *d = cctrlMakeDiag(cc, CCTRL_ERROR, buf, aoStrPrintf("%s", sug));
+    d->line = d->end_line = line;
+    d->col = col;
+    d->end_col = col + len;
+    cctrlDiagPush(cc, d);
+    cctrlTerminate(cc);
+}
+
 Ast *parseUnaryExpr(Cctrl *cc) {
     Lexeme *tok;
     Ast *ast;
@@ -1866,6 +1901,9 @@ Ast *parseUnaryExpr(Cctrl *cc) {
         Lexeme *peek = cctrlTokenPeekBy(cc,1);
         Ast *operand = NULL;
         AstType *type = NULL;
+        /* The operator's position, copied: parsing a long operand can
+         * cycle `tok` out of the token ring before it's type checked. */
+        int op_line = tok->line, op_col = tok->col, op_len = tok->len;
 
         /* XXX: This feels wrong but allows things like:
          * !arr[0][1][2] to work properly */
@@ -1942,7 +1980,23 @@ Ast *parseUnaryExpr(Cctrl *cc) {
                 break;
             }
             case AST_UN_OP_DEREF:   type = operand->type->ptr; break;
-            case AST_UN_OP_BIT_NOT: type = ast_int_type; break;
+            case AST_UN_OP_BIT_NOT:
+                parseCheckArithmeticUnaryOp(cc, unary_op, operand,
+                                            op_line, op_col, op_len);
+                type = ast_int_type;
+                break;
+            case AST_UN_OP_PLUS:
+            case AST_UN_OP_MINUS:
+                parseCheckArithmeticUnaryOp(cc, unary_op, operand,
+                                            op_line, op_col, op_len);
+                /* U8/U16/U32/I8.. promote to I64 like in a binary op:
+                 * typed as the operand `-c` on a U8 5 read back as 251. */
+                if (astIsIntType(operand->type) && operand->type->size < 8) {
+                    type = ast_int_type;
+                } else {
+                    type = operand->type;
+                }
+                break;
             /* 0/1 whatever the operand: typed as the operand, `!f` on
              * an F64 was converted back from a float and read as 0. */
             case AST_UN_OP_LOG_NOT: type = ast_int_type; break;
