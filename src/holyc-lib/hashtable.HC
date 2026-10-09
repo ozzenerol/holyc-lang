@@ -9,6 +9,7 @@
 #define HT_PROBE_1 1
 #define HT_PROBE_3 3
 #define HT_MIN_CAPACITY 8
+#define HT_MAX_CAPACITY (1 << 28)
 
 /* Deletion leaves a tombstone: the node stays in its slot with `order` set
  * to HT_DELETED so probe chains running through it are not cut short. For a
@@ -78,9 +79,15 @@ static U64 HtCapacity(U64 capacity)
 {/* The probe loops use `idx & mask`, so the capacity, the mask and the size
   * of the entries array must all be the same power of two. Round any
   * requested size up to one (and to at least HT_MIN_CAPACITY, which also
-  * keeps 0 and 1 from producing a zero mask or a zero threshold). */
-  if (capacity < HT_MIN_CAPACITY) {
+  * keeps 0 and 1 from producing a zero mask or a zero threshold).
+  * The request is only a starting size: one that is negative (`-1` passed
+  * for the U64) gets HT_MIN_CAPACITY, and one above HT_MAX_CAPACITY gets
+  * HT_MAX_CAPACITY; past 2^63 the rounding would wrap to 0. The map still
+  * grows past HT_MAX_CAPACITY as entries are added. */
+  if (capacity(I64) < HT_MIN_CAPACITY) {
     capacity = HT_MIN_CAPACITY;
+  } else if (capacity > HT_MAX_CAPACITY) {
+    capacity = HT_MAX_CAPACITY;
   }
   return RoundUpToNextPowerOf2(capacity);
 }
@@ -98,8 +105,11 @@ U64 IntMapHashFunction(I64 key, U64 mask)
 }
 
 IntMap *IntMapNew(U64 capacity)
-{
+{// NULL when out of memory
   IntMap *map = MAlloc(sizeof(IntMap));
+  if (!map) {
+    return NULL;
+  }
   capacity = HtCapacity(capacity);
   map->capacity = capacity;
   map->mask = capacity-1;
@@ -108,6 +118,11 @@ IntMap *IntMapNew(U64 capacity)
   map->threashold = (capacity * HT_LOAD)/100;
   map->_free_value = NULL;
   map->entries = CAlloc(capacity * sizeof(IntMapNode *));
+  if (!map->entries) {
+    IntVecRelease(map->indexes);
+    Free(map);
+    return NULL;
+  }
   return map;
 }
 
@@ -421,8 +436,11 @@ public U0 StrMapRelease(StrMap *map);
 public Bool StrMapResize(StrMap *map);
 
 StrMap *StrMapNew(U64 capacity)
-{
+{// NULL when out of memory
   StrMap *map = MAlloc(sizeof(StrMap));
+  if (!map) {
+    return NULL;
+  }
   capacity = HtCapacity(capacity);
   map->capacity = capacity;
   map->mask = capacity-1;
@@ -432,6 +450,11 @@ StrMap *StrMapNew(U64 capacity)
   map->_free_value = NULL;
   map->_free_key = NULL;
   map->entries = CAlloc(capacity * sizeof(StrMapNode *));
+  if (!map->entries) {
+    IntVecRelease(map->indexes);
+    Free(map);
+    return NULL;
+  }
   return map;
 }
 
