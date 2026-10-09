@@ -1133,6 +1133,28 @@ public class cStat {
   I64 st_qspare[2];
 };
 #elifdef IS_LINUX
+#ifdef IS_ARM_64
+/* aarch64 uses the generic struct stat, not x86_64's */
+class cStat
+{
+  U64 st_dev;
+  U64 st_ino;
+  U32 st_mode;
+  U32 st_nlink;
+  U32 st_uid;
+  U32 st_gid;
+  U64 st_rdev;
+  U64 __pad1;
+  I64 st_size;
+  I32 st_blksize;
+  I32 __pad2;
+  I64 st_blocks;
+  cTimespec st_atim;
+  cTimespec st_mtim;
+  cTimespec st_ctim;
+  I32 __unused[2];
+};
+#else
 class cStat
 {
   U64 st_dev;
@@ -1151,6 +1173,7 @@ class cStat
   cTimespec st_ctim;
   I64 __glibc_reserved[3];
 };
+#endif
 
 class statx_timestamp
 {
