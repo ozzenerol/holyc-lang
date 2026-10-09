@@ -270,7 +270,6 @@ tree itself. NULL is ignored.</p></div><div class="decl" id="RBIter"><div class=
   I64 sp;
   RBNode **stack;
   RBNode *cur;
-  RBNode *node;
 };</code></pre></div><div class="decl" id="RBIterNew"><div class="decl-head"><a class="decl-name" href="#RBIterNew">RBIterNew</a> <span class="kind">function</span></div><pre><code class="language-holyc">RBIter *RBIterNew(RBTree *tree);</code></pre></div><div class="decl" id="RBIterRelease"><div class="decl-head"><a class="decl-name" href="#RBIterRelease">RBIterRelease</a> <span class="kind">function</span></div><pre><code class="language-holyc">U0 RBIterRelease(RBIter *it);</code></pre></div><div class="decl" id="RBIterNext"><div class="decl-head"><a class="decl-name" href="#RBIterNext">RBIterNext</a> <span class="kind">function</span></div><pre><code class="language-holyc">RBNode *RBIterNext(RBIter *it);</code></pre></div><div class="decl" id="IntSet"><div class="decl-head"><a class="decl-name" href="#IntSet">IntSet</a> <span class="kind">class</span></div><pre><code class="language-holyc">class IntSet
 {
   RBTree *tree;
