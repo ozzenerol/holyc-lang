@@ -54,6 +54,33 @@ public I32 Sh(U8 *fmt, ...)
   return retval;
 }
 
+/* s in single quotes for sh, as a new string to Free: each ' becomes
+ * '\'' and NULL gives ''. Nothing in it is expanded by the shell, so
+ * Sh("ls %s", q) passes s as one word. */
+public U8 *ShQuote(U8 *s)
+{
+  I64 len = 2, i, j = 0;
+  U8 *q;
+  if (!s) s = "";
+  for (i = 0; s[i]; i++) {
+    if (s[i] == '\'') len += 4;
+    else len++;
+  }
+  q = MAlloc(len + 1);
+  q[j++] = '\'';
+  for (i = 0; s[i]; i++) {
+    if (s[i] == '\'') {
+      MemCpy(q + j, "'\\''", 4);
+      j += 4;
+    } else {
+      q[j++] = s[i];
+    }
+  }
+  q[j++] = '\'';
+  q[j] = '\0';
+  return q;
+}
+
 extern "c" I32 mkstemp(U8 *template);
 extern "c" I32 close(I32 fd);
 extern "c" I32 unlink(U8 *path);
@@ -79,8 +106,9 @@ public U8 *Shlurp(U8 *fmt, ...)
 
   user_cmd = StrPrintJoin(NULL,fmt,argc,argv);
   /* The braces redirect every command in a list (`a; b`), not just the
-   * last one */
-  cmd = StrPrint(NULL,"{ %s\n} > %s",user_cmd,tmp_path);
+   * last one. The blank line ends a command that ends in a backslash and
+   * `:` keeps the braces from being empty for an empty command. */
+  cmd = StrPrint(NULL,"{\n%s\n\n:\n} > %s",user_cmd,tmp_path);
   Free(user_cmd);
   System(cmd);
   Free(cmd);
