@@ -50,6 +50,9 @@ public Bool WildMatch(U8 *test_str, U8 *wild_str);
 #define PRTF_NEG		     0x200
 #define PRTF_NEG_E           0x400
 #define PRTF_NEG_AUX_FMT_NUM 0x800
+#define PRTF_PLUS            0x1000 /* `+`: a sign on positive numbers too */
+#define PRTF_SPACE           0x2000 /* ` `: a space where `+` would go */
+#define PRTF_ALT             0x4000 /* `#`: 0x/0X before hex, a leading 0 in octal */
 
 #define CH_BACKSPACE   0x08
 #define CH_ESC         0x1B
@@ -945,12 +948,73 @@ static U8 *F64ToFmtStr(U64 bits, I64 prec, I64 conv)
   return out;
 }
 
+/* An integer conversion as C prints it: `conv` is d i u o x or X, `width`
+ * the minimum width, `prec` the minimum number of digits (-1: none; 0
+ * with a 0 value prints no digits). */
+static U0 StrPrintInt(U8 **_ptr, U8 **grow, U64 val, I64 conv, I64 flags,
+                      I64 width, I64 prec)
+{
+  U8 digits[72], prefix[4], *hex = "0123456789abcdef";
+  I64 base = 10, ndig = 0, nzero = 0, npre = 0, total, i;
+  Bool neg = FALSE;
+
+  if (conv == 'd' || conv == 'i') {
+    if (val(I64) < 0) {
+      neg = TRUE;
+      val = -val(I64); /* as a U64, also right for I64_MIN */
+    }
+  } else if (conv == 'o') {
+    base = 8;
+  } else if (conv == 'x' || conv == 'X') {
+    base = 16;
+    if (conv == 'X') hex = "0123456789ABCDEF";
+  }
+
+  if (val || prec != 0) {
+    do {
+      digits[ndig++] = hex[val % base];
+      val /= base;
+    } while (val);
+  }
+
+  if (neg)                    prefix[npre++] = '-';
+  else if (conv == 'd' || conv == 'i') {
+    if (flags & PRTF_PLUS)       prefix[npre++] = '+';
+    else if (flags & PRTF_SPACE) prefix[npre++] = ' ';
+  }
+  if (flags & PRTF_ALT && base == 16 && ndig && !(ndig == 1 && digits[0] == '0')) {
+    prefix[npre++] = '0';
+    prefix[npre++] = conv;
+  }
+
+  if (prec > ndig) nzero = prec - ndig;
+  /* `#o`: the first digit is a 0 */
+  if (flags & PRTF_ALT && base == 8 && !nzero &&
+      (!ndig || digits[ndig-1] != '0')) {
+    nzero = 1;
+  }
+  /* `0` pads with zeros after the sign, unless `-` or a precision */
+  if (flags & PRTF_PAD_ZERO && !(flags & PRTF_LEFT_JUSTIFY) && prec < 0 &&
+      npre + nzero + ndig < width) {
+    nzero = width - npre - ndig;
+  }
+
+  total = npre + nzero + ndig;
+  if (!(flags & PRTF_LEFT_JUSTIFY))
+    for (i = total; i < width; ++i) SPutChar(_ptr,CH_SPACE,grow);
+  for (i = 0; i < npre; ++i)        SPutChar(_ptr,prefix[i],grow);
+  for (i = 0; i < nzero; ++i)       SPutChar(_ptr,'0',grow);
+  for (i = ndig - 1; i >= 0; --i)   SPutChar(_ptr,digits[i],grow);
+  if (flags & PRTF_LEFT_JUSTIFY)
+    for (i = total; i < width; ++i) SPutChar(_ptr,CH_SPACE,grow);
+}
+
 U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
 {// @TempleOS - Not a 1:1 yet
   if (!fmt) return NULL;
   U64 uintarg, curlen = 0;
   F64 farg;
-  I64 ch, sp = 0, intarg, U8arg, len, flags, tlen,dec_len,aux_fmt_num;
+  I64 ch, sp = 0, len, flags, tlen,dec_len;
   U8 *ptr, *strarg, *tmp, *dst, *spec, buf[256];
   U8 **grow;
   CDate cdt;
@@ -972,12 +1036,14 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
     if (ch == '%') {
       spec = fmt - 1; /* the '%', for an unsupported conversion */
       flags = 0;
-      if (*fmt == '-') {
-        flags|= PRTF_LEFT_JUSTIFY;
-        fmt++;
-      }
-      if (*fmt == '0') {
-        flags|=PRTF_PAD_ZERO;
+      /* The flags, in any order, as in C */
+      while (TRUE) {
+        if (*fmt == '-')      flags |= PRTF_LEFT_JUSTIFY;
+        else if (*fmt == '0') flags |= PRTF_PAD_ZERO;
+        else if (*fmt == '+') flags |= PRTF_PLUS;
+        else if (*fmt == ' ') flags |= PRTF_SPACE;
+        else if (*fmt == '#') flags |= PRTF_ALT;
+        else break;
         fmt++;
       }
       tlen = 0;
@@ -1002,11 +1068,18 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
         if (*fmt == '*') {
           fmt++;
           dec_len=argv[sp++];
-          flags|=PRTF_TRUNCATE;
+          if (dec_len < 0) { /* as in C, a negative precision is none */
+            dec_len = -1;
+          }
         }
         flags|=PRTF_DECIMAL;
       }
-      aux_fmt_num = 0;
+      /* C's length modifiers (l ll h hh z j t L q): every integer
+       * argument is 64 bits, so they change nothing */
+      while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z' || *fmt == 'j' ||
+             *fmt == 't' || *fmt == 'L' || *fmt == 'q') {
+        fmt++;
+      }
 
       switch (*fmt++) {
         case '%': {
@@ -1045,8 +1118,11 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
           uintarg = argv[sp++](U64); // the F64's bits
           strarg = F64ToFmtStr(uintarg,dec_len,*(fmt-1));
           len = StrLen(strarg);
-          if (uintarg >> 63) {
-            flags |= PRTF_NEG;
+          U8 sign = 0; /* '-', or '+' / ' ' with those flags */
+          if (uintarg >> 63)           sign = '-';
+          else if (flags & PRTF_PLUS)  sign = '+';
+          else if (flags & PRTF_SPACE) sign = ' ';
+          if (sign) {
             len++;
           }
           /* No zero padding for inf/nan, '-' wins over '0' */
@@ -1058,8 +1134,8 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
               SPutChar(&ptr,CH_SPACE,grow);
             }
           }
-          if (flags & PRTF_NEG) {
-            SPutChar(&ptr,'-',grow);
+          if (sign) {
+            SPutChar(&ptr,sign,grow);
           }
           if (flags & PRTF_PAD_ZERO) {
             for (I64 idx = len; idx < tlen; ++idx) {
@@ -1112,99 +1188,14 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
           break;
         }
 
+        case 'd':
+        case 'i':
         case 'u':
-        case 'd': {
-          uintarg = argv[sp++](U64);
-          I64 idx = 0; /* Bit of a hack as I64ToStr will set this to TRUE which
-                        * is 1. */
-          if (*(fmt-1) == 'd') {
-            intarg = uintarg(I64);
-            if (intarg < 0) {
-              idx = 1;
-            }
-            len = I64ToStr(buf,intarg);
-          } else {
-            len = U64ToStr(buf,uintarg);
-          }
-
-          if (idx) {
-            flags |= PRTF_NEG;
-          }
-          if (flags & PRTF_LEFT_JUSTIFY) { /* '-' wins over '0' */
-            flags &= ~PRTF_PAD_ZERO;
-          }
-
-          if (flags & PRTF_TRUNCATE && len + idx>tlen) {
-            len = tlen-idx;
-          }
-
-          if (flags & PRTF_PAD_ZERO) {
-            if (flags & PRTF_NEG) {
-              SPutChar(&ptr,'-',grow);
-            }
-            for (;idx < tlen-len; ++idx) {
-              SPutChar(&ptr,'0',grow);
-            }
-          } else {
-            if (flags & PRTF_LEFT_JUSTIFY) {
-              aux_fmt_num = tlen-len-idx; /* pad after the digits */
-            } else {
-              for (;idx < tlen-len; ++idx) {
-                SPutChar(&ptr,CH_SPACE,grow);
-              }
-            }
-            if (flags&PRTF_NEG) {
-              SPutChar(&ptr,'-',grow);
-            }
-          }
-          for (idx = len - 1; idx >= 0; --idx) {
-            SPutChar(&ptr,buf[idx],grow);
-          }
-          for (idx = 0; idx < aux_fmt_num; ++idx) {
-            SPutChar(&ptr,CH_SPACE,grow);
-          }
-          break;
-        }
-
+        case 'o':
         case 'x':
-          U8arg = 'a';
-          goto place_hex;
         case 'X': {
-          U8arg = 'A';
-place_hex:
           uintarg = argv[sp++](U64);
-          len = 0;
-
-          do {
-            buf[len] = (uintarg & 15) + '0';
-            if (buf[len] > '9') {
-               buf[len] += U8arg - 0x3A;
-            }
-            len++;
-            uintarg >>= 4;
-          } while (uintarg);
-
-          if (flags & PRTF_TRUNCATE && len > tlen) {
-            len = tlen;
-          }
-
-          if (flags & PRTF_LEFT_JUSTIFY) {
-            aux_fmt_num = tlen-len; /* pad after the digits */
-          } else if (flags & PRTF_PAD_ZERO) {
-            for (I64 idx = 0; idx < tlen-len; ++idx) {
-              SPutChar(&ptr,'0',grow);
-            }
-          } else {
-            for (I64 idx = 0; idx < tlen-len; ++idx) {
-              SPutChar(&ptr,CH_SPACE,grow);
-            }
-          }
-          for (I64 idx = len - 1; idx >= 0; --idx) {
-            SPutChar(&ptr,buf[idx],grow);
-          }
-          for (I64 idx = 0; idx < aux_fmt_num; ++idx) {
-            SPutChar(&ptr,CH_SPACE,grow);
-          }
+          StrPrintInt(&ptr,grow,uintarg,*(fmt-1),flags,tlen,dec_len);
           break;
         }
 
