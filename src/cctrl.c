@@ -649,40 +649,44 @@ void cctrlFileAndLine(Cctrl *cc, AoStr *buf, s64 lineno, s64 char_pos, char *msg
     aoStrRelease(severity_msg);
 }
 
-char *lexemeToColor(Cctrl *cc, Lexeme *tok, int is_err) {
+/* Colour `text`, the token's source text as written: a number keeps its
+ * spelling (`0x1F`, `2.5`, `1e3`), a string or char const its quotes and
+ * escapes. Building it from the token's value instead printed `31`,
+ * `2.500000` and `a`, and moved the text out from under the `^`. */
+char *lexemeToColor(Cctrl *cc, Lexeme *tok, char *text, int len, int is_err) {
     /* Error token wins: render in bold red, no syntax colouring.
      * Otherwise pick a per-kind colour, with TK_IDENT looking up
      * the keyword table to catch user-defined-but-actually-builtin
      * names (e.g. type aliases). */
+    const char *rst = clr(ESC_RESET);
+    const char *color = NULL;
     if (is_err) {
-        const char *red = clr(ESC_BOLD_RED);
-        const char *rst = clr(ESC_RESET);
+        color = clr(ESC_BOLD_RED);
+    } else {
         switch (tok->tk_type) {
-            case TK_STR: return mprintf("%s\"%.*s\"%s", red, tok->len, tok->start, rst);
-            case TK_I64: return mprintf("%s%ld%s", red, tok->i64, rst);
-            case TK_F64: return mprintf("%s%f%s", red, tok->f64, rst);
-            default:     return mprintf("%s%.*s%s", red, tok->len, tok->start, rst);
+            case TK_KEYWORD:
+                color = clr(ESC_BLUE);
+                break;
+            case TK_STR:
+                color = clr(ESC_GREEN);
+                break;
+            case TK_I64:
+            case TK_F64:
+                color = clr(ESC_PURPLE);
+                break;
+            case TK_IDENT:
+                if (cctrlIsKeyword(cc, tok->start, tok->len)) {
+                    color = clr(ESC_BLUE);
+                }
+                break;
+            default:
+                break;
         }
     }
-
-    const char *rst = clr(ESC_RESET);
-    switch (tok->tk_type) {
-        case TK_KEYWORD:
-            return mprintf("%s%.*s%s", clr(ESC_BLUE), tok->len, tok->start, rst);
-        case TK_STR:
-            return mprintf("%s\"%.*s\"%s", clr(ESC_GREEN), tok->len, tok->start, rst);
-        case TK_I64:
-            return mprintf("%s%ld%s", clr(ESC_PURPLE), tok->i64, rst);
-        case TK_F64:
-            return mprintf("%s%f%s", clr(ESC_PURPLE), tok->f64, rst);
-        case TK_IDENT:
-            if (cctrlIsKeyword(cc, tok->start, tok->len)) {
-                return mprintf("%s%.*s%s", clr(ESC_BLUE), tok->len, tok->start, rst);
-            }
-            return mprintf("%.*s", tok->len, tok->start);
-        default:
-            return mprintf("%.*s", tok->len, tok->start);
+    if (!color) {
+        return mprintf("%.*s", len, text);
     }
+    return mprintf("%s%.*s%s", color, len, text, rst);
 }
 
 s64 cctrlGetErrorIdx(Cctrl *cc, s64 line, char ch,
@@ -736,6 +740,10 @@ void cctrlCreateColoredLine(Cctrl *cc,
     lexInit(&l, (char *)line_buffer, safer_lexer_flags|current_lexer_flags);
 
     s64 current_offset = 0;
+    /* Each token is echoed as the source text it was lexed from, which
+     * also keeps any character the lexer skips (`?`) */
+    char *text = l.ptr;
+    char *line_end = (char *)line_buffer + strlen(line_buffer);
 
     /* This assumes we want the last match of an error as opposed to the first */
     while (lex(&l,&tok)) {
@@ -753,9 +761,16 @@ void cctrlCreateColoredLine(Cctrl *cc,
             }
         }
 
-        colored_lexeme = lexemeToColor(cc,&tok, is_err && should_color_err);
+        char *text_end = l.ptr < line_end ? l.ptr : line_end;
+        colored_lexeme = lexemeToColor(cc, &tok, text, (int)(text_end - text),
+                                       is_err && should_color_err);
         aoStrCat(colored_buffer, colored_lexeme);
         current_offset += tok.len;
+        text = text_end;
+    }
+    /* Characters skipped at the end of the line */
+    if (text < line_end) {
+        aoStrCatLen(colored_buffer, text, line_end - text);
     }
 
     aoStrCatColouredFmt(buf, ESC_CYAN, "%4ld |", (long)lineno);
