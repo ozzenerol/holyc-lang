@@ -1649,7 +1649,8 @@ Ast *parseReturnStatement(Cctrl *cc) {
 
     if (check->kind == AST_TYPE_VOID && maybe_fn->type->rettype->kind == AST_TYPE_VOID) {
         if (maybe_fn->flags & AST_FLAG_INLINE && !(cc->flags & CCTRL_TRANSPILING)) {
-            return astDecl(maybe_fn->inline_ret,NULL);
+            /* `return Inc();`: keep the call, there is no value to set */
+            return retval ? retval : astDecl(maybe_fn->inline_ret,NULL);
         }
         return astReturn(retval,cc->tmp_rettype);
     }
