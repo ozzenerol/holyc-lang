@@ -155,7 +155,7 @@ static Ast *parseFoldInitElement(Ast *init, AstType *dst) {
 }
 
 Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
-    Lexeme *tok = cctrlTokenGet(cc);
+    Lexeme *tok = cctrlTokenGetRequired(cc);
     List *initlist;
     Ast *init;
 
@@ -190,7 +190,7 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
     }
 
     while (1) {
-        tok = cctrlTokenGet(cc);
+        tok = cctrlTokenGetRequired(cc);
         if (tokenPunctIs(tok, '}')) {
             break;
         }
@@ -242,7 +242,7 @@ Ast *parseDeclArrayInitInt(Cctrl *cc, AstType *type) {
                         "Invalid array initializer: expected %d items but got %d",
                         sub_type->len, listCount(init->arrayinit));
             }
-            tok = cctrlTokenGet(cc);
+            tok = cctrlTokenGetRequired(cc);
             listAppend(initlist,init);
             if (tokenPunctIs(tok,'}')) {
                 init = astArrayInit(initlist);
@@ -330,7 +330,7 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
     AoStr  *field_name = NULL;
     List *fields_list;
 
-    tok = cctrlTokenGet(cc);
+    tok = cctrlTokenGetRequired(cc);
 
     if (!tokenPunctIs(tok,'{')) {
         cctrlTokenRewind(cc);
@@ -400,14 +400,8 @@ List *parseClassOrUnionFields(Cctrl *cc, AoStr *name,
         }
 
         while (1) {
-            /* Checked before parsePointerType, whose rewind at the end of
-             * input would step back onto the type and report that. */
-            if (cctrlTokenPeek(cc) == NULL) {
-                tok_name = NULL;
-            } else {
-                next_type = parsePointerType(cc,base_type);
-                tok_name = cctrlTokenGet(cc);
-            }
+            next_type = parsePointerType(cc,base_type);
+            tok_name = cctrlTokenGet(cc);
             if (!tok_name) {
                 /* Nothing left to recover into; report it once. */
                 cc->current_recovery = outer_recovery;
@@ -689,7 +683,7 @@ AstType *parseClassOrUnion(Cctrl *cc, Map *env,
             if (!is_class) {
                 cctrlRaiseException(cc,"Cannot use inheritance with a union");
             }
-            tok = cctrlTokenGet(cc);
+            tok = cctrlTokenGetRequired(cc);
             if (tok->tk_type != TK_IDENT) {
                 cctrlRaiseException(cc, "Expected Identifier for class inheritance");
             }
@@ -1022,6 +1016,9 @@ Ast *parseIfStatement(Cctrl *cc) {
 
     if (tok && tok->tk_type == TK_KEYWORD && tok->i64 == KW_ELSE) {
         Lexeme *epeek = cctrlTokenPeek(cc);
+        if (!epeek) {
+            cctrlRaiseException(cc,"Unexpected end of input after `else`");
+        }
         if (!parseValidPostControlFlowToken(epeek)) {
             cctrlTokenRewind(cc);
             cctrlTokenRewind(cc);
@@ -1254,7 +1251,7 @@ Ast *parseForLoopInitialiser(Cctrl *cc) {
 
     if (cctrlIsKeyword(cc,tok->start,tok->len)) {
         AstType *type = parseDeclSpec(cc);
-        tok = cctrlTokenGet(cc);
+        tok = cctrlTokenGetRequired(cc);
         if (tok->tk_type != TK_IDENT) {
             cctrlRaiseException(cc,"expected Identifier got: %s",
                     lexemeToString(tok)); 
@@ -1407,7 +1404,7 @@ Ast *parseDoWhileStatement(Cctrl *cc) {
 
     whilebody = parseStatement(cc);
     
-    tok = cctrlTokenGet(cc);
+    tok = cctrlTokenGetRequired(cc);
 
     if (tok->tk_type != TK_KEYWORD && tok->i64 != KW_WHILE) {
         cctrlRaiseException(cc,"Expected keyword 'while'");
@@ -1741,7 +1738,7 @@ Ast *parseStatement(Cctrl *cc) {
                 cc->localenv = NULL;
 
                 AstType *type = parseFullType(cc);
-                tok = cctrlTokenGet(cc);
+                tok = cctrlTokenGetRequired(cc);
 
                 if (tok->tk_type != TK_IDENT) {
                     cctrlTokenRewind(cc);
@@ -1933,7 +1930,7 @@ void parseCompoundStatementInternal(Cctrl *cc, Ast *body) {
 
                 if (!tokenPunctIs(peek,'(')) {
                     /* A normal variable */
-                    varname = cctrlTokenGet(cc);
+                    varname = cctrlTokenGetRequired(cc);
                     if (varname->tk_type != TK_IDENT) {
                         cctrlTokenRewind(cc);
                         cctrlRaiseException(cc,"Expected type declaration with identifer got '%.*s' - should be"ESC_BLUE" '%s "ESC_RESET ESC_BOLD"<var_name>'",
@@ -2626,7 +2623,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 }
 
                 case KW_EXTERN: {
-                    tok = cctrlTokenGet(cc);
+                    tok = cctrlTokenGetRequired(cc);
                     if (tok->tk_type == TK_STR && !strncmp(tok->start,"c",1)) {
                         /* extern "c" func(...) - C-ABI function decl. */
                         type = parseDeclSpec(cc);
@@ -2659,12 +2656,15 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 }
                 case KW_INLINE: {
                     peek = cctrlTokenPeek(cc);
+                    if (!peek) {
+                        cctrlRaiseException(cc,"Unexpected end of input after `inline`");
+                    }
                     if (!cctrlGetKeyWord(cc, peek->start, peek->len)) {
                         cctrlRaiseException(cc,"Expected return type declaration got: '%.*s'",
                                 peek->len,peek->start);
                     }
                     type = parseFullType(cc);
-                    name = cctrlTokenGet(cc);
+                    name = cctrlTokenGetRequired(cc);
 
                     /* `inline` is only a hint: compile the function as an
                      * ordinary one so it can be called normally, recursed
@@ -2839,12 +2839,8 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             return ast;
         }
 
-        name = cctrlTokenGet(cc);
-        /* End of input mid-definition: stop parsing so any accumulated
-         * diagnostics surface, rather than dereferencing a NULL token. */
-        if (name == NULL) {
-            return NULL;
-        }
+        /* End of input after the type, `I64` or `static I64 *`. */
+        name = cctrlTokenGetRequired(cc);
 
         if (name->tk_type == TK_KEYWORD) {
             switch (name->i64) {

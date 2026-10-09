@@ -64,6 +64,9 @@ typedef struct TokenRingBuffer {
     s64 size;
     s64 capacity;
     Lexeme **entries;
+    /* The last cctrlTokenGet found no token (end of input); a rewind
+     * then has nothing to give back. */
+    int got_eof;
 } TokenRingBuffer;
 
 TokenRingBuffer *tokenRingBufferNew(void);
@@ -234,6 +237,7 @@ u32 cctrlRegisterFile(Cctrl *cc, AoStr *filename);
 AoStr *cctrlLookUpFile(Cctrl *cc, u32 file_id);
 
 Lexeme *cctrlTokenGet(Cctrl *cc);
+Lexeme *cctrlTokenGetRequired(Cctrl *cc);
 Lexeme *cctrlAsmTokenGet(Cctrl *cc);
 Lexeme *cctrlTokenPeek(Cctrl *cc);
 Lexeme *cctrlTokenPeekBy(Cctrl *cc, int cnt);
