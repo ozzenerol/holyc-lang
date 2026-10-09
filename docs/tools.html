@@ -72,6 +72,7 @@ hcc -Werror main.HC         # treat warnings as errors</code></pre>
     <tr><td><code>-ast</code>, <code>-tokens</code></td><td>Print the syntax tree or the token stream and exit</td></tr>
     <tr><td><code>--dump-ir</code></td><td>Print the intermediate representation</td></tr>
     <tr><td><code>-cfg</code>, <code>-cfg-png</code>, <code>-cfg-svg</code></td><td>Write a Graphviz control flow graph (PNG and SVG need Graphviz)</td></tr>
+    <tr><td><code>--use-legacy-x86</code></td><td>Use the old AST-based x86_64 code generator, a debugging fallback with <a href="known-issues.html">known wrong-code bugs</a></td></tr>
     <tr><td><code>--mem-stats</code></td><td>Report the compiler's own memory use</td></tr>
     <tr><td><code>--version</code>, <code>--help</code></td><td>Version and build details; all flags</td></tr>
   </tbody>
@@ -80,7 +81,8 @@ hcc -Werror main.HC         # treat warnings as errors</code></pre>
 <h2>The JIT</h2>
 <p><code>hcc -jit file.HC</code> assembles machine code into memory with hcc's built-in
 assembler and runs it. No C compiler, linker or files are involved, so it starts fast.
-Arguments after the file are passed to the program. Use
+Arguments after the file are passed to the program. A file with no <code>Main</code> and
+no code at file scope has nothing to run: <code>-jit</code> says so and exits with 1. Use
 <code>#ifjit</code> / <code>#ifaot</code> for code that should differ between the two modes.</p>
 <pre><code>hcc -jit server.HC 8080</code></pre>
 

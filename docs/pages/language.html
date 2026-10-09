@@ -104,6 +104,11 @@ tab:[	] quote:["] backslash:[\]
 (<code>0b</code>). A number with a <code>.</code> or an exponent (<code>1e3</code>,
 <code>2e-3</code>) is an <code>F64</code>. Multi-character constants are a HolyC idiom for short tags, such as the values thrown by
 <a href="#exceptions">exceptions</a>. String literals are <code>U8 *</code>.</p>
+<p>An integer literal too big for <code>I64</code> is a <code>U64</code>. A malformed number
+is a compile error that says what is wrong with it: <code>0x</code> or <code>0b</code> with
+no digits, a digit that doesn't fit the base (<code>0b102</code>), a letter after a decimal
+number (<code>12ab</code>) or an exponent with no digits (<code>1e</code>). A leading
+<code>0</code> does not make a number octal (<a href="known-issues.html">known issue</a>).</p>
 
 <h2>Variables</h2>
 <p>Declare variables anywhere in a block, or at file scope for globals. Several can
@@ -181,6 +186,37 @@ U0 Main()
 2 7 5 28 3
 11
 </pre>
+<p><code>&amp;&amp;</code>, <code>||</code>, <code>!</code> and the comparisons always give 0
+or 1. A float operand of <code>&amp;&amp;</code>, <code>||</code> or <code>!</code> is true
+when it isn't 0.0, and a pointer when it isn't <code>NULL</code>. Comparing an integer with
+a float compares them as floats. On <code>U64</code> values, <code>&gt;&gt;</code>,
+<code>/</code>, <code>%</code> and the comparisons are unsigned. An assignment used as a value
+has the type of its left side, so the value is truncated to fit:</p>
+<pre data-run><code>
+U0 Main()
+{
+  F64 half = 0.5;
+  U8 *none = NULL;
+  "%d %d %d %d\n", half && 1, !half, none || 0, !none;
+  "%d\n", 2 < 2.5;
+
+  U64 big = 0xFFFFFFFFFFFFFFFF;
+  "%d %d\n", big > 1, big >> 60;
+
+  U8 c;
+  I64 v = (c = 300);
+  "%d\n", v;
+}
+</code></pre>
+<pre class="output">
+1 0 0 1
+1
+1 15
+44
+</pre>
+<p>Unary <code>-</code> and <code>+</code> need a number and <code>~</code> needs an
+integer: <code>-p</code> on a pointer or <code>~f</code> on an <code>F64</code> is a compile
+error. A narrower integer operand is widened to <code>I64</code> first.</p>
 <p>Comparisons can be chained, as in maths: <code>lo &lt; x &lt; hi</code> means
 <code>lo &lt; x &amp;&amp; x &lt; hi</code>.</p>
 <pre data-run><code>
@@ -225,6 +261,7 @@ U0 Main()
   I64 i = f(I64);            // truncates
   "%d\n", i;
   "%.1f %.1f\n", (7 / 2)(F64), 7(F64) / 2;
+  "%.1f\n", -i(F64) / 2;     // -(i(F64)) / 2
 
   U8 *s = "hey";
   I64 address = s(I64);
@@ -234,8 +271,12 @@ U0 Main()
 <pre class="output">
 3
 3.0 3.5
+-1.5
 h
 </pre>
+<p>A cast is a postfix operator, like <code>[]</code>, <code>.</code>, <code>-&gt;</code> and
+calls, so a prefix operator applies to the whole postfix expression: <code>-x(F64)</code> is
+<code>-(x(F64))</code> and <code>!p-&gt;done</code> is <code>!(p-&gt;done)</code>.</p>
 
 <h2>Control flow</h2>
 
@@ -397,6 +438,10 @@ U0 Main()
 </pre>
 <p>Declare a prototype to call a function before its definition:
 <code>I64 Later(I64 x);</code></p>
+<p>A returned value is converted to the function's return type, as in C: an integer returned
+from an <code>F64</code> function becomes a float. In a
+<code>U0</code> function, <code>return expr;</code> is a warning ("unexpected return
+value"), but the expression is still evaluated for its side effects.</p>
 <p><code>inline</code> is accepted as a hint only: an <code>inline</code> function is compiled
 as an ordinary function, so it can recurse, take default arguments and have its address taken.</p>
 <pre data-run><code>
@@ -540,6 +585,29 @@ U0 Main()
 10
 25
 </pre>
+<p>A default in a function pointer's parameter list fills a left-out argument when you call
+through it, for variables and class fields alike. A <code>U0 *</code> converts to and from a
+function pointer without a cast:</p>
+<pre data-run><code>
+I64 Dbl(I64 x) { return x * 2; }
+
+class Calc { I64 (*op)(I64 x = 21); };
+
+U0 Main()
+{
+  Calc c;
+  c.op = &Dbl;
+  "%d %d\n", c.op(5), c.op();
+
+  U0 *raw = &Dbl;
+  I64 (*back)(I64 x) = raw;
+  "%d\n", back(4);
+}
+</code></pre>
+<pre class="output">
+10 42
+8
+</pre>
 
 <h2>Pointers and arrays</h2>
 <pre data-run><code>
@@ -568,7 +636,9 @@ U0 Main()
 7 96
 </pre>
 <p>As in C, <code>n + p</code> is the same as <code>p + n</code>, a pointer can be
-compared with an integer on either side, and <code>n - p</code> is a compile error.</p>
+compared with an integer on either side, and <code>n - p</code> is a compile error. An
+array can't be assigned as a whole (<code>a = b;</code> is an error): assign its elements or
+copy it with <code>MemCpy</code>.</p>
 <p>An initialiser list may be shorter than the array or class it initialises; as in C,
 everything it leaves out is zero, for locals and globals alike:</p>
 <pre data-run><code>
@@ -916,7 +986,7 @@ demo 64 0.5 1024
 </pre>
 
 <h3>Conditional compilation</h3>
-<p><code>#ifdef</code>, <code>#ifndef</code>, <code>#elif</code>, <code>#else</code>,
+<p><code>#if</code>, <code>#ifdef</code>, <code>#ifndef</code>, <code>#elif</code>, <code>#else</code>,
 <code>#endif</code>, <code>#undef</code> and <code>#error</code> work as in C. Define a
 macro from the command line with <code>-D</code>:</p>
 <pre data-run data-args="-DVERBOSE"><code>
@@ -932,8 +1002,31 @@ U0 Main()
 <pre class="output">
 verbose mode
 </pre>
-<p>That example was built with <code>hcc -DVERBOSE</code>. These macros are always
-predefined:</p>
+<p>That example was built with <code>hcc -DVERBOSE</code>. <code>#if</code> and
+<code>#elif</code> take a constant expression of macros, which can use
+<code>defined(NAME)</code>, and they nest:</p>
+<pre data-run><code>
+#define LEVEL 2
+
+U0 Main()
+{
+#if LEVEL > 2
+  "high\n";
+#elif LEVEL == 2 && !defined(QUIET)
+  "level two\n";
+#else
+  "low\n";
+#endif
+}
+</code></pre>
+<pre class="output">
+level two
+</pre>
+<p>A conditional directive without its partner (<code>#else</code> or <code>#endif</code>
+without <code>#if</code>, a second <code>#else</code>, an <code>#if</code> never closed) and
+extra tokens after an <code>#if</code> condition are compile errors. <code>#error</code>
+stops the build and prints the rest of its line. <code>#undef</code> takes effect where it
+appears: code above it keeps the old value. These macros are always predefined:</p>
 <table>
   <thead><tr><th>Macro</th><th>Defined when</th></tr></thead>
   <tbody>
