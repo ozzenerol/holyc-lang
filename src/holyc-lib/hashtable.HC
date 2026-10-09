@@ -85,6 +85,18 @@ static U64 HtCapacity(U64 capacity)
   return RoundUpToNextPowerOf2(capacity);
 }
 
+static U64 HtFmix64(U64 h)
+{/* murmur3's 64-bit finaliser: every bit of `h` affects every bit of the
+  * result, so keys that differ only in bits above the mask still land in
+  * different slots. */
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccd;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53;
+  h ^= h >> 33;
+  return h;
+}
+
 public Bool IntMapSet(IntMap *map, I64 key, U0 *value);
 public Bool IntMapHas(IntMap *map, I64 key);
 public IntMap *IntMapNew(U64 capacity=32);
@@ -93,8 +105,10 @@ public U0 IntMapRelease(IntMap *map);
 public Bool IntMapResize(IntMap *map);
 
 U64 IntMapHashFunction(I64 key, U64 mask)
-{
-  return key & mask;
+{/* Mixed first: `key & mask` alone sent keys sharing their low bits
+  * (multiples of a power of two, aligned pointers, `id << 20`) to the
+  * same slots. */
+  return HtFmix64(key) & mask;
 }
 
 IntMap *IntMapNew(U64 capacity)
