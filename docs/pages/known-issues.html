@@ -5,7 +5,73 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<p>No known issues: everything found while writing these docs has been fixed.</p>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>A modulo by a variable inside a subscript crashes hcc</td>
+        <td><code>I64 a[4]; I64 n = 3, i = 5; a[i % n] = 1;</code>: hcc dies with a floating-point exception while trying to fold the index</td>
+        <td>Compute the index first: <code>I64 k = i % n; a[k] = 1;</code></td></tr>
+    <tr><td>Two bad statements in a row can crash hcc</td>
+        <td><code>I64 x = 1 2;</code> followed by <code>"ab" y;</code> in the same function: segmentation fault (each one alone is reported normally)</td>
+        <td>Fix the first error and recompile</td></tr>
+    <tr><td><code>\x</code> escapes followed by a hex digit differ between AOT and JIT</td>
+        <td><code>U8 *s = "\x01b";</code>: the JIT gives 2 bytes (1, 'b'), a compiled program gives 1 byte (27) because the assembler reads <code>\x01b</code> as one escape; a <code>U8 a[] = "\x42";</code> array also gets no terminating NUL</td>
+        <td>Escape the next character too: <code>"\x01\x62"</code> (splitting the literal doesn't help, the pieces are joined first)</td></tr>
+    <tr><td>The character constant <code>'\b'</code> is 92</td>
+        <td><code>"%d\n", '\b';</code> prints 92 (the backslash) instead of 8; <code>"\b"</code> in a string is correct</td>
+        <td>Use <code>'\x08'</code> or <code>8</code></td></tr>
+    <tr><td>No brace elision for class-typed fields</td>
+        <td><code>class L { I64 t; P a; I64 z; }; L l = {1, 2, 3};</code> warns instead of filling <code>a</code>'s fields</td>
+        <td>Brace the inner class: <code>{1, {2, 3}, 4}</code></td></tr>
+    <tr><td>Redefining a standard-library function works in the JIT but not AOT</td>
+        <td>Defining your own <code>Now()</code> runs under <code>-jit</code> but fails at link time in AOT with no hcc diagnostic; conflicting prototypes for the same function are never reported</td>
+        <td>Use a different name for your own functions</td></tr>
+    <tr><td>Comparing a <code>U0 *</code> with a function pointer is an error</td>
+        <td><code>U0 *w = &amp;F; if (w == &amp;F)</code>: "The `==` operator cannot be applied to a pointer type with a unary op of function"</td>
+        <td>Cast one side: <code>w == (&amp;F)(U0 *)</code></td></tr>
+    <tr><td>Some pointer conversions are accepted silently</td>
+        <td><code>I64 *q; q -= q;</code> and <code>F64 f; I64 *q = &amp;f;</code> compile with no diagnostic</td>
+        <td>Review pointer arithmetic and pointer types by hand</td></tr>
+    <tr><td>A leading <code>0</code> doesn't make a number octal</td>
+        <td><code>0644</code> is decimal 644, with no warning (in C it is octal 420)</td>
+        <td>Write octal values in hex: <code>0x1A4</code></td></tr>
+    <tr><td>The C transpiler orders nested classes wrongly and turns <code>F32</code> into <code>double</code></td>
+        <td><code>-transpile</code> writes a nested named class after the struct that uses it</td>
+        <td>The transpiler is experimental; fix the C output by hand</td></tr>
+  </tbody>
+</table>
+
+<h3>Diagnostics</h3>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>A wrong argument type is reported at the closing parenthesis</td>
+        <td><code>Take(y);</code> with a class-typed parameter warns at the <code>)</code>, not at <code>y</code></td>
+        <td>Check every argument of the call</td></tr>
+    <tr><td>A class initialiser warning lands one item late</td>
+        <td><code>class Q { I64 a; P p; }; Q qq = {1, 2, 3};</code> warns at the <code>,</code> after <code>2</code></td>
+        <td>Look at the item before the caret</td></tr>
+    <tr><td>Some type errors are reported twice</td>
+        <td><code>I64 y = 1; P p; y = p;</code> prints a warning and an error for the same statement</td>
+        <td>Read the error and ignore the warning</td></tr>
+    <tr><td>The underline under a string token leaves out its quotes</td>
+        <td><code>I64 s = 2 "abcd" 3;</code> underlines 4 characters from the opening quote</td>
+        <td>None needed</td></tr>
+    <tr><td>The warning for a value returned from a <code>U0</code> function misprints the expression</td>
+        <td><code>return g++;</code> is shown as <code>++g</code>; <code>return Twice(Twice(1));</code> as <code>Twice(Twice(1););</code></td>
+        <td>Read the line number in the warning</td></tr>
+  </tbody>
+</table>
+
+<h2>JIT and code generation</h2>
+<table>
+  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
+  <tbody>
+    <tr><td>The legacy x86 backend has several wrong-code bugs</td>
+        <td>Only with <code>--use-legacy-x86</code>: <code>F64 R(I64 n) { return n; }</code> returns 0.0; narrow loads read 8 bytes (<code>I32 a[3] = {1,2,3}; a[0]</code> is 8589934593); some global class initialisers panic with "Global variables unimplemented"; the exit status of <code>U0 Main</code> is garbage</td>
+        <td>Use the default backend</td></tr>
+  </tbody>
+</table>
 
 <h2>Standard library</h2>
 <table>
@@ -14,9 +80,24 @@ there works as shown.</p>
     <tr><td><code>NetAccept</code> returns <code>Bool</code>, and <code>NetCreateServer</code> returns 0 on some failures</td>
         <td>A socket number over 255 from <code>NetAccept</code> is truncated; 0 from <code>NetCreateServer</code> looks like a valid socket</td>
         <td>Call <code>accept</code> directly, and treat <code>&lt;= 0</code> from <code>NetCreateServer</code> as failure</td></tr>
-    <tr><td>Unix domain sockets don't work on Linux</td>
-        <td><code>sockaddr_un</code> has the BSD layout (a leading length byte), so <code>NetCreateUnixServerSocket</code> fails and returns 0; a path over 104 bytes also overflows it</td>
-        <td>Use TCP on 127.0.0.1</td></tr>
+    <tr><td>Socket address structs and constants use the BSD/macOS layout and values on Linux</td>
+        <td><code>sockaddr_in</code>, <code>sockaddr_in6</code> and <code>sockaddr_un</code> start with a length byte, so a hand-filled address fails <code>bind</code>/<code>connect</code> (family 0x200); <code>SOL_SOCKET</code>, <code>SO_*</code>, <code>AF_INET6</code> and the <code>TCP_*</code> options have macOS values, and <code>IPPROTO_TCP</code> isn't exported. <code>NetCreateUnixServerSocket</code> fails and returns 0, and a path over 104 bytes overflows it</td>
+        <td>Use <code>NetCreateServer</code>/<code>NetConnect</code> (they go through <code>getaddrinfo</code>), or declare the Linux structs and constants yourself; use TCP on 127.0.0.1 instead of Unix sockets</td></tr>
+    <tr><td><code>NetSetSocketNoDelay</code> returns the opposite of what happened</td>
+        <td>It returns <code>FALSE</code> when <code>setsockopt</code> succeeds</td>
+        <td>Ignore its result, or call <code>setsockopt</code> yourself</td></tr>
+    <tr><td><code>ThreadPoolRelease</code> hangs</td>
+        <td>After <code>ThreadPoolWait</code>, <code>ThreadPoolRelease</code> never returns: the workers are never woken before <code>pthread_cond_destroy</code>, and detached threads are joined</td>
+        <td>Don't release the pool; let the process exit</td></tr>
+    <tr><td><code>System</code> and <code>Sh</code> return the raw wait status</td>
+        <td><code>System("exit 3")</code> returns 768, not 3 (the docs say exit status)</td>
+        <td>Shift it: <code>(System(cmd) &gt;&gt; 8) &amp; 0xFF</code></td></tr>
+    <tr><td><code>JsonParse</code> ignores its <code>flags</code> argument</td>
+        <td><code>JsonParse(text, -1, JSON_STRNUM_FLAG)</code> behaves like flags 0</td>
+        <td>None</td></tr>
+    <tr><td><code>RBTreeRelease</code> leaks</td>
+        <td>It frees the nodes but not the tree itself, and never calls the key/value free functions</td>
+        <td>Free keys and values yourself before releasing</td></tr>
   </tbody>
 </table>
 
