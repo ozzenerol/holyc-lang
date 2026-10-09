@@ -1182,7 +1182,8 @@ and <code>F64 f = d;</code> converts it to a float like any integer (a float ass
 <code>CDateStruct</code> has <code>sec100</code> (hundredths, 0-99) and
 <code>sec10000</code> (the ten-thousandths below those, 0-99). <code>Struct2Date</code>
 carries fields that are out of range: day 32 of January is February 1, month 13 is
-January of the next year and month 0 December of the year before.</p>
+January of the next year and month 0 December of the year before; the time carries the same
+way, so hour 24 is midnight of the next day.</p>
 <pre data-run><code>
 U0 Main()
 {
@@ -1199,13 +1200,14 @@ U0 Main()
 <pre class="output">
 02/01/2025
 </pre>
-<p>The calendar is TempleOS's, which is the Gregorian one except that years divisible
-by 4000 are not leap years (and year 0 isn't either): CDates agree with the Gregorian
-calendar from year 1 up to 4000-02-28 and are a day ahead from 4000-03-01, where the
-Gregorian calendar has February 29. <code>IsoFromTimespec(&amp;ts, buf)</code>, which
-formats a <code>Stat</code> time as UTC ISO 8601
-(<code>2026-07-05T14:30:00.123456789Z</code>, 31 bytes with the NUL), uses the
-Gregorian calendar.</p>
+<p>The calendar is the proleptic Gregorian one, with the same leap years before 1582 and
+for year 0 (a leap year, as in ISO 8601) and the years before it. Day 0 is January 2 of
+year 0, so a <code>CDate</code> of 0 prints as <code>01/02/0000</code>. Years 1 to 3999
+have the same day numbers as in TempleOS, whose calendar has no February 29 in years
+divisible by 4000 and is a day ahead from 4000-03-01. <code>IsoFromTimespec(&amp;ts, buf)</code>,
+which formats a <code>Stat</code> time as UTC ISO 8601
+(<code>2026-07-05T14:30:00.123456789Z</code>, 31 bytes with the NUL), uses the same
+calendar.</p>
 
 <p><code>StrToCDate(text, format)</code> parses a date with a <code>strptime</code>-like
 format and <code>Str2CDateStruct(text, format, &amp;ds)</code> fills a
@@ -1245,11 +1247,11 @@ U0 Main()
 constants <code>M_PI</code>, <code>M_E</code>, <code>M_SQRT2</code> and the rest of C's
 <code>M_*</code> set.
 <code>Gcd</code> ignores signs: <code>Gcd(0, n)</code> is <code>|n|</code> and
-<code>Gcd(0, 0)</code> is 0. <code>Pow</code> takes an integer exponent (an
-<code>I64</code>, so <code>Pow(4.0, 0.5)</code> is <code>Pow(4.0, 0)</code>, 1.0); use
-<code>pow</code> for real exponents. <code>Abs</code> returns a <code>U64</code>, so
-<code>Abs(x) &gt; -1</code> is always false (the -1 becomes <code>U64_MAX</code>) and
-<code>Abs(I64_MIN)</code> is 2<sup>63</sup>; use <code>fabs</code> for floats.</p>
+<code>Gcd(0, 0)</code> is 0. <code>Pow</code> takes an <code>F64</code> exponent: integral
+ones use exact repeated squaring (<code>Pow(2, 10)</code> is 1024.0) and the rest go to
+<code>pow</code>, so <code>Pow(4.0, 0.5)</code> is 2.0. <code>Abs</code> returns an
+<code>I64</code>; like C's <code>labs</code>, <code>Abs(I64_MIN)</code> is
+<code>I64_MIN</code>. Use <code>fabs</code> for floats.</p>
 <pre data-run><code>
 U0 Main()
 {
