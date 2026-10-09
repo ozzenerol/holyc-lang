@@ -1179,6 +1179,7 @@ AstType *astTypeCheck(AstType *expected, Ast *ast, AstBinOp op) {
     AstType *a = actual;
     AstType *e = expected;
     AstType *ret = NULL;
+    int pointee = 0;
 
     if (a->kind == AST_TYPE_ARRAY || e->kind == AST_TYPE_ARRAY) {
         goto out;
@@ -1197,6 +1198,19 @@ AstType *astTypeCheck(AstType *expected, Ast *ast, AstBinOp op) {
 
 check_type:
     if (e == NULL || a == NULL) {
+        goto out;
+    }
+
+    /* Below a pointer the scalar conversions don't apply: `I64 *q = &f`
+     * with `F64 f` reinterprets the F64's bits, as C warns. A byte
+     * pointer (U8 *, I8 *, Bool *) stays interchangeable with the others,
+     * TempleOS code walks raw buffers through them (`U64 *q = buf + i`). */
+    if (pointee && (astIsIntType(e) || astIsFloatType(e)) &&
+        (astIsIntType(a) || astIsFloatType(a))) {
+        if (e->size == 1 || a->size == 1 ||
+            (astIsFloatType(e) == astIsFloatType(a) && e->size == a->size)) {
+            ret = e;
+        }
         goto out;
     }
 
@@ -1237,6 +1251,7 @@ check_type:
     } else if (e->kind == AST_TYPE_POINTER && a->kind == AST_TYPE_POINTER) {
         e = e->ptr;
         a = a->ptr;
+        pointee = 1;
         goto check_type;
     } else if (astIsIntType(e) && astIsIntType(a)) {
         ret = e;

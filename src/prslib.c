@@ -1790,6 +1790,13 @@ Ast *parseExpr(Cctrl *cc, int prec) {
             AstType *ok = astTypeCheck(LHS->type,RHS,compound_assign);
             if (!ok && !is_array_assign) {
                 typeCheckWarn(cc,op_line,op_col,LHS,RHS);
+            } else if (!is_array_assign && LHS->type &&
+                       LHS->type->kind == AST_TYPE_POINTER &&
+                       value->type && !astTypeCheck(LHS->type,value,
+                                                    AST_BIN_OP_ASSIGN)) {
+                /* `q -= q` stores a pointer difference (an integer)
+                 * back into the pointer, as `q = q - q` would */
+                typeCheckWarn(cc,op_line,op_col,LHS,value);
             }
             LHS = parseCreateBinaryOp(cc,AST_BIN_OP_ASSIGN, LHS, value);
         } else {
