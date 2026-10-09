@@ -623,6 +623,22 @@ U0 Main()
 11 0
 5
 </pre>
+<p>A field that is itself a class or an array takes a nested list:</p>
+<pre data-run><code>class Point { I64 x, y; };
+class Line  { Point from, to; I64 tags[2]; };
+
+Line l = {{0, 0}, {3, 4}, {7, 8}};
+
+U0 Main()
+{
+  Line m = {{1, 2}, {5, 6}, {9, 10}};
+  "%d %d %d\n", l.to.x, l.to.y, l.tags[1];
+  "%d %d %d\n", m.from.y, m.to.x, m.tags[0];
+}
+</code></pre>
+<pre class="output">3 4 8
+2 5 9
+</pre>
 
 <h3>Inheritance</h3>
 <p>A class can extend one other class. It starts with all of the base class's fields, so a
