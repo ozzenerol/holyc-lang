@@ -1290,6 +1290,94 @@ if (conn != -1) {
 close(srv);
 </code></pre>
 
+<h2 id="fzf">Fuzzy matching</h2>
+<p><code>FzF(text, pattern)</code> matches text the way the fzf tool does and returns the
+score and the matched byte offsets, or NULL when it doesn't match. Terms separated by
+spaces must all match, <code>a | b</code> takes either. A plain term is fuzzy: its
+characters in order, with gaps. <code>'term</code> is an exact substring,
+<code>^term</code> a prefix, <code>term$</code> a suffix, <code>^term$</code> the whole
+text and <code>!term</code> must not occur; <code>\ </code> is a space inside a term.
+With the default <code>FZF_CASE_SMART</code> a term is case-sensitive only when it has an
+upper-case letter; <code>FZF_CASE_IGNORE</code> and <code>FZF_CASE_RESPECT</code> force it.
+Passing <code>FALSE</code> as the last argument makes plain terms exact (and
+<code>'term</code> fuzzy). The offsets come term after term, so they are only sorted for
+a single term, and the matcher is fzf's greedy one: it finds a match, not always the
+best-scoring placement. The pattern is not modified, so a string literal is fine.</p>
+<pre data-run><code>
+U0 Show(U8 *text, U8 *pattern)
+{
+  FzFPosition *m = FzF(text, pattern);
+  "%-12s %-11s ", text, pattern;
+  if (!m) {
+    "no match\n";
+    return;
+  }
+  "score %d at", m->score;
+  for (I64 i = 0; i < m->size; i++) " %d", m->data[i];
+  "\n";
+  FzFPositionRelease(m);
+}
+
+U0 Main()
+{
+  Show("src/main.HC", "smhc");
+  Show("src/main.hc", "smHC");
+  Show("src/main.HC", "HC$ main");
+  Show("src/main.HC", "^src 'main");
+  Show("src/main.HC", "!test main");
+  Show("my file.txt", "my\\ file");
+}
+</code></pre>
+<pre class="output">
+src/main.HC  smhc        score 93 at 0 4 9 10
+src/main.hc  smHC        no match
+src/main.HC  HC$ main    score 160 at 9 10 4 5 6 7
+src/main.HC  ^src 'main  score 184 at 0 1 2 4 5 6 7
+src/main.HC  !test main  score 104 at 4 5 6 7
+my file.txt  my\ file    score 176 at 0 1 2 3 4 5 6
+</pre>
+
+<h2 id="sqlite">SQLite</h2>
+<p>The SQLite functions exist when hcc and the library are built with
+<code>./build.sh --sqlite</code> (they are under <code>#ifdef __HCC_LINK_SQLITE3__</code>).
+<code>SqlCtxNew(path)</code> opens a database (<code>":memory:"</code> for a private one)
+and <code>SqlCtxRelease</code> closes it. <code>SqlExecRaw</code> runs a script of
+statements and returns NULL or an error message to <code>Free</code>.
+<code>SqlQuery</code> and <code>SqlSelect</code> run one statement with <code>?</code>
+parameters from an array of <code>SqlParam</code> (<code>SQL_INT</code>,
+<code>SQL_FLOAT</code>, <code>SQL_TEXT</code>, <code>SQL_BLOB</code>,
+<code>SQL_NULL</code>); text and blobs are copied, so they can be freed right away. A
+string with a second statement is an error rather than half-run. <code>SqlIter</code>
+steps through the rows of <code>SqlSelect</code> and frees the row after the last one;
+call <code>SqlRowRelease</code> if you stop early. A column's <code>str</code> and
+<code>blob</code> are only valid until the next row.</p>
+<pre><code>
+SqlCtx *db = SqlCtxNew(":memory:");
+U8 *err = SqlExecRaw(db, "CREATE TABLE users(id INTEGER, name TEXT);");
+if (err) {
+  "%s\n", err;
+  Free(err);
+}
+
+SqlParam p[2];
+p[0].type = SQL_INT;
+p[0].i64 = 1;
+p[1].type = SQL_TEXT;
+p[1].str = "ann";
+SqlQuery(db, "INSERT INTO users VALUES(?, ?);", p, 2);
+
+SqlRow row;
+if (SqlSelect(db, &row, "SELECT id, name FROM users;")) {
+  while (SqlIter(&row)) "%d %s\n", row.col[0].i64, row.col[1].str;
+}
+SqlCtxRelease(db);
+</code></pre>
+<p><code>SqlPrepare</code> compiles a statement once (NULL on an error) and
+<code>SqlExecPrepared(stmt, &amp;row, params)</code> runs it with new parameters, returning
+<code>SQLITE_ROW</code>, <code>SQLITE_DONE</code> or an error code; read its rows with
+<code>SqlIterPrepared</code>. Such a row belongs to the statement, which
+<code>SqlFinalizePrepared</code> frees.</p>
+
 <h2>More modules</h2>
 <p>These are covered in the <a href="stdlib.html">library reference</a>:</p>
 <ul>
@@ -1304,6 +1392,4 @@ close(srv);
   <code>sockaddr_un</code>, <code>addrinfo</code>, ...) have the platform's C layout, and
   <code>SOL_SOCKET</code>, <code>SO_*</code>, <code>AF_INET6</code>, <code>IPPROTO_*</code>,
   <code>TCP_*</code> and <code>AI_*</code> the platform's values.</li>
-  <li><a href="stdlib.html#fzf">Fuzzy matching</a>: fzf-style scoring.</li>
-  <li><a href="stdlib.html#sqllite">SQLite</a>: when hcc is built with <code>--sqlite</code>.</li>
 </ul>
