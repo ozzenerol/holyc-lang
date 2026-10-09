@@ -815,7 +815,6 @@ or reuse them right after the call.</p></div><div class="decl" id="SqlPreparedSt
 {
   sqlite3_stmt *stmt;
   I64  params_count;
-  I64 *params_type;
 };</code></pre></div><div class="decl" id="SqlColumn"><div class="decl-head"><a class="decl-name" href="#SqlColumn">SqlColumn</a> <span class="kind">class</span></div><pre><code class="language-holyc">class SqlColumn
 {
   I64 len;
@@ -850,8 +849,11 @@ from outside the program). NULL on success, otherwise an error message
 to Free.</p></div><div class="decl" id="SqlExecPrepared"><div class="decl-head"><a class="decl-name" href="#SqlExecPrepared">SqlExecPrepared</a> <span class="kind">function</span></div><pre><code class="language-holyc">I32 SqlExecPrepared(SqlPreparedStmt *pstmt, SqlRow *row, SqlParam *params);</code></pre><p class="doc">Run a prepared statement with params[0] .. params[n - 1] for its n
 parameters (NULL params binds them all to NULL). Returns sqlite&#x27;s
 code: SQLITE_ROW when row now holds the first row (read the rest with
-SqlIterPrepared), SQLITE_DONE when there are no rows, or an error
-(SQLITE_MISUSE for a NULL pstmt). The row belongs to the statement:
+SqlIterPrepared), SQLITE_DONE when there are no rows, or an error:
+SQLITE_MISUSE for a NULL pstmt, SQLITE_MISMATCH for a parameter type
+other than SQL_INT/FLOAT/TEXT/BLOB/NULL, or the code of a failed bind
+(e.g. SQLITE_TOOBIG). On an error the statement does not run and row
+holds no row. The row belongs to the statement:
 it is valid until the next SqlExecPrepared or SqlFinalizePrepared.</p></div><div class="decl" id="SqlSelect"><div class="decl-head"><a class="decl-name" href="#SqlSelect">SqlSelect</a> <span class="kind">function</span></div><pre><code class="language-holyc">Bool SqlSelect(SqlCtx *ctx, SqlRow *row, U8 *sql, SqlParam *params=NULL, I32 param_count=0);</code></pre><p class="doc">Run one SQL statement with param_count parameters and point row at
 its first row, if any; read the rows with SqlIter. TRUE if the
 statement ran (also with no rows), FALSE on an error, an unknown

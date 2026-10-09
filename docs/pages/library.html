@@ -1521,7 +1521,9 @@ SqlCtxRelease(db);
 <p><code>SqlPrepare</code> compiles a statement once (NULL on an error) and
 <code>SqlExecPrepared(stmt, &amp;row, params)</code> runs it with new parameters, returning
 <code>SQLITE_ROW</code>, <code>SQLITE_DONE</code> or an error code; read its rows with
-<code>SqlIterPrepared</code>. Such a row belongs to the statement, which
+<code>SqlIterPrepared</code>. A parameter it can't bind (an unknown <code>type</code> gives
+<code>SQLITE_MISMATCH</code>, a string over sqlite's length limit <code>SQLITE_TOOBIG</code>) returns that
+error without running the statement. Such a row belongs to the statement, which
 <code>SqlFinalizePrepared</code> frees.</p>
 
 <h2>More modules</h2>
