@@ -36,6 +36,39 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.9.1 <small>(2026-10-09)</small></h2>
+<p>Three compiler fixes, and the SQLite bindings and fuzzy matcher fixed and documented. Every fix
+has a regression test that runs compiled and in the JIT on Linux x86_64, Linux arm64 and macOS
+arm64.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>A <code>goto</code> into a <code>try</code> body from outside it is a compile error (it used to
+  corrupt the exception chain). Jumping within a body, out of it, or into a catch handler is fine.</li>
+  <li><code>SqlQuery</code>, <code>SqlSelect</code> and <code>SqlPrepare</code> reject a string with more
+  than one statement; <code>SqlExecRaw</code> still runs them all. <code>SqlPrepare</code> returns
+  <code>NULL</code> on an error, and <code>SqlExecRaw</code> returns the error message (a string to
+  <code>Free</code>) or <code>NULL</code>.</li>
+  <li><code>SqlRow</code> has a new field, <code>owns_stmt</code>.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li><code>continue</code> inside a <code>switch</code> inside a loop crashed the compiler.</li>
+  <li>A false "control may reach the end of non-void function" warning when both a
+  <code>try</code> body and its <code>catch</code> end in <code>return</code>.</li>
+  <li>SQLite: text and blob parameters were bound without a copy, so freeing them before reading
+  the rows was a use-after-free; <code>NULL</code> parameters were rejected; releasing a row from a
+  prepared statement finalized the statement; column arrays, failed opens and busy closes
+  leaked; column lengths were uninitialised. <code>SQL_INT</code>, <code>SQL_TEXT</code> and the
+  other type constants are available to programs.</li>
+  <li>Fuzzy matching: exact (<code>'foo</code>) and inverse (<code>!foo</code>) terms only worked for
+  one character, <code>^prefix</code> and <code>^exact$</code> terms were wrong, <code>FzF</code> wrote
+  into the caller's pattern (a crash for string literals), and parsed terms leaked.</li>
+  <li>The unused <code>builtins.HC</code> is removed.</li>
+</ul>
+<p>Still open: see <a href="known-issues.html">Known issues</a>.</p>
+
 <h2>v0.9.0 <small>(2026-10-09)</small></h2>
 <p>A systems and networking release. Exceptions, sockets and threads were audited and every bug
 found is fixed, with a regression test that runs compiled and in the JIT on Linux x86_64, Linux
