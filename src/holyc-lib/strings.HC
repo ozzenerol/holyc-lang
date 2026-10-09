@@ -951,7 +951,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
   U64 uintarg, curlen = 0;
   F64 farg;
   I64 ch, sp = 0, intarg, U8arg, len, flags, tlen,dec_len,aux_fmt_num;
-  U8 *ptr, *strarg, *tmp, *dst, buf[256];
+  U8 *ptr, *strarg, *tmp, *dst, *spec, buf[256];
   U8 **grow;
   CDate cdt;
 
@@ -970,6 +970,7 @@ U8 *StrPrintJoin(U8 *_dst, U8 *fmt,I64 argc,I64 *argv)
   ptr = dst;
   while (ch = *fmt++) {
     if (ch == '%') {
+      spec = fmt - 1; /* the '%', for an unsupported conversion */
       flags = 0;
       if (*fmt == '-') {
         flags|= PRTF_LEFT_JUSTIFY;
@@ -1214,10 +1215,37 @@ place_hex:
           break;
         }
 
-        default:
-          "Invalid format char: '%c'\n",*fmt;
-          SPutChar(&ptr,ch,grow);
+        default: {
+          /* *(fmt-1) is not a conversion StrPrint knows. Kept in the
+           * output as written, as C prints one, with a diagnostic on
+           * stderr. As in C a conversion ends at a letter: what it may
+           * still hold (`%ld`, `%+d`) is skipped and its argument taken,
+           * so the conversions after it get the right ones. A '%' at the
+           * very end stops at the NUL instead of reading past it. */
+          U8 bad = *(fmt-1);
+          if (!bad) {
+            fmt--;
+            len = snprintf(buf,sizeof(buf),
+                           "Invalid format: '%%' with no conversion at the end\n");
+          } else {
+            U8 *end = NULL;
+            for (tmp = fmt-1; *tmp && StrOcc(" +#'0123456789.hlLqjzt",*tmp);
+                 ++tmp) {
+              if ('a' <= *tmp <= 'z' || 'A' <= *tmp <= 'Z') end = tmp;
+            }
+            if ('a' <= *tmp <= 'z' || 'A' <= *tmp <= 'Z') end = tmp;
+            if (end) {
+              sp++;
+              fmt = end+1;
+            }
+            len = snprintf(buf,sizeof(buf),"Invalid format char: '%c'\n",bad);
+          }
+          write(STDERR,buf,len);
+          for (tmp = spec; tmp < fmt; ++tmp) {
+            SPutChar(&ptr,*tmp,grow);
+          }
           break;
+        }
       }
     } else {
       SPutChar(&ptr,ch,grow);

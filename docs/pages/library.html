@@ -56,6 +56,9 @@ is grown, which may move it and frees the old block. <code>s</code> must come fr
 literal or a stack buffer. Unlike print statements, their <code>%d</code> is a
 full 64-bit integer. <code>%f</code>, <code>%e</code> and <code>%g</code> print a float the
 way C's <code>printf</code> does, with the same rounding.</p>
+<p>A conversion <code>StrPrint</code> doesn't support is copied into the result as written
+(<code>"%y"</code> stays <code>%y</code>) and its argument is skipped, so the conversions after
+it still get theirs; a message naming it goes to stderr.</p>
 <pre data-run><code>
 U0 Main()
 {
