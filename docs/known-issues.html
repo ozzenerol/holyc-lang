@@ -43,9 +43,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>A wrong argument type is reported at the closing parenthesis</td>
-        <td><code>Take(y);</code> with a class-typed parameter warns at the <code>)</code>, not at <code>y</code></td>
-        <td>Check every argument of the call</td></tr>
     <tr><td>A class initialiser warning lands one item late</td>
         <td><code>class Q { I64 a; I64 *p; }; F64 f; Q qq = {1, f};</code> warns at the <code>}</code> after <code>f</code></td>
         <td>Look at the item before the caret</td></tr>
