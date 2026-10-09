@@ -33,14 +33,7 @@ there works as shown.</p>
 </table>
 
 <h2>JIT and code generation</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>A class-typed item in a local initialiser list is garbage</td>
-        <td>With <code>class L { I64 a; P p; I64 b; };</code>, a local <code>L l = {1, p0, 4};</code> leaves <code>l.p</code> holding pointer-like garbage; so does a local <code>P ps[2] = {p0, p0};</code>. The same initialisers on globals work</td>
-        <td>Assign the class fields after the declaration (<code>l.p = p0;</code>), or make the variable global</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Standard library</h2>
 <p>No known issues: everything found while writing these docs has been fixed.</p>

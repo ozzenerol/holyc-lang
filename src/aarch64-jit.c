@@ -817,6 +817,79 @@ static int jitIsByvalStruct(AstType *t) {
            !t->is_intrinsic;
 }
 
+/* The widest power-of-two access, at most 8 bytes, that fits `n`. */
+static int jitChunkSize(int n) {
+    return n >= 8 ? 8 : n >= 4 ? 4 : n >= 2 ? 2 : 1;
+}
+
+/* Load the `n` (1..8) bytes at [base, #off] (off >= 0 and a multiple of
+ * 8) into `reg`, zero-extended, as 4/2/1-byte pieces ORed together
+ * through x10 when `n` is not a power of two: an aggregate of 3, 5, 6, 7
+ * bytes (or the tail of one of 9..15) travels in an x register, and
+ * reading past it could fault. Mirrors aarch64LoadBytes. */
+static void jitLoadBytes(AsmEnc *enc, A64Reg reg, A64Reg base, int off, int n) {
+    if (n >= 8) {
+        aarch64_enc_ldr_imm(enc, reg, base, (uint32_t)off);
+        return;
+    }
+    int o = 0;
+    while (o < n) {
+        int c = jitChunkSize(n - o);
+        A64Reg r = o == 0 ? reg : A_X10;
+        uint32_t at = (uint32_t)(off + o);
+        if (c == 4)      aarch64_enc_ldr32_imm_gpr(enc, r, base, at);
+        else if (c == 2) aarch64_enc_ldrh_imm(enc, r, base, at);
+        else             aarch64_enc_ldrb_imm(enc, r, base, at);
+        if (o != 0) {
+            aarch64_enc_lsl_imm(enc, 1, A_X10, A_X10, (uint32_t)(o * 8));
+            aarch64_enc_orr_reg(enc, 1, reg, reg, A_X10);
+        }
+        o += c;
+    }
+}
+
+/* Store the low `n` (1..8) bytes of `reg` to [base, #off] (off as for
+ * jitLoadBytes), as 4/2/1-byte pieces shifted down through x10 when `n`
+ * is not a power of two; `reg` is left intact. */
+static void jitStoreBytes(AsmEnc *enc, A64Reg reg, A64Reg base, int off, int n) {
+    if (n >= 8) {
+        aarch64_enc_str_imm(enc, reg, base, (uint32_t)off);
+        return;
+    }
+    int o = 0;
+    while (o < n) {
+        int c = jitChunkSize(n - o);
+        A64Reg r = reg;
+        uint32_t at = (uint32_t)(off + o);
+        if (o != 0) {
+            aarch64_enc_lsr_imm(enc, 1, A_X10, reg, (uint32_t)(o * 8));
+            r = A_X10;
+        }
+        if (c == 4)      aarch64_enc_str32_imm_gpr(enc, r, base, at);
+        else if (c == 2) aarch64_enc_strh_imm(enc, r, base, at);
+        else             aarch64_enc_strb_imm(enc, r, base, at);
+        o += c;
+    }
+}
+
+/* x11 = x29 + loff, so the odd-sized frame accesses above can use a
+ * non-negative offset. */
+static void jitFrameAddrX11(AsmEnc *enc, int loff) {
+    if (loff >= 0 && loff <= 0xFFF) {
+        aarch64_enc_add_imm(enc, 1, A_X11, A_FP, (uint32_t)loff);
+    } else if (loff < 0 && -loff <= 0xFFF) {
+        aarch64_enc_sub_imm(enc, 1, A_X11, A_FP, (uint32_t)(-loff));
+    } else {
+        jitEmitMovImm(enc, A_X11, (s64)loff);
+        aarch64_enc_add_reg(enc, 1, A_X11, A_FP, A_X11);
+    }
+}
+
+/* A power-of-two size the plain frame/base accesses handle. */
+static int jitIsPow2Access(int n) {
+    return n == 1 || n == 2 || n == 4 || n >= 8;
+}
+
 /* Copy `size` bytes from [base, #src] to the frame slot at #dst via x10. */
 static void jitCopyToSlot(AsmEnc *enc, A64Reg base, int size, int src, int dst) {
     int o = 0;
@@ -825,18 +898,12 @@ static void jitCopyToSlot(AsmEnc *enc, A64Reg base, int size, int src, int dst) 
         jitFrameStore(enc, A_X10, 8, dst + o);
         o += 8;
     }
-    int rem = size - o;
-    if (rem == 4) {
-        aarch64_enc_ldr32_imm_gpr(enc, A_X10, base, (uint32_t)(src + o));
-        jitFrameStore(enc, A_X10, 4, dst + o);
-    } else if (rem == 2) {
-        aarch64_enc_ldrh_imm(enc, A_X10, base, (uint32_t)(src + o));
-        jitFrameStore(enc, A_X10, 2, dst + o);
-    } else if (rem == 1) {
-        aarch64_enc_ldrb_imm(enc, A_X10, base, (uint32_t)(src + o));
-        jitFrameStore(enc, A_X10, 1, dst + o);
-    } else if (rem != 0) {
-        loggerPanic("jit-aarch64: %d-byte param copy chunk not supported\n", rem);
+    /* The tail of an odd-sized aggregate: 4/2/1-byte pieces. */
+    while (o < size) {
+        int c = jitChunkSize(size - o);
+        jitLoadBytes(enc, A_X10, base, src + o, c);
+        jitFrameStore(enc, A_X10, c, dst + o);
+        o += c;
     }
 }
 
@@ -848,18 +915,12 @@ static void jitCopyToSp(AsmEnc *enc, A64Reg src, int size, int dst) {
         aarch64_enc_str_imm(enc, A_X10, A_SP, (uint32_t)(dst + o));
         o += 8;
     }
-    int rem = size - o;
-    if (rem == 4) {
-        aarch64_enc_ldr32_imm_gpr(enc, A_X10, src, (uint32_t)o);
-        aarch64_enc_str32_imm_gpr(enc, A_X10, A_SP, (uint32_t)(dst + o));
-    } else if (rem == 2) {
-        aarch64_enc_ldrh_imm(enc, A_X10, src, (uint32_t)o);
-        aarch64_enc_strh_imm(enc, A_X10, A_SP, (uint32_t)(dst + o));
-    } else if (rem == 1) {
-        aarch64_enc_ldrb_imm(enc, A_X10, src, (uint32_t)o);
-        aarch64_enc_strb_imm(enc, A_X10, A_SP, (uint32_t)(dst + o));
-    } else if (rem != 0) {
-        loggerPanic("jit-aarch64: %d-byte arg copy chunk not supported\n", rem);
+    /* The tail of an odd-sized aggregate: 4/2/1-byte pieces. */
+    while (o < size) {
+        int c = jitChunkSize(size - o);
+        jitLoadBytes(enc, A_X10, src, o, c);
+        jitStoreBytes(enc, A_X10, A_SP, dst + o, c);
+        o += c;
     }
 }
 
@@ -922,15 +983,8 @@ static void a64JitAggLoad(void *be, int is_fp, int reg, int src_off, int size) {
     AsmEnc *enc = &((JitFnCtx *)be)->jit->enc;
     if (is_fp)
         aarch64_enc_fp_ldst_imm(enc, 1, size, (A64Reg)reg, A_X9, (uint32_t)src_off);
-    else if (size >= 8)
-        aarch64_enc_ldr_imm(enc, (A64Reg)reg, A_X9, (uint32_t)src_off);
-    else if (size == 4)
-        aarch64_enc_ldr32_imm_gpr(enc, (A64Reg)reg, A_X9, (uint32_t)src_off);
-    else if (size == 2)
-        aarch64_enc_ldrh_imm(enc, (A64Reg)reg, A_X9, (uint32_t)src_off);
-    else if (size == 1)
-        aarch64_enc_ldrb_imm(enc, (A64Reg)reg, A_X9, (uint32_t)src_off);
-    else loggerPanic("jit-aarch64: %d-byte struct chunk not supported\n", size);
+    else
+        jitLoadBytes(enc, (A64Reg)reg, A_X9, src_off, size);
 }
 
 static void a64JitPtrInReg(void *be, int reg, int sp_off) {
@@ -987,15 +1041,8 @@ static void a64JitRetChunkStore(void *be, int is_fp, int reg, int off, int size)
     if (is_fp)
         aarch64_enc_fp_ldst_imm(enc, 0 /*store*/, size, (A64Reg)reg, A_X9,
                                 (uint32_t)off);
-    else if (size >= 8)
-        aarch64_enc_str_imm(enc, (A64Reg)reg, A_X9, (uint32_t)off);
-    else if (size == 4)
-        aarch64_enc_str32_imm_gpr(enc, (A64Reg)reg, A_X9, (uint32_t)off);
-    else if (size == 2)
-        aarch64_enc_strh_imm(enc, (A64Reg)reg, A_X9, (uint32_t)off);
-    else if (size == 1)
-        aarch64_enc_strb_imm(enc, (A64Reg)reg, A_X9, (uint32_t)off);
-    else loggerPanic("jit-aarch64: %d-byte ret chunk not supported\n", size);
+    else
+        jitStoreBytes(enc, (A64Reg)reg, A_X9, off, size);
 }
 
 /* Spill from x0, not x9: jitFrameStore uses x9 as the offset scratch for
@@ -1038,11 +1085,12 @@ static void a64JitAggStore(void *be, int is_fp, int reg, int loff, int size) {
     AsmEnc *enc = &((JitFnCtx *)be)->jit->enc;
     if (is_fp) {
         jitFpFrameStore(enc, (A64Reg)reg, size, loff);
-    } else {
-        if (size != 1 && size != 2 && size != 4 && size != 8)
-            loggerPanic("jit-aarch64: %d-byte struct chunk not supported\n",
-                        size);
+    } else if (jitIsPow2Access(size)) {
         jitFrameStore(enc, (A64Reg)reg, size, loff);
+    } else {
+        /* x11 is free: incoming args live in x0-x7/d0-d7. */
+        jitFrameAddrX11(enc, loff);
+        jitStoreBytes(enc, (A64Reg)reg, A_X11, 0, size);
     }
 }
 
@@ -1545,8 +1593,14 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
                     int ngp = (t->size + 7) / 8;
                     for (int k = 0; k < ngp; ++k) {
                         int off = k * 8, rem = t->size - off;
-                        jitFrameLoad(enc, (A64Reg)k, rem >= 8 ? 8 : rem,
-                                     loff + off);
+                        if (jitIsPow2Access(rem)) {
+                            jitFrameLoad(enc, (A64Reg)k, rem >= 8 ? 8 : rem,
+                                         loff + off);
+                        } else {
+                            /* x10/x11 are dead at the return. */
+                            jitFrameAddrX11(enc, loff + off);
+                            jitLoadBytes(enc, (A64Reg)k, A_X11, 0, rem);
+                        }
                     }
                 }
             } else if (instr->dst) {
