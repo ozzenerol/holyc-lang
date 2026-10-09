@@ -40,9 +40,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>Calling a function without parentheses inside an expression crashes hcc</td>
-        <td><code>I64 F() { return 3; }</code> then <code>if (F == 3)</code> or <code>I64 x = F + 1;</code>: "Expr Unhandled AST kind: AST_FUNC"</td>
-        <td>Write the parentheses: <code>F() == 3</code></td></tr>
     <tr><td>A tagged class or union defined inside a class body crashes hcc</td>
         <td><code>class Y { I64 a; union U2 { I32 i; F32 f; }; I64 z; };</code> and any use of <code>Y</code></td>
         <td>Define the union outside the class, or leave it untagged</td></tr>
