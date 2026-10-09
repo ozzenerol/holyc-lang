@@ -2728,6 +2728,47 @@ void irLowerSwitch(IrCtx *ctx, Ast *ast) {
     free(body_blocks);
 }
 
+
+/* Does `ast` hold a label a goto can jump to? */
+static int irAstHasLabel(Ast *ast) {
+    if (!ast) return 0;
+    switch (ast->kind) {
+        case AST_LABEL:
+            return 1;
+        case AST_COMPOUND_STMT:
+            if (ast->stms) listForEach(ast->stms) {
+                if (irAstHasLabel((Ast *)it->value)) return 1;
+            }
+            return 0;
+        case AST_IF:
+            return irAstHasLabel(ast->then) || irAstHasLabel(ast->els);
+        case AST_FOR:
+            return irAstHasLabel(ast->forbody);
+        case AST_WHILE:
+        case AST_DO_WHILE:
+            return irAstHasLabel(ast->whilebody);
+        case AST_SWITCH:
+            if (ast->cases) {
+                for (u64 i = 0; i < ast->cases->size; ++i) {
+                    if (irAstHasLabel(vecGet(Ast *, ast->cases, i))) return 1;
+                }
+            }
+            return irAstHasLabel(ast->case_default);
+        case AST_CASE:
+        case AST_DEFAULT:
+            if (ast->case_asts) {
+                listForEach(ast->case_asts) {
+                    if (irAstHasLabel((Ast *)it->value)) return 1;
+                }
+            }
+            return 0;
+        case AST_TRY:
+            return irAstHasLabel(ast->try_body) ||
+                   irAstHasLabel(ast->catch_body);
+        default:
+            return 0;
+    }
+}
 void irLowerAst(IrCtx *ctx, Ast *ast) {
     if (!ast) return;
     if (ast->line && ast->kind != AST_LVAR && ast->kind != AST_GVAR)
@@ -2736,11 +2777,19 @@ void irLowerAst(IrCtx *ctx, Ast *ast) {
     /* Once a block is sealed (it ended in ret/jmp/br) any subsequent
      * statement is unreachable; just drop it. AST_LABEL / AST_CASE /
      * AST_DEFAULT are re-entry points - their handlers start fresh
-     * blocks, so let them run even when the prior block is sealed. */
+     * blocks, so let them run even when the prior block is sealed. A
+     * statement with a label inside (`return 1; { inner: x--; }`) can be
+     * entered by a goto too: lower it into a fresh block nothing falls
+     * into, as after a goto. */
     if (ctx->cur_block && ctx->cur_block->sealed &&
             ast->kind != AST_LABEL && ast->kind != AST_CASE &&
             ast->kind != AST_DEFAULT) {
-        return;
+        if (!irAstHasLabel(ast)) {
+            return;
+        }
+        IrBlock *unreach = irBlockNew();
+        irFnAddBlock(ctx->cur_func, unreach);
+        ctx->cur_block = unreach;
     }
 
     switch (ast->kind) {
