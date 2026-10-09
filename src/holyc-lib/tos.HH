@@ -1611,7 +1611,7 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE);
 public Bool NetListen(I32 sockfd, addrinfo *sa, I32 backlog);
 public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
     I32 addrfam=AF_UNSPEC, Bool non_blocking=FALSE);
-public Bool NetAccept(I32 socket, Bool non_blocking=FALSE);
+public I32 NetAccept(I32 socket, Bool non_blocking=FALSE);
 public Bool NetGetIpv4AddressFromAcceptedSocket(I32 sockfd, U8 *ipbuf, I32 outlen);
 public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog);
 public I32 NetCreateUnixClientSocket(U8 *name);
