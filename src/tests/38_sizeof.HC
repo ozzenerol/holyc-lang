@@ -32,7 +32,8 @@ Bool SizeofEscapedChars()
 
 Bool SizeofBytes()
 {
-  if (sizeof("\xa3\xFF") != 2) return FALSE;
+  /* Hex escapes count one byte each, plus the NUL like any string */
+  if (sizeof("\xa3\xFF") != 3) return FALSE;
   return TRUE;
 }
 

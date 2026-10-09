@@ -126,6 +126,11 @@ tab:[	] quote:["] backslash:[\]
 (<code>0b</code>). A number with a <code>.</code> or an exponent (<code>1e3</code>,
 <code>2e-3</code>) is an <code>F64</code>. Multi-character constants are a HolyC idiom for short tags, such as the values thrown by
 <a href="#exceptions">exceptions</a>. String literals are <code>U8 *</code>.</p>
+<p>Strings take the C escapes <code>\n \t \r \b \f \v \a
+\\ \' \"</code>, and <code>\d</code> for <code>$</code>. <code>\x</code> takes at most two hex digits, so <code>"\x01b"</code> is the
+bytes 1 and <code>'b'</code>, and <code>\0</code> to <code>\7</code> start an octal escape of
+up to three digits (<code>"\033"</code> is ESC). Every string literal ends in a NUL that
+<code>sizeof</code> counts: <code>sizeof("\x42")</code> is 2.</p>
 <p>An integer literal too big for <code>I64</code> is a <code>U64</code>. A malformed number
 is a compile error that says what is wrong with it: <code>0x</code> or <code>0b</code> with
 no digits, a digit that doesn't fit the base (<code>0b102</code>), a letter after a decimal

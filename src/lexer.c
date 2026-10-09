@@ -1058,8 +1058,25 @@ int lexIdentifier(Lexer *l, char ch) {
     return TK_IDENT;
 }
 
+/* Append byte `v` to a string buffer as a three digit octal escape.
+ * Strings are kept escaped because they are pasted into the assembly
+ * as `.asciz "..."`; `\x41` can't be passed on as written because GNU
+ * as and clang read every hex digit after `\x` (`"\x01b"` is the one
+ * byte 0x1B to them), while an octal escape always ends after three
+ * digits for both, and for C and the JIT's decoder. */
+static int lexOctalEscape(char *buffer, int len, unsigned int v) {
+    buffer[len++] = '\\';
+    buffer[len++] = '0' + ((v >> 6) & 3);
+    buffer[len++] = '0' + ((v >> 3) & 7);
+    buffer[len++] = '0' + (v & 7);
+    return len;
+}
+
 /* As this function escapes strings we pass in `_real_len` to be able 
- * to capture the length of the string minus escape sequences. 
+ * to capture the length of the string minus escape sequences, plus the
+ * NUL. Escapes are normalised to ones every consumer decodes the same
+ * way: `\x` takes at most two hex digits and `\0`..`\7` at most three
+ * octal ones (as in C), and both become a three digit octal escape.
  * The string is allocated from the lexers arean not the global allocator */
 char *lexString(Lexer *l, char terminator, s64 *_real_len, int *_buffer_len) {
     u32 capacity = 64;
@@ -1068,7 +1085,6 @@ char *lexString(Lexer *l, char terminator, s64 *_real_len, int *_buffer_len) {
 
     char *buffer = lexerAllocateBuffer(64);
     char ch = '\0';
-    int is_bytes = 0;
 
     while ((ch = lexNextChar(l)) != terminator) {
         real_len++;
@@ -1077,7 +1093,7 @@ char *lexString(Lexer *l, char terminator, s64 *_real_len, int *_buffer_len) {
             l->line_start_ptr = l->ptr;
         }
 
-        if ((unsigned int)(len + 3) >= capacity) {
+        if ((unsigned int)(len + 5) >= capacity) {
             buffer = lexerReAllocBuffer(buffer, len, capacity * 2);
             capacity *= 2;
         }
@@ -1087,44 +1103,66 @@ char *lexString(Lexer *l, char terminator, s64 *_real_len, int *_buffer_len) {
         } else if (ch == '\\') {
             ch = lexNextChar(l);
 
-            buffer[len++] = '\\';
             switch (ch) {
-                case '\\': buffer[len++] = '\\'; break;
+                case '\\': buffer[len++] = '\\'; buffer[len++] = '\\'; break;
+                case '"':  buffer[len++] = '\\'; buffer[len++] = '"';  break;
+                case 'n':  buffer[len++] = '\\'; buffer[len++] = 'n';  break;
+                case 'r':  buffer[len++] = '\\'; buffer[len++] = 'r';  break;
+                case 't':  buffer[len++] = '\\'; buffer[len++] = 't';  break;
+                case 'b':  buffer[len++] = '\\'; buffer[len++] = 'b';  break;
+                case 'f':  buffer[len++] = '\\'; buffer[len++] = 'f';  break;
+                /* Need no escape inside "" (and clang's assembler
+                 * rejects `\'`) */
                 case '\'': buffer[len++] = '\''; break;
-                case '0':  buffer[len++] = '0' ; break;
-                case '`':  buffer[len++] = '`' ; break;
-                case '"':  buffer[len++] = '"' ; break;
-                case 'n':  buffer[len++] = 'n' ; break;
-                case 'r':  buffer[len++] = 'r' ; break;
-                case 't':  buffer[len++] = 't' ; break;
-                case 'b':  buffer[len++] = 'b' ; break;
-                case 'f':  buffer[len++] = 'f' ; break;
-                case 'v':  
-                    buffer[len++] = 'x';
-                    buffer[len++] = '0';
-                    buffer[len++] = 'B';
+                case '`':  buffer[len++] = '`';  break;
+                case 'v':  len = lexOctalEscape(buffer, len, '\v'); break;
+                case 'a':  len = lexOctalEscape(buffer, len, '\a'); break;
+                /* TempleOS's escape for the DolDoc `$` */
+                case 'd':  buffer[len++] = '$';  break;
+
+                case '0': case '1': case '2': case '3':
+                case '4': case '5': case '6': case '7': {
+                    unsigned int v = ch - '0';
+                    for (int i = 1; i < 3 && lexPeek(l) >= '0' &&
+                                    lexPeek(l) <= '7'; ++i) {
+                        v = v * 8 + (lexNextChar(l) - '0');
+                    }
+                    len = lexOctalEscape(buffer, len, v);
                     break;
+                }
 
                 case 'x':
-                case 'X':
-                    is_bytes = 1;
-                    buffer[len++] = 'x';
-                    buffer[len++] = toupper(lexNextChar(l));
-                    buffer[len++] = toupper(lexNextChar(l));
+                case 'X': {
+                    unsigned int v = 0;
+                    int digits = 0;
+                    /* Peek so a non-hex character (or the closing
+                     * quote) after `\x` stays part of the string. */
+                    while (digits < 2 && isHex(lexPeek(l))) {
+                        char h = toupper(lexNextChar(l));
+                        v = v * 16 + (h <= '9' ? h - '0' : h - 'A' + 10);
+                        digits++;
+                    }
+                    if (!digits && !(l->flags & CCF_PERMISSIVE)) {
+                        lexReport(l, "\\x used with no following hex digits");
+                    }
+                    len = lexOctalEscape(buffer, len, v);
                     break;
+                }
             default:
                 if (l->flags & CCF_PERMISSIVE) {
                     /* Absorb literally - the renderer just wants
                      * a syntax-coloured echo, not validation. */
+                    buffer[len++] = '\\';
                     buffer[len++] = (char)ch;
                     break;
                 }
                 /* Report it and keep the character as written. */
                 lexReport(l, "Invalid escape character: '\\%c'", (char)ch);
+                buffer[len++] = '\\';
                 buffer[len++] = (char)ch;
                 break;
             }
-        } else {
+    } else {
             /* Because HC can have multi line strings, tabs or other escaped 
              * characters which are typeable we need to escape them. */
             switch (ch) {
@@ -1145,10 +1183,7 @@ char *lexString(Lexer *l, char terminator, s64 *_real_len, int *_buffer_len) {
                     buffer[len++] = 'f';
                     break;
                 case '\v':
-                    buffer[len++] = '\\';
-                    buffer[len++] = 'x';
-                    buffer[len++] = '0';
-                    buffer[len++] = 'B';
+                    len = lexOctalEscape(buffer, len, '\v');
                     break;
                 default:
                     buffer[len++] = ch;
@@ -1164,9 +1199,8 @@ done:
     if (l->str_unterminated && !(l->flags & CCF_PERMISSIVE)) {
         lexReport(l, "Unterminated string");
     }
-    if (!is_bytes) {
-        real_len++;
-    }
+    /* The NUL */
+    real_len++;
     buffer[len] = '\0';
     *_real_len = real_len;
     *_buffer_len = len;
