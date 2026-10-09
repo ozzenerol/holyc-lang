@@ -144,9 +144,18 @@ CDate Struct2Date(CDateStruct *_ds)
   } else {
     i1+=mon_start_days2[_ds->mon-1];
   }
-  cdt.date=i1+_ds->day_of_mon-1;
-  cdt.time=((_ds->sec10000+100*(_ds->sec100+100*(_ds->sec
-	+60*(_ds->min+60*_ds->hour))))<<21)/(15*15*3*625);
+  /* The time in 1/10000 s; a day or more (or less than 0) carries into
+   * the date, as a day past the end of the month carries into the month */
+  I64 t=_ds->sec10000(I64)+100*(_ds->sec100(I64)+100*(_ds->sec(I64)
+	+60*(_ds->min(I64)+60*_ds->hour(I64))));
+  I64 days=t/864000000;
+  t%=864000000;
+  if (t<0) {
+    t+=864000000;
+    days--;
+  }
+  cdt.date=i1+_ds->day_of_mon-1+days;
+  cdt.time=(t<<21)/(15*15*3*625);
   return cdt;
 }
 
