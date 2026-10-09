@@ -390,7 +390,7 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
   }
   snprintf(strport, sizeof(strport), "%d", port);
   MemSet(&hints, 0, sizeof(addrinfo));
-  hints.ai_family = AF_INET;
+  hints.ai_family = AF_UNSPEC; /* IPv4 or IPv6, whatever addr resolves to */
   hints.ai_socktype = SOCK_STREAM;
   sockfd = -1;
 
@@ -459,14 +459,26 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
   snprintf(strport, sizeof(strport), "%d", port);
   MemSet(&hints, 0, sizeof(addrinfo));
 
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags = AI_PASSIVE;
+  if (addrfam != AF_UNSPEC && addrfam != AF_INET && addrfam != AF_INET6)
+    return -1;
 
-  if (bindaddr != NULL && !StrCmp("*", bindaddr))
+  /* "*" (or NULL) is any address of addrfam, IPv4 for AF_UNSPEC as it
+   * always was; "::*" is any IPv6 address. Anything else must be a
+   * numeric address: a host name would wait on DNS */
+  if (bindaddr != NULL && !StrCmp("::*", bindaddr)) {
+    if (addrfam == AF_INET)
+      return -1;
+    addrfam = AF_INET6;
     bindaddr = NULL;
-  if (addrfam == AF_INET6 && bindaddr && !StrCmp("::*", bindaddr))
+  } else if (bindaddr != NULL && !StrCmp("*", bindaddr)) {
     bindaddr = NULL;
+  }
+  if (bindaddr == NULL && addrfam == AF_UNSPEC)
+    addrfam = AF_INET;
+
+  hints.ai_family = addrfam;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
 
   if ((rv = getaddrinfo(bindaddr, strport, &hints, &servinfo)) != 0)
     return -1;
