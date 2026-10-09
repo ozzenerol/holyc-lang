@@ -350,6 +350,11 @@ static AstType *parseArrayDimensionsInternal(Cctrl *cc, AstType *base_type) {
 
     if (!tokenPunctIs(next_tok, ']')) {
         size = parseExpr(cc,16);
+        if (!size) {
+            /* `I64 a[;`: no size and no `]`, report the token we got */
+            cctrlTokenExpect(cc,']');
+            return NULL;
+        }
         int ok = 1;
         dimension = evalIntConstExprOrErr(size, &ok);
 
