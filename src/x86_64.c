@@ -2382,7 +2382,7 @@ static void x86_64EmitFunctionPrologue(Cctrl *cc,
     aoStrCatFmt(buf,
                 ".text\n\t"
                 ".p2align 4\n\t");
-    asmEmitFunctionGlobal(cc, buf, fname);
+    asmEmitFunctionSymbol(cc, buf, fname, func);
     aoStrCatFmt(buf, "%s:\n\t", fname);
     /* Leaf function with empty frame: skip the rbp dance entirely
      * (saves 3 instructions per call). Caller-saved rbp survives

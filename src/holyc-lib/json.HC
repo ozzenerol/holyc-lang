@@ -114,7 +114,7 @@ static JsonState *JsonStateNew()
   return json_state;
 }
 
-I64 GetNextNonWhitespaceIdx(U8 *ptr)
+static I64 GetNextNonWhitespaceIdx(U8 *ptr)
 {
   U8 *start = ptr;
   while (IsSpace(*ptr)) {

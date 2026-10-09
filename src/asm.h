@@ -7,6 +7,7 @@
 
 char *asmNormaliseFunctionName(Cctrl *cc, AoStr *fname);
 void asmEmitFunctionGlobal(Cctrl *cc, AoStr *buf, char *label);
+void asmEmitFunctionSymbol(Cctrl *cc, AoStr *buf, char *label, Ast *func);
 AoStr *asmNormaliseGlobalLabel(Cctrl *cc, AoStr *name);
 AoStr *asmGenerate(Cctrl *cc);
 /* Synthetic file-scope-initialiser `main` (calls the user's Main).

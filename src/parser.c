@@ -3440,6 +3440,10 @@ Ast *parseAsmFunctionBinding(Cctrl *cc) {
 
 /* `tok` ended a global declarator; on `,` hand the base type to the
  * next parseToplevelDef call so `T a, *b;` parses like a local list. */
+/* Whether the file-scope declaration list being continued (`static T a,
+ * b;`) is static; set with tmp_gvar_base_type */
+static int parse_gvar_list_static = 0;
+
 static void parseGlobalDeclListNext(Cctrl *cc, Lexeme *tok, AstType *base_type) {
     assertTokenIsTerminator(cc,tok,PUNCT_TERM_SEMI|PUNCT_TERM_COMMA);
     if (tokenPunctIs(tok,',')) {
@@ -3477,9 +3481,11 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
 
         if (cc->tmp_gvar_base_type) {
             /* Next declarator of `T a, b;` - the base type carries
-             * over, any `*`s belong to this declarator alone. */
+             * over, any `*`s belong to this declarator alone, and so
+             * does `static`. */
             base_type = cc->tmp_gvar_base_type;
             cc->tmp_gvar_base_type = NULL;
+            is_static = parse_gvar_list_static;
             cctrlTokenRewind(cc);
             type = parsePointerType(cc,base_type);
         } else if (tok->tk_type == TK_KEYWORD) {
@@ -3571,9 +3577,9 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                         cctrlRaiseException(cc,"Expected type declaration");
                     }
                     type = parsePointerType(cc,base_type);
-                    /* static at the global scope does not yet do anything */
+                    /* A local symbol: see AST_FLAG_STATIC; a variable
+                     * gets a local label (astGVar) */
                     is_static = 1;
-                    (void)is_static;
                     break;
                 
                 case KW_CLASS:
@@ -3721,6 +3727,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
 
         /* End of input after the type, `I64` or `static I64 *`. */
         name = cctrlTokenGetRequired(cc);
+        parse_gvar_list_static = is_static;
 
         /* A keyword after a type: `I64 class X`. Without a type (a
          * stray punct before `class`) it is reported below. */
@@ -3798,7 +3805,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             !type->is_intrinsic &&
             tokenPunctIs(cctrlTokenPeekBy(cc,1),'{'))
         {
-            variable = astGVar(type,name->start,name->len,0);
+            variable = astGVar(type,name->start,name->len,is_static);
             mapAdd(cc->global_env,variable->gname->data,variable);
             cc->tmp_gvar_decl = variable;
             ast = parseVariableInitialiser(cc,variable,
@@ -3808,7 +3815,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
         }
 
         if (tokenPunctIs(tok,'=') && type->kind != AST_TYPE_ARRAY) {
-            variable = astGVar(type,name->start,name->len,0);
+            variable = astGVar(type,name->start,name->len,is_static);
             Ast *ast_decl = astDecl(variable,NULL);
 
             listAppend(cc->ast_list,ast_decl);
@@ -3869,7 +3876,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
             return ast_expr;
         } else if (type->kind == AST_TYPE_ARRAY) {
-            variable = astGVar(type,name->start,name->len,0);
+            variable = astGVar(type,name->start,name->len,is_static);
             mapAdd(cc->global_env,variable->gname->data,variable);
             cc->tmp_gvar_decl = variable;
             ast = parseVariableInitialiser(cc,variable,PUNCT_TERM_COMMA|PUNCT_TERM_SEMI);
@@ -3882,6 +3889,10 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
 
         if (tokenPunctIs(tok, '(')) {
             Ast *fn = parseFunctionOrDef(cc,type,name->start,name->len,0);
+            /* `static` on the prototype or the definition makes it local */
+            if (fn && is_static) {
+                fn->flags |= AST_FLAG_STATIC;
+            }
             /* Anchor to the name token - covers prototypes too, and
              * corrects the in-function anchor (a token get+rewind
              * between name and call left the hint on the `(`). */
@@ -3894,7 +3905,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
 
         if (tokenPunctIs(tok,';') || tokenPunctIs(tok, ',')) {
             parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
-            variable = astGVar(type,name->start,name->len,0);
+            variable = astGVar(type,name->start,name->len,is_static);
             mapAdd(cc->global_env,variable->gname->data,variable);
             return astDecl(variable,NULL);
         }
