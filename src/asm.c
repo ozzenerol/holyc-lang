@@ -78,6 +78,15 @@ void asmEmitFunctionGlobal(Cctrl *cc, AoStr *buf, char *label) {
     }
 }
 
+/* The symbol of a function about to be emitted: a `static` one stays
+ * local to the object (no .globl / .weak), anything else is global. */
+void asmEmitFunctionSymbol(Cctrl *cc, AoStr *buf, char *label, Ast *func) {
+    if (func && (func->flags & AST_FLAG_STATIC)) {
+        return;
+    }
+    asmEmitFunctionGlobal(cc, buf, label);
+}
+
 char *asmNormaliseFunctionName(Cctrl *cc, AoStr *fname) {
     AoStr *newfn = aoStrNew();
     switch(cc->target) {

@@ -211,6 +211,10 @@ typedef struct AstType {
  * string macros pasted together (`"a" M "b"`): its `sval` is that C text
  * as written, quotes included, which C pastes the same way. */
 #define AST_FLAG_RAW_C_STRING (1<<4)
+/* Set on a function declared `static` at file scope: its symbol is local
+ * to the object, so it neither overrides nor is overridden by a function
+ * of the same name elsewhere (a library internal, a user function). */
+#define AST_FLAG_STATIC (1<<5)
 
 /* AST_LVAR.pinned_kind values. */
 #define LVAR_AUTO  0  /* compiler chooses storage (default) */
