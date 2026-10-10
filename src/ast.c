@@ -1205,6 +1205,15 @@ AstType *astTypeCheck(AstType *expected, Ast *ast, AstBinOp op) {
         goto out;
     }
 
+    /* Bool converts like C's _Bool: a pointer or function becomes 0 or 1,
+     * nothing is lost, so as in C it needs no cast (other integer types
+     * still warn below). */
+    if (e && e->kind == AST_TYPE_CHAR && e->is_bool &&
+        (a->kind == AST_TYPE_POINTER || a->kind == AST_TYPE_FUNC)) {
+        ret = e;
+        goto out;
+    }
+
 check_type:
     if (e == NULL || a == NULL) {
         goto out;
@@ -1580,8 +1589,9 @@ static AoStr *astTypeToAoStrInternal(AstType *type) {
         return str;
     
     case AST_TYPE_CHAR:
-        if (type->issigned) aoStrCatPrintf(str, "I8");
-        else                aoStrCatPrintf(str, "U8");
+        if (type->is_bool)       aoStrCatPrintf(str, "Bool");
+        else if (type->issigned) aoStrCatPrintf(str, "I8");
+        else                     aoStrCatPrintf(str, "U8");
         return str;
 
     case AST_TYPE_FLOAT:
@@ -2803,7 +2813,7 @@ const char *astTypeKindToHumanReadable(AstType *type) {
         case AST_TYPE_VOID:    return "void type";
         case AST_TYPE_INT:     return "integer type";
         case AST_TYPE_FLOAT:   return "float type";
-        case AST_TYPE_CHAR:    return "character type";
+        case AST_TYPE_CHAR:    return type->is_bool ? "Bool type" : "character type";
         case AST_TYPE_ARRAY:   return "array type";
         case AST_TYPE_POINTER: return "pointer type";
         case AST_TYPE_FUNC:    return "function";
