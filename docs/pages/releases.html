@@ -4,6 +4,21 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.16.0 <small>(2026-10-10)</small></h2>
+<p><code>Shlurp</code> runs on the new process functions instead of a temporary file. Tested compiled and
+in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>Shlurp</code> reads the command's output through a pipe: it no longer needs a writable
+  <code>$TMPDIR</code> (it used to return <code>NULL</code> without one) and never leaves an
+  <code>hcc-shlurp-*</code> file behind.</li>
+  <li><code>Shlurp</code> returns once the shell exits, without waiting for a background job
+  (<code>cmd &amp;</code>) that still holds its output.</li>
+  <li>Ctrl-C during <code>Shlurp</code> stops the program, as it does anywhere else; before, only the
+  shell was stopped and the program carried on.</li>
+</ul>
+
 <h2>v0.15.0 <small>(2026-10-10)</small></h2>
 <p>Running programs without a shell, and file descriptors that don't leak into them. Tested compiled
 and in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
