@@ -56,9 +56,6 @@ there works as shown.</p>
 <table>
   <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
   <tbody>
-    <tr><td>Adding to an <code>RBTree</code> or <code>IntSet</code> while iterating over it can overflow the iterator</td>
-        <td><code>RBIterNew</code>, <code>RBTreeForEach</code> and <code>IntSetIterNew</code> size their stack from the tree's size when they start, so inserts during the walk can write past it</td>
-        <td>Collect the changes and apply them after the loop</td></tr>
     <tr><td><code>FileRead</code> can't read pipes or <code>/proc</code> files</td>
         <td><code>FileRead("/proc/self/status", &amp;len)</code> gives <code>NULL</code>: only regular files are read, by their size</td>
         <td><code>Shlurp("cat /proc/self/status")</code>, or <code>open</code> and <code>read</code> until 0</td></tr>

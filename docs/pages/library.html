@@ -671,7 +671,8 @@ there, or deleting one that isn't, changes nothing. <code>IntSetUnion</code>,
 second) and <code>IntSetSymDiff</code> (in exactly one) return a new set and leave their
 arguments alone; <code>IntSetEq</code> compares two sets. An iterator, <code>IntSetToVec</code>
 and <code>IntSetToString</code> give the values in ascending order. Don't add or delete
-values while iterating. The functions that only read a set, and
+values while iterating: once one is added or deleted, <code>IntSetIterNext</code> returns
+<code>NULL</code> and the loop ends early, so collect the changes and apply them after it. The functions that only read a set, and
 <code>IntSetRelease</code>, treat <code>NULL</code> as the empty set.</p>
 <pre data-run><code>
 U0 Main()
@@ -718,7 +719,9 @@ and values with them on delete, release and when an insert replaces a value (an 
 an existing key keeps the stored key). <code>RBTreeGet</code> returns <code>NULL</code> for
 a missing key, the same as a stored <code>NULL</code>, so ask <code>RBTreeHas</code> to tell
 them apart. <code>RBIterNew</code> and <code>RBTreeForEach</code> visit the entries in key
-order; don't insert or delete while they run.</p>
+order; don't insert or delete while they run. Once a new key is added or one is deleted,
+<code>RBIterNext</code> returns <code>NULL</code> and <code>RBTreeForEach</code> returns after
+that callback; replacing the value of a key that is there is fine.</p>
 <pre data-run><code>
 I64 StrKeyCmp(U0 *a, U0 *b)
 {
