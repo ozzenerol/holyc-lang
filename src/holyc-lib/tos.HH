@@ -803,6 +803,64 @@ public U8 *Shlurp(U8 *fmt, ...);
  * Free(q). */
 public U8 *ShQuote(U8 *s);
 
+/* Processes (process.HC): run a program by argv, without a shell (no
+ * quoting, nothing in an argument is interpreted), and get its exit
+ * status. Each of the child's stdin, stdout and stderr is: */
+#define PROC_INHERIT 0  /* ours (the default) */
+#define PROC_PIPE    1  /* a pipe; our end is Proc in_fd / out_fd / err_fd */
+#define PROC_NULL    2  /* /dev/null */
+#define PROC_STDOUT  3  /* stderr only: wherever its stdout goes (2>&1) */
+/* Options for ProcSpawn; all zero (or a NULL pointer) are the defaults. */
+public class ProcOpts
+{
+  I64 in, out, err;   /* PROC_* for stdin, stdout, stderr */
+  U8 *cwd;            /* working directory; NULL: ours */
+  U8 **env;           /* NULL-terminated "NAME=value" list replacing the
+                         environment; NULL: ours */
+  Bool no_path;       /* argv[0] is a path, not looked up in $PATH */
+  Bool new_group;     /* own process group: ProcKill reaches its children */
+};
+/* A started program. Read the fields, don't write them. */
+public class Proc
+{
+  I32 pid;
+  I32 in_fd, out_fd, err_fd; /* our pipe ends, -1 unless PROC_PIPE */
+  Bool done;                 /* reaped: exit_code and term_signal are set */
+  I64 exit_code;             /* 0-255, or -1 if a signal killed it */
+  I32 term_signal;           /* the signal that killed it, else 0 */
+  Bool group;
+};
+/* Start argv[0] (looked up in $PATH unless opts->no_path) with the
+ * arguments argv, a NULL-terminated list, never through a shell. The
+ * child gets default signal handlers and only fds 0-2. NULL on failure,
+ * with Errno() saying why (ENOENT: no such program, EACCES, ...). */
+public Proc *ProcSpawn(U8 **argv, ProcOpts *opts=NULL);
+/* Wait until p ends: its exit code (0-255), or -1 if a signal killed it
+ * (then p->term_signal says which). */
+public I64 ProcWait(Proc *p);
+/* Without waiting: TRUE once p has ended (then reaped, fields set). */
+public Bool ProcDone(Proc *p);
+/* Send sig to p, or to its process group if started with new_group.
+ * FALSE if p was already reaped or kill fails. */
+public Bool ProcKill(Proc *p, I32 sig=SIGTERM);
+/* Write input_len bytes of input (none if NULL) to p's stdin and close
+ * it, read its stdout and stderr to EOF, then wait for it. *out / *err get
+ * the output as a new NUL-terminated string to Free (length in *out_len /
+ * *err_len), or NULL for a stream that isn't PROC_PIPE; pass NULL to drop
+ * a stream. Everything goes through one poll() loop, so a child writing
+ * lots to both outputs, or echoing its input, can't block. A child that
+ * stops reading early is fine (no SIGPIPE). Returns what ProcWait does. */
+public I64 ProcCommunicate(Proc *p, U8 *input, I64 input_len,
+                           U8 **out, I64 *out_len=NULL,
+                           U8 **err=NULL, I64 *err_len=NULL);
+/* Close our pipe ends and free p (NULL is ignored). A child that is
+ * still running is waited for: ProcKill it first to stop it. */
+public U0 ProcRelease(Proc *p);
+/* Run argv (no shell; stdin /dev/null, stderr inherited) and return its
+ * stdout as a new string to Free, with one trailing newline removed; the
+ * exit code (as ProcWait) in *code. NULL if it couldn't start. */
+public U8 *ProcRun(U8 **argv, I64 *code=NULL);
+
 /* TempleOS-style try/catch/throw. The compiler emits the calls to the
  * HCC_ helpers below; user code only reads Fs. */
 

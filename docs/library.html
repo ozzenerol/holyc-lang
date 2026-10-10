@@ -492,6 +492,65 @@ so the shell gets it as one word, unchanged.</p>
 <pre class="output">[it's $HOME; *]
 </pre>
 
+<h3 id="processes">Running programs without a shell</h3>
+<p><code>ProcRun(argv, &amp;code)</code> runs a program with the arguments in <code>argv</code>, a
+NULL-terminated array, and returns what it printed to stdout (minus one trailing newline, to
+<code>Free</code>) with its exit code in <code>code</code>. No shell is involved: every argument reaches
+the program exactly as written, so nothing needs quoting. The program is looked up in
+<code>$PATH</code>; NULL means it couldn't be started, and <code>Errno()</code> says why
+(2, ENOENT, for a program that doesn't exist).</p>
+<pre data-run><code>U0 Main()
+{
+  U8 *argv[] = {"printf", "%s|", "it's $HOME", "a b", NULL};
+  I64 code;
+  U8 *out = ProcRun(argv, &amp;code);
+  "[%s] exit %d
+", out, code;
+  Free(out);
+}
+</code></pre>
+<pre class="output">[it's $HOME|a b|] exit 0
+</pre>
+<p>For more control, <code>ProcSpawn(argv, &amp;opts)</code> starts the program and returns a
+<code>Proc</code>. In <code>ProcOpts</code> each of <code>in</code>, <code>out</code> and <code>err</code>
+is <code>PROC_INHERIT</code> (ours, the default), <code>PROC_PIPE</code> (our end is
+<code>p-&gt;in_fd</code>, <code>out_fd</code> or <code>err_fd</code>), <code>PROC_NULL</code>
+(<code>/dev/null</code>) or, for <code>err</code>, <code>PROC_STDOUT</code> (2&gt;&amp;1);
+<code>cwd</code> and <code>env</code> (a NULL-terminated <code>"NAME=value"</code> list that replaces the
+environment) are optional. <code>ProcCommunicate(p, input, len, &amp;out, &amp;out_len, &amp;err,
+&amp;err_len)</code> writes the input, reads both outputs to the end and waits, all in one
+<code>poll()</code> loop, so a program that writes a lot to both, or echoes its input, can't block.
+<code>ProcWait(p)</code> returns the exit code, or -1 when a signal killed the program
+(<code>p-&gt;term_signal</code> says which); <code>ProcDone(p)</code> checks without waiting,
+<code>ProcKill(p, sig)</code> signals it (the whole group with <code>new_group</code>), and
+<code>ProcRelease(p)</code> closes the pipes and frees it, waiting for a program that is still
+running.</p>
+<pre data-run><code>U0 Main()
+{
+  U8 *argv[] = {"sh", "-c", "tr a-z A-Z; echo done &gt;&amp;2; exit 3", NULL};
+  ProcOpts opts;
+  MemSet(&amp;opts, 0, sizeof(ProcOpts));
+  opts.in = PROC_PIPE;
+  opts.out = PROC_PIPE;
+  opts.err = PROC_PIPE;
+  Proc *p = ProcSpawn(argv, &amp;opts);
+  U8 *out, *err;
+  I64 code = ProcCommunicate(p, "hello\n", 6, &amp;out, NULL, &amp;err);
+  "out=%s err=%s exit=%d\n", out, err, code;
+  Free(out);
+  Free(err);
+  ProcRelease(p);
+}
+</code></pre>
+<pre class="output">out=HELLO
+ err=done
+ exit=3
+</pre>
+<p>The program starts with default signal handlers and only stdin, stdout and stderr open: it
+inherits none of your sockets or files. <code>System</code>, <code>Sh</code> and <code>Shlurp</code>
+are still the tools for shell pipelines, globs and redirections; use the <code>Proc</code>
+functions whenever an argument comes from a file name or user input.</p>
+
 <h2 id="lists">Lists</h2>
 <p><code>List</code> is a circular doubly linked list of <code>U0 *</code> values. The list
 is its head node, which links to itself when the list is empty, so iterate from
