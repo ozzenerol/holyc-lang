@@ -36,6 +36,40 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.18.0 <small>(2026-10-10)</small></h2>
+<p>Fixes for the bugs found by building two real programs with hcc, an HTTP server and a SOCKS5 proxy.
+Every fix has a regression test that runs compiled and in the JIT on Linux x86_64, Linux arm64 and macOS
+arm64, and the known-issues page is empty again.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>Converting a value to <code>Bool</code> gives 0 or 1 (non-zero is <code>TRUE</code>), as in C, for
+  arguments, assignments, initialisers, returns, class fields and casts. Before, only the low byte was
+  kept, so <code>0x800</code> became <code>FALSE</code>. <code>Bool</code> is still one byte.</li>
+  <li><code>Rm</code> and <code>RmDir</code> take their <code>RM_*</code> flags as an <code>I64</code>.
+  As a <code>Bool</code>, <code>RM_VERBOSE</code> was turned into <code>RM_RECURSE</code> by the conversion
+  fix above, so <code>RmDir(dir, RM_VERBOSE)</code> would have deleted recursively.</li>
+  <li><code>NetAccept</code> returns a blocking socket unless <code>non_blocking</code> is set, on every
+  OS. On macOS it used to inherit <code>O_NONBLOCK</code> from a non-blocking listening socket.</li>
+  <li>A file whose only file-scope code is constant global initialisers (<code>I64 x = 3;</code>) has
+  nothing to run under <code>-jit</code> without a <code>Main</code>, like one with <code>I64 x;</code>.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li>On arm64 an initialised global (<code>I32 g = 7;</code>) corrupted <code>Main</code>'s
+  <code>argc</code> and <code>argv</code>; on x86_64 the same happened when an initialiser called a
+  function. Constant initialisers are now static data, and the generated <code>main</code> passes
+  <code>argc</code>/<code>argv</code> on.</li>
+  <li>Initialised scalar globals in a library (<code>-lib</code>) were always 0.</li>
+  <li>An <code>I64</code> global initialiser beyond 32 bits was written wrong in compiled x86_64 code.</li>
+  <li>An <code>I8</code>, <code>U8</code> or <code>Bool</code> can be an array index or a pointer offset
+  (it was a compile error), with correct sign extension, and the subscript error points at the right
+  line.</li>
+  <li><code>JsonParse</code> reports an invalid literal such as <code>trux</code> as
+  <code>JSON_INVALID_LITERAL</code>.</li>
+</ul>
+
 <h2>v0.17.0 <small>(2026-10-10)</small></h2>
 <p>What long-running servers need next: real signal handling with a clean shutdown, and timeouts on
 TCP. Tested compiled and in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
