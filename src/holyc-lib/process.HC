@@ -23,6 +23,7 @@
 #define PROC_STDOUT  3
 
 #define PROC_WNOHANG        1
+#define PROC_F_GETFD        1
 #define PROC_F_SETFD        2
 #define PROC_F_GETFL        3
 #define PROC_F_SETFL        4
@@ -74,6 +75,8 @@ extern "c" I32 posix_spawn_file_actions_addopen(U0 *fa, I32 fd, U8 *path,
 extern "c" I32 posix_spawn_file_actions_addchdir_np(U0 *fa, U8 *path);
 #ifdef IS_LINUX
 extern "c" I32 posix_spawn_file_actions_addclosefrom_np(U0 *fa, I32 from);
+#else
+extern "c" I32 posix_spawn_file_actions_addinherit_np(U0 *fa, I32 fd);
 #endif
 extern "c" I32 posix_spawnattr_init(U0 *attr);
 extern "c" I32 posix_spawnattr_destroy(U0 *attr);
@@ -242,6 +245,21 @@ static Proc *ProcSpawnEx(U8 **argv, ProcOpts *opts, Bool like_system)
   }
 
   posix_spawn_file_actions_init(fa);
+#ifdef IS_MACOS
+  /* CLOEXEC_DEFAULT (below) closes every fd the file actions don't name,
+   * 0-2 included: name the ones the child inherits. Only open ones: a
+   * closed fd named here makes the spawn fail, where Linux just leaves it
+   * closed in the child. */
+  if (!like_system) {
+    if (opts->in == PROC_INHERIT && fcntl(0, PROC_F_GETFD) != -1)
+      posix_spawn_file_actions_addinherit_np(fa, 0);
+    if ((opts->out == PROC_INHERIT || opts->err == PROC_STDOUT) &&
+        fcntl(1, PROC_F_GETFD) != -1)
+      posix_spawn_file_actions_addinherit_np(fa, 1);
+    if (opts->err == PROC_INHERIT && fcntl(2, PROC_F_GETFD) != -1)
+      posix_spawn_file_actions_addinherit_np(fa, 2);
+  }
+#endif
   if (opts->in == PROC_PIPE) posix_spawn_file_actions_adddup2(fa, pin[0], 0);
   else if (opts->in == PROC_NULL)
     posix_spawn_file_actions_addopen(fa, 0, "/dev/null", PROC_O_RDWR, 0);

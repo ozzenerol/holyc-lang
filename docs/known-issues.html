@@ -46,14 +46,7 @@ there works as shown.</p>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Standard library</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>On macOS a program started by <code>ProcSpawn</code> has no stdin, stdout or stderr when they are <code>PROC_INHERIT</code> (the default)</td>
-        <td><code>ProcSpawn(argv)</code> with argv <code>{"echo", "hi", NULL}</code>, then <code>ProcWait</code>: Linux prints <code>hi</code> and gives 0; macOS prints nothing and gives 1. <code>ProcSpawn</code> sets <code>POSIX_SPAWN_CLOEXEC_DEFAULT</code> to close our other fds, and on macOS that closes 0-2 as well unless they are named with <code>posix_spawn_file_actions_addinherit_np</code></td>
-        <td>Use <code>PROC_PIPE</code> (or <code>ProcRun</code> / <code>ProcCommunicate</code>) and pass the output on yourself, or <code>Sh</code> for a command line</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Reporting</h2>
 <p>Please report bugs on <a href="https://github.com/ozzenerol/holyc-lang/issues">GitHub</a>.
