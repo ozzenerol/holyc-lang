@@ -88,6 +88,25 @@ extern "c" I32 dup2(I32 fd, I32 fd2);
 extern "c" I32 fflush(U0 *stream);
 extern "c" U0 _exit(I32 status);
 extern "c" I64 sysconf(I32 name);
+extern "c" I32 setpgid(I32 pid, I32 pgid);
+extern "c" I32 kill(I32 pid, I32 sig);
+extern "c" I32 usleep(U32 usec);
+extern "c" I32 clock_gettime(I32 clock, I64 *ts);
+
+#define WNOHANG 1
+#ifdef IS_MACOS
+#define RUNNER_CLOCK_MONOTONIC 6
+#else
+#define RUNNER_CLOCK_MONOTONIC 1
+#endif
+
+/* Milliseconds on a clock that only goes forward */
+I64 NowMs()
+{
+  I64 ts[2]; /* struct timespec: seconds, nanoseconds */
+  clock_gettime(RUNNER_CLOCK_MONOTONIC, ts);
+  return ts[0] * 1000 + ts[1] / 1000000;
+}
 
 PtrVec *CollectTests()
 {
@@ -128,7 +147,10 @@ PtrVec *CollectTests()
  *   R/b/<n>   its binary (AOT)
  *   R/o/<n>   its stdout and stderr, printed by the parent in test order,
  *             so the output is the same whatever finishes first.
- * JOBS sets how many run at once (default: the number of CPUs). */
+ * JOBS sets how many run at once (default: the number of CPUs).
+ * HCC_TEST_TIMEOUT is how many seconds a test may take (default 60, 0 for
+ * no limit): then its process group (the test, its shell, hcc and
+ * anything they started) is killed and it is reported as FAILED. */
 U8 *g_start_dir;   /* where the runner was started (src/tests) */
 U8 *g_hcc;         /* absolute path of ../../hcc */
 U8 *g_hcc_flags;   /* --install-dir / --target flags for the runner's hcc */
@@ -156,6 +178,25 @@ I64 JobCount()
   if (jobs < 1) jobs = sysconf(SC_NPROCESSORS_ONLN);
   if (jobs < 1) jobs = 1;
   return jobs;
+}
+
+I64 TestTimeout()
+{
+  U8 *env = getenv("HCC_TEST_TIMEOUT");
+  if (env && env[0]) {
+    I64 secs = Atoi(env);
+    if (secs >= 0) return secs;
+  }
+  return 60;
+}
+
+/* Ctrl-C or SIGTERM: each test is its own process group, out of the
+ * terminal's reach, so RunTests kills the running ones itself. */
+I32 g_interrupted;
+
+U0 RunnerInterrupted(I32 sig)
+{
+  g_interrupted = sig;
 }
 
 U0 RunnerInit()
@@ -205,6 +246,10 @@ U0 RunTest(U8 *name, I64 idx);
 /* In the child: set up test idx's directories and output file, run it. */
 U0 RunTestChild(U8 *name, I64 idx)
 {
+  /* its own process group, so a timeout can kill everything it starts */
+  setpgid(0, 0);
+  signal(SIGINT, SIG_DFL);
+  signal(SIGTERM, SIG_DFL);
   U8 *work = MStrPrint("%s/w/%d", g_root, idx);
   U8 *tmp = MStrPrint("%s/t/%d", g_root, idx);
   MkDir(work);
@@ -239,20 +284,51 @@ U0 PrintTestOutput(I64 idx)
   Free(path);
 }
 
+/* Kill test idx (its whole process group), reap it and add the failure
+ * to its output. */
+U0 TimeOutTest(U8 *name, I64 idx, I32 pid, I64 timeout)
+{
+  I32 status;
+  kill(-pid, SIGKILL);
+  kill(pid, SIGKILL);
+  waitpid(pid, &status, 0);
+  U8 *path = MStrPrint("%s/o/%d", g_root, idx);
+  U8 *msg = MStrPrint("\033[0;31mFAILED\033[0;0m timed out after %d s: %s\n",
+                      timeout, name);
+  FileWrite(path, msg, StrLen(msg), O_CREAT|O_WRONLY|O_APPEND);
+  Free(msg);
+  Free(path);
+}
+
 /* Run every test in `names`, JobCount() at a time, printing each test's
  * output once it and every test before it have finished. */
 U0 RunTests(PtrVec *names)
 {
   I64 n = names->size, jobs = JobCount(), next = 0, printed = 0;
-  I64 running = 0, i;
+  I64 running = 0, i, timeout = TestTimeout(), now;
   I32 pid, status;
   I32 *pids = CAlloc(sizeof(I32) * (n + 1));
   Bool *done = CAlloc(sizeof(Bool) * (n + 1));
+  I64 *start = CAlloc(sizeof(I64) * (n + 1));
   U8 **entries = names->entries(U8 **);
 
   RunnerInit();
+  g_interrupted = 0;
+  signal(SIGINT, (&RunnerInterrupted)(I64));
+  signal(SIGTERM, (&RunnerInterrupted)(I64));
 
   while (printed < n) {
+    if (g_interrupted) {
+      for (i = printed; i < next; i++) {
+        if (pids[i] && !done[i]) {
+          kill(-pids[i], SIGKILL);
+          kill(pids[i], SIGKILL);
+          waitpid(pids[i], &status, 0);
+        }
+      }
+      RunnerCleanup();
+      _exit(128 + g_interrupted);
+    }
     while (running < jobs && next < n) {
       fflush(NULL);
       pid = fork();
@@ -266,15 +342,30 @@ U0 RunTests(PtrVec *names)
         FileWrite(MStrPrint("%s/o/%d", g_root, next), msg, StrLen(msg));
         done[next] = TRUE;
       } else {
+        /* also here, so the group exists before any kill below */
+        setpgid(pid, pid);
         pids[next] = pid;
+        start[next] = NowMs();
         running++;
       }
       next++;
     }
 
     if (running > 0) {
-      pid = wait(&status);
-      for (i = printed; i < next; i++) {
+      pid = waitpid(-1, &status, WNOHANG);
+      if (pid == 0) {
+        /* none finished: time out the ones over the limit, then poll again */
+        now = NowMs();
+        for (i = printed; i < next; i++) {
+          if (timeout > 0 && pids[i] && !done[i] && now - start[i] >= timeout * 1000) {
+            TimeOutTest(entries[i], i, pids[i], timeout);
+            done[i] = TRUE;
+            running--;
+          }
+        }
+        usleep(10000);
+      }
+      for (i = printed; pid != 0 && i < next; i++) {
         if (pid == -1 && pids[i] && !done[i]) {
           /* No children left to wait for: should not happen */
           done[i] = TRUE;
@@ -295,7 +386,10 @@ U0 RunTests(PtrVec *names)
     }
   }
 
+  signal(SIGINT, SIG_DFL);
+  signal(SIGTERM, SIG_DFL);
   RunnerCleanup();
   Free(pids);
   Free(done);
+  Free(start);
 }
