@@ -4,6 +4,29 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.19.0 <small>(2026-10-10)</small></h2>
+<p>The last bugs found while building real programs, and the C transpiler is frozen. Tested compiled and
+in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li><code>-transpile</code> is frozen: it stays experimental, supports the language as of this release
+  and gets no new features, so features added later may not translate.</li>
+  <li>Messages, <code>typeof</code>, LSP hover and the REPL call a <code>Bool</code> <code>Bool</code>
+  (they said <code>I8</code>), and converting a pointer to <code>Bool</code> no longer warns, as in C.
+  Converting a pointer to any other integer type still does.</li>
+</ul>
+
+<h3>Fixes</h3>
+<ul>
+  <li><code>-transpile</code> dropped every global variable and all code at file scope, so the C didn't
+  compile. Globals are written with their initialisers, file-scope code runs from <code>main</code> first,
+  <code>&amp;Fn</code> is no longer written as a GCC label address, and <code>main</code>'s
+  <code>argv</code> is a <code>char **</code>, which clang requires.</li>
+  <li>Taking the address of a parameter that has a default value (<code>&amp;b</code> in
+  <code>F(Bool b = TRUE)</code>) was a compile error.</li>
+</ul>
+
 <h2>v0.18.0 <small>(2026-10-10)</small></h2>
 <p>Fixes for the bugs found by building two real programs with hcc, an HTTP server and a SOCKS5 proxy.
 Every fix has a regression test that runs compiled and in the JIT on Linux x86_64, Linux arm64 and macOS
