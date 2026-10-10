@@ -195,6 +195,8 @@ static U0 ProcSetStatus(Proc *p, I32 st)
   }
 }
 
+static Proc *ProcSpawnEx(U8 **argv, ProcOpts *opts, Bool like_system);
+
 /* Start argv[0] (looked up in $PATH unless opts->no_path) with the
  * arguments argv, a NULL-terminated list; never through a shell. opts
  * NULL or all zero: the child inherits our stdin, stdout, stderr, working
@@ -202,12 +204,20 @@ static U0 ProcSetStatus(Proc *p, I32 st)
  * (ENOENT for a program that doesn't exist, EACCES, ...). */
 public Proc *ProcSpawn(U8 **argv, ProcOpts *opts=NULL)
 {
+  return ProcSpawnEx(argv, opts, FALSE);
+}
+
+/* ProcSpawn, or with like_system the way system(3) starts its shell:
+ * the child keeps every fd that isn't close-on-exec and our signal mask
+ * and ignored signals (Shlurp, whose commands may use them). */
+static Proc *ProcSpawnEx(U8 **argv, ProcOpts *opts, Bool like_system)
+{
   ProcOpts zero;
   /* I64 arrays: the glibc structs want 8-byte alignment */
   I64 fa[PROC_SPAWN_BUF / 8], attr[PROC_SPAWN_BUF / 8];
   I64 sigs[PROC_SIGSET_BUF / 8], nosigs[PROC_SIGSET_BUF / 8];
   I32 pin[2], pout[2], perr[2], pid = 0, err;
-  I16 flags = PROC_SPAWN_SETSIGDEF | PROC_SPAWN_SETSIGMASK;
+  I16 flags = 0;
   U8 **env;
 
   if (!argv || !argv[0]) {
@@ -243,17 +253,19 @@ public Proc *ProcSpawn(U8 **argv, ProcOpts *opts=NULL)
     posix_spawn_file_actions_addopen(fa, 2, "/dev/null", PROC_O_RDWR, 0);
   else if (opts->err == PROC_STDOUT) posix_spawn_file_actions_adddup2(fa, 1, 2);
   if (opts->cwd) posix_spawn_file_actions_addchdir_np(fa, opts->cwd);
-#ifdef IS_LINUX
-  posix_spawn_file_actions_addclosefrom_np(fa, 3);
-#else
-  flags |= PROC_SPAWN_CLOEXEC_DEFAULT;
-#endif
-
   posix_spawnattr_init(attr);
-  sigfillset(sigs);
-  sigemptyset(nosigs);
-  posix_spawnattr_setsigdefault(attr, sigs);
-  posix_spawnattr_setsigmask(attr, nosigs);
+  if (!like_system) {
+#ifdef IS_LINUX
+    posix_spawn_file_actions_addclosefrom_np(fa, 3);
+#else
+    flags |= PROC_SPAWN_CLOEXEC_DEFAULT;
+#endif
+    flags |= PROC_SPAWN_SETSIGDEF | PROC_SPAWN_SETSIGMASK;
+    sigfillset(sigs);
+    sigemptyset(nosigs);
+    posix_spawnattr_setsigdefault(attr, sigs);
+    posix_spawnattr_setsigmask(attr, nosigs);
+  }
   if (opts->new_group) {
     flags |= PROC_SPAWN_SETPGROUP;
     posix_spawnattr_setpgroup(attr, 0);
@@ -527,4 +539,47 @@ public U8 *ProcRun(U8 **argv, I64 *code=NULL)
   if (len > 0 && out[len - 1] == '\n') out[len - 1] = 0;
   if (code) *code = rc;
   return out;
+}
+
+/* Shlurp's engine (system.HC): run `sh -c cmd` like system(3) does, but
+ * with stdout piped (stdin and stderr ours), and return what it printed, NUL-terminated, length in
+ * *len; NULL if sh can't be started. Reading stops when sh exits, not at
+ * EOF: a background job the command started (`cmd &`) keeps the pipe
+ * open, and Shlurp has always returned without waiting for it. poll()
+ * wakes up every 10 ms to notice that; the usual case ends at EOF. */
+U8 *ProcShellOutput(U8 *cmd, I64 *len)
+{
+  U8 *argv[4];
+  ProcOpts o;
+  ProcBuf b;
+  ProcPollFd fd;
+  I32 r;
+  argv[0] = "sh";
+  argv[1] = "-c";
+  argv[2] = cmd;
+  argv[3] = NULL;
+  MemSet(&o, 0, sizeof(ProcOpts));
+  o.out = PROC_PIPE;
+  Proc *p = ProcSpawnEx(argv, &o, TRUE);
+  if (!p) return NULL;
+  MemSet(&b, 0, sizeof(ProcBuf));
+  ProcNonBlocking(p->out_fd);
+  while (p->out_fd != -1) {
+    fd.fd = p->out_fd;
+    fd.events = PROC_POLLIN;
+    fd.revents = 0;
+    r = poll(&fd, 1, 10);
+    if (r < 0 && Errno() != PROC_EINTR) break;
+    if (r > 0 && !ProcDrain(p->out_fd, &b)) {
+      ProcClose(&p->out_fd);               /* EOF */
+    } else if (ProcDone(p)) {
+      ProcDrain(p->out_fd, &b);            /* what is already there */
+      ProcClose(&p->out_fd);
+    }
+  }
+  ProcRelease(p);
+  if (!b.data) b.data = MAlloc(1);
+  b.data[b.len] = 0;
+  *len = b.len;
+  return b.data;
 }
