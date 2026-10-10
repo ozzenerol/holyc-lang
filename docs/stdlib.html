@@ -304,6 +304,7 @@ string by `stringify_value` (whose result is freed); free the result</p></div><d
   U0 (*free_value)(U0 *);
   I64 (*key_cmp)(U0 *, U0 *);
   RBNode *nil;
+  I64 version;
 };</code></pre><p class="doc">Each tree has its own sentinel (`nil`), the black leaf every path ends
 in. The algorithms write its parent, so sharing one between trees would
 be a data race between threads. It is the only node whose `left` is
@@ -317,17 +318,24 @@ A NULL tree is ignored.</p></div><div class="decl" id="RBTreeGet"><div class="de
 what a stored NULL gives: use RBTreeHas to tell them apart. A NULL
 tree gives NULL.</p></div><div class="decl" id="RBTreeHas"><div class="decl-head"><a class="decl-name" href="#RBTreeHas">RBTreeHas</a> <span class="kind">function</span></div><pre><code class="language-holyc">Bool RBTreeHas(RBTree *tree, U0 *key);</code></pre><p class="doc">TRUE when `key` is in the tree (FALSE for a NULL tree)</p></div><div class="decl" id="RBTreeDelete"><div class="decl-head"><a class="decl-name" href="#RBTreeDelete">RBTreeDelete</a> <span class="kind">function</span></div><pre><code class="language-holyc">U0 RBTreeDelete(RBTree *tree, U0 *key);</code></pre><p class="doc">Remove `key`, freeing its key and value with the destructors, if set.
 Nothing happens if it is not there, or if the tree is NULL.</p></div><div class="decl" id="RBTreeForEach"><div class="decl-head"><a class="decl-name" href="#RBTreeForEach">RBTreeForEach</a> <span class="kind">function</span></div><pre><code class="language-holyc">U0 RBTreeForEach(RBTree *tree, U0 *user_data, U0 (*callback)(U0 *user_data, U0 *key, U0 *value));</code></pre><p class="doc">Call `callback(user_data, key, value)` for every entry, in key order.
-Don&#x27;t insert or delete entries from the callback. A NULL tree calls
+Don&#x27;t insert or delete entries from the callback: if it adds a new key
+or deletes one, RBTreeForEach stops after that call. Replacing the
+value of a key that is there (RBTreeInsert) is fine. A NULL tree calls
 nothing.</p></div><div class="decl" id="RBTreeRelease"><div class="decl-head"><a class="decl-name" href="#RBTreeRelease">RBTreeRelease</a> <span class="kind">function</span></div><pre><code class="language-holyc">U0 RBTreeRelease(RBTree *tree);</code></pre><p class="doc">Free every entry (calling the key/value destructors, if set) and the
 tree itself. NULL is ignored.</p></div><div class="decl" id="RBIter"><div class="decl-head"><a class="decl-name" href="#RBIter">RBIter</a> <span class="kind">class</span></div><pre><code class="language-holyc">class RBIter
 {
   I64 sp;
   RBNode **stack;
   RBNode *cur;
+  RBTree *tree;
+  I64 version;
 };</code></pre></div><div class="decl" id="RBIterNew"><div class="decl-head"><a class="decl-name" href="#RBIterNew">RBIterNew</a> <span class="kind">function</span></div><pre><code class="language-holyc">RBIter *RBIterNew(RBTree *tree);</code></pre><p class="doc">An iterator over the tree&#x27;s entries in key order:
   while ((node = RBIterNext(it))) ... node-&gt;key, node-&gt;value ...
-Don&#x27;t insert or delete entries while iterating. A NULL tree gives an
-iterator that yields nothing.</p></div><div class="decl" id="RBIterRelease"><div class="decl-head"><a class="decl-name" href="#RBIterRelease">RBIterRelease</a> <span class="kind">function</span></div><pre><code class="language-holyc">U0 RBIterRelease(RBIter *it);</code></pre><p class="doc">Free the iterator (not the tree). NULL is ignored.</p></div><div class="decl" id="RBIterNext"><div class="decl-head"><a class="decl-name" href="#RBIterNext">RBIterNext</a> <span class="kind">function</span></div><pre><code class="language-holyc">RBNode *RBIterNext(RBIter *it);</code></pre><p class="doc">The next node, or NULL after the last one</p></div><div class="decl" id="IntSet"><div class="decl-head"><a class="decl-name" href="#IntSet">IntSet</a> <span class="kind">class</span></div><pre><code class="language-holyc">class IntSet
+Don&#x27;t insert or delete entries while iterating: once a new key is added
+or one is deleted, RBIterNext returns NULL, so the loop ends early
+(collect the changes and apply them after it). Replacing the value of
+a key that is there (RBTreeInsert) is fine. Release the iterator before
+the tree. A NULL tree gives an iterator that yields nothing.</p></div><div class="decl" id="RBIterRelease"><div class="decl-head"><a class="decl-name" href="#RBIterRelease">RBIterRelease</a> <span class="kind">function</span></div><pre><code class="language-holyc">U0 RBIterRelease(RBIter *it);</code></pre><p class="doc">Free the iterator (not the tree). NULL is ignored.</p></div><div class="decl" id="RBIterNext"><div class="decl-head"><a class="decl-name" href="#RBIterNext">RBIterNext</a> <span class="kind">function</span></div><pre><code class="language-holyc">RBNode *RBIterNext(RBIter *it);</code></pre><p class="doc">The next node, or NULL after the last one</p></div><div class="decl" id="IntSet"><div class="decl-head"><a class="decl-name" href="#IntSet">IntSet</a> <span class="kind">class</span></div><pre><code class="language-holyc">class IntSet
 {
   RBTree *tree;
 };</code></pre></div><div class="decl" id="IntSetEntry"><div class="decl-head"><a class="decl-name" href="#IntSetEntry">IntSetEntry</a> <span class="kind">class</span></div><pre><code class="language-holyc">class IntSetEntry
@@ -338,6 +346,8 @@ iterator that yields nothing.</p></div><div class="decl" id="RBIterRelease"><div
   I64 sp;
   RBNode **stack;
   IntSetEntry *entry;
+  RBTree *tree;
+  I64 version;
 };</code></pre></div><div class="decl" id="IntSetNew"><div class="decl-head"><a class="decl-name" href="#IntSetNew">IntSetNew</a> <span class="kind">function</span></div><pre><code class="language-holyc">IntSet *IntSetNew(U0);</code></pre><p class="doc">A sorted set of I64s (a red-black tree): add, delete and lookup are
 O(log n), iteration is in ascending order. The functions that only read
 a set treat NULL as the empty set; IntSetAdd and IntSetDelete need a
@@ -346,8 +356,10 @@ and leave their arguments alone. Union: in either set.</p></div><div class="decl
 to the iterator and is overwritten by the next call. NULL for a NULL
 iterator.</p></div><div class="decl" id="IntSetIterRelease"><div class="decl-head"><a class="decl-name" href="#IntSetIterRelease">IntSetIterRelease</a> <span class="kind">function</span></div><pre><code class="language-holyc">U0 IntSetIterRelease(IntSetIter *iter);</code></pre><p class="doc">Free the iterator (not the set). NULL is ignored.</p></div><div class="decl" id="IntSetIterNew"><div class="decl-head"><a class="decl-name" href="#IntSetIterNew">IntSetIterNew</a> <span class="kind">function</span></div><pre><code class="language-holyc">IntSetIter *IntSetIterNew(IntSet *set);</code></pre><p class="doc">An iterator over the set&#x27;s keys, smallest first:
   while ((e = IntSetIterNext(it))) ... e-&gt;key ...
-Don&#x27;t add or delete keys while iterating. A NULL set gives an iterator
-that yields nothing.</p></div><div class="decl" id="IntSetSize"><div class="decl-head"><a class="decl-name" href="#IntSetSize">IntSetSize</a> <span class="kind">function</span></div><pre><code class="language-holyc">I64 IntSetSize(IntSet *set);</code></pre><p class="doc">The number of keys; 0 for a NULL set</p></div></section><section id="bitvec"><h2>Bit vectors</h2><p class="lede">Growable bit sets. Defined in <code>src/holyc-lib/bitvec.HC</code>.</p><div class="decl" id="BitVec"><div class="decl-head"><a class="decl-name" href="#BitVec">BitVec</a> <span class="kind">class</span></div><pre><code class="language-holyc">class BitVec
+Don&#x27;t add or delete keys while iterating: once a new key is added or
+one is deleted, IntSetIterNext returns NULL, so the loop ends early
+(collect the changes and apply them after it). Release the iterator
+before the set. A NULL set gives an iterator that yields nothing.</p></div><div class="decl" id="IntSetSize"><div class="decl-head"><a class="decl-name" href="#IntSetSize">IntSetSize</a> <span class="kind">function</span></div><pre><code class="language-holyc">I64 IntSetSize(IntSet *set);</code></pre><p class="doc">The number of keys; 0 for a NULL set</p></div></section><section id="bitvec"><h2>Bit vectors</h2><p class="lede">Growable bit sets. Defined in <code>src/holyc-lib/bitvec.HC</code>.</p><div class="decl" id="BitVec"><div class="decl-head"><a class="decl-name" href="#BitVec">BitVec</a> <span class="kind">class</span></div><pre><code class="language-holyc">class BitVec
 {
   I64 blocks;
   U32 *entries;

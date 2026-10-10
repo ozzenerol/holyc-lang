@@ -28,6 +28,10 @@ class RBTree
   U0 (*free_value)(U0 *);
   I64 (*key_cmp)(U0 *, U0 *);
   RBNode *nil;
+  /* Bumped by every insert of a new key and every delete, so iterators
+   * can tell the tree changed under them (their stack may then point at
+   * freed nodes) and stop. */
+  I64 version;
 };
 
 static Bool RBIsNil(RBNode *n)
@@ -52,6 +56,7 @@ RBTree *RBTreeNew(U0 (*free_key)(U0 *), U0 (*free_value)(U0 *),
   tree->nil = nil;
   tree->root = nil;
   tree->size = 0;
+  tree->version = 0;
   return tree;
 }
 
@@ -205,6 +210,7 @@ U0 RBTreeInsert(RBTree *tree, U0 *key, U0 *value)
     y->right = z;
   }
   tree->size++;
+  tree->version++;
 
   if (z->parent == NULL) {
     z->color = __RB_BLACK__;
@@ -370,6 +376,7 @@ U0 RBTreeDelete(RBTree *tree, U0 *key)
 
   RBNodeRelease(tree, z);
   tree->size--;
+  tree->version++;
 }
 
 U0 RBTreeForEach(RBTree *tree,
@@ -380,7 +387,7 @@ U0 RBTreeForEach(RBTree *tree,
 {
   if (!tree) return;
   RBNode **stack = MAlloc(sizeof(RBNode*)*tree->size);
-  I64 sp = 0;
+  I64 sp = 0, version = tree->version;
   RBNode *cur = tree->root;
 
   while (cur) {
@@ -392,6 +399,9 @@ U0 RBTreeForEach(RBTree *tree,
     if (sp == 0) break;
     cur = stack[--sp];
     callback(user_data,cur->key,cur->value);
+    /* The callback inserted or deleted: stop before touching the stack,
+     * which was sized for the old tree and may hold freed nodes. */
+    if (tree->version != version) break;
     cur = cur->right;
   }
 
@@ -403,6 +413,8 @@ class RBIter
   I64 sp;
   RBNode **stack;
   RBNode *cur;
+  RBTree *tree;
+  I64 version; /* tree->version when the iterator was made */
 };
 
 RBIter *RBIterNew(RBTree *tree)
@@ -410,10 +422,13 @@ RBIter *RBIterNew(RBTree *tree)
   RBIter *it = MAlloc(sizeof(RBIter));
   it->sp = 0;
   it->cur = NULL;
+  it->tree = tree;
+  it->version = 0;
   if (!tree) {
     it->stack = NULL;
     return it; /* yields nothing */
   }
+  it->version = tree->version;
   it->stack = MAlloc(sizeof(RBNode*)*tree->size);
   RBNode *node = tree->root;
   while (!RBIsNil(node)) {
@@ -434,6 +449,10 @@ U0 RBIterRelease(RBIter *it)
 RBNode *RBIterNext(RBIter *it)
 {
   if (!it || it->sp == 0) {
+    return NULL;
+  }
+  if (it->tree->version != it->version) {
+    it->sp = 0; /* the tree changed: stop for good */
     return NULL;
   }
 
@@ -500,6 +519,8 @@ class IntSetIter
   I64 sp;
   RBNode **stack;
   IntSetEntry *entry; 
+  RBTree *tree;
+  I64 version; /* tree->version when the iterator was made */
 };
 
 IntSetIter *IntSetIterNew(IntSet *set)
@@ -508,7 +529,11 @@ IntSetIter *IntSetIterNew(IntSet *set)
   it->sp = 0;
   it->entry = MAlloc(sizeof(IntSetEntry));
   it->stack = MAlloc(sizeof(RBNode *) * IntSetSize(set));
+  it->tree = NULL;
+  it->version = 0;
   if (!set) return it; /* yields nothing */
+  it->tree = set->tree;
+  it->version = set->tree->version;
   RBNode *node = set->tree->root;
   while (!RBIsNil(node)) {
     it->stack[it->sp++] = node;
@@ -520,6 +545,10 @@ IntSetIter *IntSetIterNew(IntSet *set)
 IntSetEntry *IntSetIterNext(IntSetIter *it)
 {
   if (!it || it->sp == 0) {
+    return NULL;
+  }
+  if (it->tree->version != it->version) {
+    it->sp = 0; /* the set changed: stop for good */
     return NULL;
   }
 

@@ -2587,6 +2587,7 @@ public class RBTree
   U0 (*free_value)(U0 *);
   I64 (*key_cmp)(U0 *, U0 *);
   RBNode *nil; /* this tree's sentinel leaf */
+  I64 version; /* bumped by each insert of a new key and each delete */
 };
 
 /* A sorted map from U0 * keys to U0 * values (a red-black tree): insert,
@@ -2611,7 +2612,9 @@ public Bool RBTreeHas(RBTree *tree, U0 *key);
  * Nothing happens if it is not there, or if the tree is NULL. */
 public U0 RBTreeDelete(RBTree *tree, U0 *key);
 /* Call `callback(user_data, key, value)` for every entry, in key order.
- * Don't insert or delete entries from the callback. A NULL tree calls
+ * Don't insert or delete entries from the callback: if it adds a new key
+ * or deletes one, RBTreeForEach stops after that call. Replacing the
+ * value of a key that is there (RBTreeInsert) is fine. A NULL tree calls
  * nothing. */
 public U0 RBTreeForEach(RBTree *tree,
                         U0 *user_data,
@@ -2627,12 +2630,17 @@ public class RBIter
   I64 sp;
   RBNode **stack;
   RBNode *cur;
+  RBTree *tree;
+  I64 version;
 };
 
 /* An iterator over the tree's entries in key order:
  *   while ((node = RBIterNext(it))) ... node->key, node->value ...
- * Don't insert or delete entries while iterating. A NULL tree gives an
- * iterator that yields nothing. */
+ * Don't insert or delete entries while iterating: once a new key is added
+ * or one is deleted, RBIterNext returns NULL, so the loop ends early
+ * (collect the changes and apply them after it). Replacing the value of
+ * a key that is there (RBTreeInsert) is fine. Release the iterator before
+ * the tree. A NULL tree gives an iterator that yields nothing. */
 public RBIter *RBIterNew(RBTree *tree);
 /* Free the iterator (not the tree). NULL is ignored. */
 public U0 RBIterRelease(RBIter *it);
@@ -2652,6 +2660,8 @@ public class IntSetIter
   I64 sp;
   RBNode **stack;
   IntSetEntry *entry;
+  RBTree *tree;
+  I64 version;
 };
 
 /* A sorted set of I64s (a red-black tree): add, delete and lookup are
@@ -2690,8 +2700,10 @@ public IntSetEntry *IntSetIterNext(IntSetIter *iter);
 public U0 IntSetIterRelease(IntSetIter *iter);
 /* An iterator over the set's keys, smallest first:
  *   while ((e = IntSetIterNext(it))) ... e->key ...
- * Don't add or delete keys while iterating. A NULL set gives an iterator
- * that yields nothing. */
+ * Don't add or delete keys while iterating: once a new key is added or
+ * one is deleted, IntSetIterNext returns NULL, so the loop ends early
+ * (collect the changes and apply them after it). Release the iterator
+ * before the set. A NULL set gives an iterator that yields nothing. */
 public IntSetIter *IntSetIterNew(IntSet *set);
 /* The number of keys; 0 for a NULL set */
 public I64 IntSetSize(IntSet *set);
