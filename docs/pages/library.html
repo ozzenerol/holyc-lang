@@ -49,7 +49,7 @@ ada 10, linus
 </pre>
 <p>Run a program with <code>hcc -jit -Memsafe file.HC</code> to have double frees and wild
 frees reported (and skipped) as they happen, and leaks reported at exit, each with the line
-that allocated or freed the block. Only blocks your code gets from <code>MAlloc</code>,
+that allocated or freed the block, in any thread. Only blocks your code gets from <code>MAlloc</code>,
 <code>CAlloc</code> and <code>ReAlloc</code> are tracked: a string or container the standard
 library allocates for you (<code>StrNew</code>, <code>StrPrint</code>, <code>PtrVecNew</code>, ...)
 is not, so leaking one goes unreported, and a block of yours that the library resizes
