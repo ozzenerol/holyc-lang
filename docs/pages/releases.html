@@ -4,6 +4,28 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.17.0 <small>(2026-10-10)</small></h2>
+<p>What long-running servers need next: real signal handling with a clean shutdown, and timeouts on
+TCP. Tested compiled and in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>New</h3>
+<ul>
+  <li><code>SigAction</code> and <code>SigHandle</code>: install a handler, <code>SIG_IGN</code> or
+  <code>SIG_DFL</code> with flags (<code>SA_RESTART</code>, <code>SA_RESETHAND</code>,
+  <code>SA_NODEFER</code>) and a mask of signals blocked while it runs (<code>SigBit(sig)</code>), and get
+  the previous action back to restore it. <code>signal</code> keeps working and the two can be mixed.</li>
+  <li>Clean shutdown: <code>SigStopInit()</code> returns a file descriptor that becomes readable on
+  SIGINT or SIGTERM, to put in a <code>poll</code> loop; <code>SigStopRequested()</code> and
+  <code>SigStopSignal()</code> tell whether and why. A second Ctrl-C ends the program.</li>
+  <li><code>NetConnect</code> takes an optional <code>timeout_ms</code>: one budget for every address the
+  name resolves to, -1 with <code>Errno()</code> <code>ETIMEDOUT</code> when it runs out. Existing calls
+  are unchanged.</li>
+  <li><code>NetSetSendTimeout</code>, the counterpart of <code>NetSetRecvTimeout</code> (which works on TCP
+  too): a write stuck on a peer that doesn't read gives up with <code>EAGAIN</code>.</li>
+  <li><code>raise</code>, <code>kill</code> and the signal names <code>SIGQUIT</code>, <code>SIGALRM</code>,
+  <code>SIGUSR1</code>, <code>SIGUSR2</code>, <code>SIGCHLD</code>.</li>
+</ul>
+
 <h2>v0.16.0 <small>(2026-10-10)</small></h2>
 <p><code>Shlurp</code> runs on the new process functions instead of a temporary file. Tested compiled and
 in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
