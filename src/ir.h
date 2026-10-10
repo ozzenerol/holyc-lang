@@ -4,6 +4,13 @@
 #include "cctrl.h"
 #include "ir-types.h"
 
+/* Stack-clash probing stride: when a function's frame is larger than this,
+ * the prologue reserves it one step at a time and touches each step, so a
+ * frame bigger than the stack guard page faults on overflow instead of
+ * jumping over the guard. 4096 is <= the guard on every target we support
+ * (Linux 4 KiB, macOS arm64 16 KiB), so no page is ever skipped. */
+#define HCC_STACK_PROBE_STRIDE 4096u
+
 void irMemoryInit(void);
 void irMemoryRelease(void);
 void irMemoryStats(void);

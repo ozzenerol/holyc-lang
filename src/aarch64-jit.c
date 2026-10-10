@@ -92,10 +92,17 @@ static int jitIsMemDisp(s32 disp, int size) {
  * (shifted-register) decodes as XZR, not SP, so `sub sp, sp, x9`
  * assembles to a silent no-op. The immediate form treats 31 as SP. */
 static void jitSpAdjust(AsmEnc *enc, int is_sub, u64 n) {
-    if (n == 0) return;
-    if ((n >> 12) > 0xFFF) {
-        loggerPanic("jit-aarch64: stack adjustment %llu exceeds 16MB\n",
-                    (unsigned long long)n);
+    /* The add/sub immediate form reaches a 12-bit value optionally shifted
+     * left 12, so at most 0xFFF << 12 in one instruction. Apply that many
+     * bytes at a time for frames beyond the two-immediate reach (this lifts
+     * the old 16 MB panic), then the 4096-aligned hi and the lo remainder.
+     * The immediate form is SP-safe; the register form treats reg 31 as
+     * XZR, so it must not be used with sp. */
+    const u64 CHUNK = 0xFFFULL << 12;
+    while (n >= CHUNK) {
+        if (is_sub) aarch64_enc_sub_imm(enc, 1, A_SP, A_SP, (uint32_t)CHUNK);
+        else        aarch64_enc_add_imm(enc, 1, A_SP, A_SP, (uint32_t)CHUNK);
+        n -= CHUNK;
     }
     u64 hi = n & ~0xFFFULL; /* 4096-aligned: encoder picks the sh=1 form */
     u64 lo = n & 0xFFF;
@@ -1758,6 +1765,27 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
 
 /* ---------------- prologue / epilogue ---------------- */
 
+/* Reserve `aligned` bytes of frame, probing each page as sp descends, so
+ * a frame bigger than the guard page faults on overflow instead of
+ * leaping over the guard (matches the AOT prologue). b.cond takes a
+ * word-relative displacement, so the backward branch is easy. */
+static void jitProbeStack(AsmEnc *enc, uint32_t aligned) {
+    /* Descend one page (x9 = page count) at a time, touching each page, so
+     * a frame bigger than the guard page faults on overflow instead of
+     * leaping over the guard. The residual (< a page) is a single SP-safe
+     * immediate sub; sub_reg must not take sp (reg 31 = XZR there). */
+    uint32_t pages = aligned / HCC_STACK_PROBE_STRIDE;
+    uint32_t rem = aligned - pages * HCC_STACK_PROBE_STRIDE;
+    aarch64_enc_mov_imm64(enc, A_X9, pages);
+    size_t top = enc->len;
+    aarch64_enc_sub_imm(enc, 1, A_SP, A_SP, HCC_STACK_PROBE_STRIDE);
+    aarch64_enc_ldr_imm(enc, A_XZR, A_SP, 0);          /* touch */
+    aarch64_enc_subs_imm(enc, 1, A_X9, A_X9, 1);       /* count down */
+    int32_t rel_words = (int32_t)(((int64_t)top - (int64_t)enc->len) / 4);
+    aarch64_enc_b_cond(enc, A_NE, rel_words);          /* b.ne top */
+    if (rem) aarch64_enc_sub_imm(enc, 1, A_SP, A_SP, rem);
+}
+
 static void jitEmitPrologue(JitFnCtx *ctx) {
     AsmEnc *enc = &ctx->jit->enc;
     if (ctx->omit_frame) return;
@@ -1768,7 +1796,8 @@ static void jitEmitPrologue(JitFnCtx *ctx) {
     aarch64_enc_add_imm(enc, 1, A_FP, A_SP, 0);
     uint32_t aligned = ((uint32_t)ctx->fn->stack_space + 15u) & ~15u;
     ctx->aligned_frame = aligned;
-    jitSpAdjust(enc, 1, aligned);
+    if (aligned > HCC_STACK_PROBE_STRIDE) jitProbeStack(enc, aligned);
+    else                                  jitSpAdjust(enc, 1, aligned);
 }
 
 static void jitEmitEpilogue(JitFnCtx *ctx) {
