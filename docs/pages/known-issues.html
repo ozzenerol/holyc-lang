@@ -5,14 +5,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>An <code>I8</code>, <code>U8</code> or <code>Bool</code> can't be used as an array index or added to a pointer</td>
-        <td><code>U8 buf[8], i = 2; buf[i] = 'a';</code> is an error ("<code>U8[8] + U8</code> is invalid"), and for <code>buf[i]</code> the error points at the line before; <code>I16</code> and wider work</td>
-        <td>Use an <code>I64</code> variable, or cast: <code>buf[i(I64)]</code></td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h3>Diagnostics</h3>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
