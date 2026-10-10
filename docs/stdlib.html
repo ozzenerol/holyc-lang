@@ -96,10 +96,13 @@ year, month and day.</p></div><table class="consts"><thead><tr><th>Constant</th>
   U0 *iov_base;
   U64 iov_len;
 };</code></pre><p class="doc">The iovec class represents a buffer in memory, with a base address and a length.
-It&#x27;s typically used for scatter-gather I/O operations to manage multiple buffers.</p></div><div class="decl" id="FileRead"><div class="decl-head"><a class="decl-name" href="#FileRead">FileRead</a> <span class="kind">function</span></div><pre><code class="language-holyc">U8 *FileRead(U8 *path, I64 *_size = NULL);</code></pre><p class="doc">Read the whole regular file at path into a new NUL-terminated buffer
-(Free it) and set *_size to its length. Returns NULL, with *_size 0,
-if path is NULL, can&#x27;t be opened, is not a regular file (a directory,
-FIFO or device) or can&#x27;t be read completely.</p></div><div class="decl" id="FileWrite"><div class="decl-head"><a class="decl-name" href="#FileWrite">FileWrite</a> <span class="kind">function</span></div><pre><code class="language-holyc">Bool FileWrite(U8 *filename, U8 *buf, I64 size, I64 flags = O_CREAT | O_WRONLY | O_TRUNC);</code></pre><p class="doc">Write size bytes of buf to filename. The default flags create the file
+It&#x27;s typically used for scatter-gather I/O operations to manage multiple buffers.</p></div><div class="decl" id="FileRead"><div class="decl-head"><a class="decl-name" href="#FileRead">FileRead</a> <span class="kind">function</span></div><pre><code class="language-holyc">U8 *FileRead(U8 *path, I64 *_size = NULL);</code></pre><p class="doc">Read the whole file at path into a new NUL-terminated buffer (Free it)
+and set *_size to its length. A regular file is read up to its size;
+a FIFO, pipe, device or a file that reports size 0 (/proc) is read
+until end of file, so FileRead waits for a FIFO&#x27;s writer and never
+finishes on an endless device such as /dev/zero. Returns NULL, with
+*_size 0, if path is NULL, can&#x27;t be opened, is a directory, or can&#x27;t
+be read completely.</p></div><div class="decl" id="FileWrite"><div class="decl-head"><a class="decl-name" href="#FileWrite">FileWrite</a> <span class="kind">function</span></div><pre><code class="language-holyc">Bool FileWrite(U8 *filename, U8 *buf, I64 size, I64 flags = O_CREAT | O_WRONLY | O_TRUNC);</code></pre><p class="doc">Write size bytes of buf to filename. The default flags create the file
 (mode 0644 minus the umask) or truncate it first, so it holds exactly
 buf; pass O_CREAT|O_WRONLY|O_APPEND to add to the end instead. Returns
 FALSE, without creating anything, for a NULL filename or buf or a

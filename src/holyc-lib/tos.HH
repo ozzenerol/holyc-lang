@@ -1295,10 +1295,13 @@ public extern "c" I64 write(I32 __fd, U0 *__buf, U64 __nbyte);
 public extern "c" I64 lseek(I32 __fd, I64 __offset, I32 __whence);
 public extern "c" I32 chdir(U8 *path);
 
-/* Read the whole regular file at path into a new NUL-terminated buffer
- * (Free it) and set *_size to its length. Returns NULL, with *_size 0,
- * if path is NULL, can't be opened, is not a regular file (a directory,
- * FIFO or device) or can't be read completely. */
+/* Read the whole file at path into a new NUL-terminated buffer (Free it)
+ * and set *_size to its length. A regular file is read up to its size;
+ * a FIFO, pipe, device or a file that reports size 0 (/proc) is read
+ * until end of file, so FileRead waits for a FIFO's writer and never
+ * finishes on an endless device such as /dev/zero. Returns NULL, with
+ * *_size 0, if path is NULL, can't be opened, is a directory, or can't
+ * be read completely. */
 public U8 *FileRead(U8 *path, I64 *_size = NULL);
 /* Write size bytes of buf to filename. The default flags create the file
  * (mode 0644 minus the umask) or truncate it first, so it holds exactly
