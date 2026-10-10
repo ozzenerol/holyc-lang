@@ -1072,6 +1072,7 @@ static int parseFormatArgIdx(char *fname, int len) {
     /* May as well type-check holyc's library too which is even more
      * prone to erroring. */
     else if (len == 9 && !strncmp(fname, str_lit("MStrPrint"))) return 0;
+    else if (len == 5 && !strncmp(fname, str_lit("Print"))) return 0;
     else if (len == 8 && !strncmp(fname, str_lit("StrPrint"))) return 1;
     else if (len == 8 && !strncmp(fname, str_lit("CatPrint"))) return 1;
     else if (len == 11 && !strncmp(fname, str_lit("CatLenPrint"))) return 2;
@@ -1287,12 +1288,43 @@ static AoStr *parsePrintFormatTo64(AoStr *fmt, int *added) {
     return out;
 }
 
+/* Whether a print statement's format literal (raw source text) uses a
+ * conversion C's printf doesn't have or reads differently: %Q %D %T %C %F */
+static int parsePrintFormatIsHolyC(char *s, int len) {
+    int i = 0;
+    while (i < len) {
+        if (s[i] == '\\' && i + 1 < len) {
+            i += 2;
+            continue;
+        }
+        if (s[i] != '%') {
+            i++;
+            continue;
+        }
+        i++;
+        while (i < len && strchr("-0+ #", s[i])) i++;
+        while (i < len && (strchr("*.", s[i]) || (s[i] >= '0' && s[i] <= '9'))) i++;
+        while (i < len && strchr("lhzjtLq", s[i])) i++;
+        if (i < len && strchr("QDTCF", s[i])) return 1;
+        i++; /* the conversion, `%` of `%%` included */
+    }
+    return 0;
+}
+
 /* A string literal used as a statement, `"fmt", args...;`, is a call to
  * C's printf. When the format is a literal its integer conversions are
  * made 64-bit to match HolyC's `%d` (see parsePrintFormatTo64) and the
  * call is flagged so the IR widens narrow integer arguments to match.
- * A non-literal format is passed through as written. */
+ * A non-literal format is passed through as written. A literal that uses
+ * a HolyC-only conversion (%Q %D %T %C %F) calls the library's Print
+ * instead, which formats like StrPrint; plain formats keep the direct
+ * printf call. */
 Ast *parsePrintStatement(Cctrl *cc) {
+    Lexeme *tok = cctrlTokenPeek(cc);
+    if (!(cc->flags & CCTRL_TRANSPILING) && tok && tok->tk_type == TK_STR &&
+        parsePrintFormatIsHolyC(tok->start, tok->len)) {
+        return parseFunctionArguments(cc,"Print",5,';');
+    }
     Ast *call = parseFunctionArguments(cc,"printf",6,';');
     if (cc->flags & CCTRL_TRANSPILING) return call;
     if (call->kind != AST_FUNCALL || !call->args || call->args->size == 0)

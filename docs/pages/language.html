@@ -36,6 +36,22 @@ Terry is 53 years old
    42|42   |00042
 ff FF A 3.142
 </pre>
+<p>The conversions are the ones <code>StrPrint</code> knows (see the
+<a href="library.html">library guide</a>), HolyC's own included: <code>%Q</code> prints a
+string escaped as a C literal, <code>%C</code> a character in upper case, <code>%D</code> and
+<code>%T</code> the date and time of a <code>CDate</code>, and <code>%F</code> the contents of
+a file. The compiler checks the number of arguments against them.</p>
+<pre data-run><code>
+U0 Main()
+{
+  "%Q\n", "say \"hi\"\n";
+  "%C%c\n", 'h', 'i';
+}
+</code></pre>
+<pre class="output">
+say \"hi\"\n
+Hi
+</pre>
 <p>The string is always a format, even without arguments, so write
 <code>%%</code> for a literal percent sign: <code>"100%%\n";</code> prints
 <code>100%</code>.</p>

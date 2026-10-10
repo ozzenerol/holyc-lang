@@ -8,6 +8,7 @@ extern "c" F64 strtod(U8 *nptr, U8 **endptr);
 extern "c" I64 strtoll(U8 *nptr, U8 **endptr, I64 base=10);
 extern "c" U64 strtoul(U8 *nptr, U8 **endptr, I64 base=10);
 extern "c" I64 snprintf(I8 *nptr, U64 len, I8 *fmt,...);
+extern "c" I64 printf(I8 *fmt,...);
 extern "c" I64 strnlen(U8 *s, I64 size);
 extern "c" U8 *strcat(U8 *__s1, U8 *__s2);
 extern "c" U8 *strchr(U8 *__s, I32 __c);
@@ -1397,6 +1398,14 @@ U8 *MStrPrint(U8 *fmt,...)
   res=StrNew(buf);
   Free(buf);
   return res;
+}
+
+U0 Print(U8 *fmt,...)
+{// @TempleOS - StrPrint to stdout, through C's stdio so it stays in
+ // order with printf and the print statements that use it
+  U8 *buf=StrPrintJoin(NULL,fmt,argc,argv);
+  printf("%s",buf);
+  Free(buf);
 }
 
 U8 *MPrintTime(CDate cdt)
