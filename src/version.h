@@ -1,7 +1,7 @@
 #ifndef VERSION__
 #define VERSION__
 
-#define HCC_VERSION ("v0.13.0")
+#define HCC_VERSION ("v0.14.0")
 
 static inline const char *cctrlGetVersion(void) {
     return HCC_VERSION;

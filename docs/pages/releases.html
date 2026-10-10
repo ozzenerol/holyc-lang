@@ -4,6 +4,33 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.14.0 <small>(2026-10-10)</small></h2>
+<p>The last three known issues are fixed, so the known-issues page is empty. Every fix has a regression
+test that runs compiled and in the JIT on Linux x86_64, Linux arm64 and macOS arm64. The echo server
+example added in v0.12.0 has been removed.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>Print statements (<code>"fmt", args;</code>) support the HolyC conversions <code>%Q %D %T %C %F</code>,
+  like <code>StrPrint</code>, and the argument check counts them. In a print statement <code>%F</code> and
+  <code>%C</code> now mean what they mean in <code>StrPrint</code> (a file's contents, an upper-case
+  character), not C's upper-case float and wide character.</li>
+  <li><code>FileRead</code> reads pipes, FIFOs and <code>/proc</code> files to the end instead of returning
+  <code>NULL</code>; on a FIFO it waits for the writer, and on an endless device such as
+  <code>/dev/zero</code> it never returns.</li>
+  <li>Adding to or deleting from an <code>RBTree</code> or <code>IntSet</code> while iterating stops the
+  iteration (<code>RBIterNext</code>/<code>IntSetIterNext</code> return <code>NULL</code>,
+  <code>RBTreeForEach</code> returns after that callback) instead of overflowing the iterator.
+  Replacing a value doesn't stop it. <code>RBTree</code>, <code>RBIter</code> and <code>IntSetIter</code>
+  have new fields at the end.</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li><code>Print(fmt, ...)</code>: <code>StrPrint</code>-style formatting straight to stdout, for formats
+  that aren't literals.</li>
+</ul>
+
 <h2>v0.13.0 <small>(2026-10-09)</small></h2>
 <p>A stricter redeclaration check and two internal fixes, tested compiled and in the JIT on Linux
 x86_64, Linux arm64 and macOS arm64.</p>
