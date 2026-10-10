@@ -111,8 +111,9 @@ the library, declare its functions (usually in a <code>.HH</code> header you
 
 <h2>The transpiler</h2>
 <pre><code>hcc -transpile main.HC &gt; main.c</code></pre>
-<p>This prints a C version of the program. It's experimental and best effort: comments are
-dropped, and some programs need fixing by hand. Globals are written with their initialisers;
+<p>This prints a C version of the program. It's experimental and <strong>frozen</strong>: it
+supports the language as of v0.18 and gets no new features, so language and library features
+added later may not translate. Comments are dropped, and some programs need fixing by hand. Globals are written with their initialisers;
 code at file scope (initialisers that aren't constant, statements) goes into
 <code>__hcc_init()</code>, which <code>main</code> calls first.
 The program is checked by the compiler first: its warnings and errors are printed as for a
