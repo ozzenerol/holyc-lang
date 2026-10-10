@@ -1384,8 +1384,11 @@ program, as in C. <code>NetSend(sock, buf, len)</code> (a <code>send</code> that
 does the same for every <code>write</code> and <code>send</code> in the program.
 <code>signal</code> takes <code>SIG_DFL</code>, <code>SIG_IGN</code> or a handler
 <code>U0 F(I32 sig)</code> passed as <code>(&amp;F)(I64)</code>, and returns the previous
-one or <code>SIG_ERR</code>; <code>SIGHUP</code>, <code>SIGINT</code>, <code>SIGKILL</code>,
-<code>SIGPIPE</code> and <code>SIGTERM</code> are defined.</p>
+one or <code>SIG_ERR</code>. <code>SIGHUP</code>, <code>SIGINT</code>, <code>SIGQUIT</code>,
+<code>SIGKILL</code>, <code>SIGUSR1</code>, <code>SIGUSR2</code>, <code>SIGPIPE</code>,
+<code>SIGALRM</code>, <code>SIGTERM</code>, <code>SIGCHLD</code> and the job-control signals
+<code>SIGCONT</code>, <code>SIGSTOP</code>, <code>SIGTSTP</code>, <code>SIGTTIN</code> and
+<code>SIGTTOU</code> are defined, with each platform's numbers.</p>
 <pre><code>I32 srv = NetCreateServer(8080, "127.0.0.1", 16);
 if (srv == -1) {
   "can't listen on 8080\n";
@@ -1452,8 +1455,11 @@ order and back; <code>Errno()</code> is the C <code>errno</code> of the calling 
 (<code>SetErrno(0)</code> clears it), to compare with <code>EAGAIN</code>
 (= <code>EWOULDBLOCK</code>), <code>EINTR</code>, <code>EINPROGRESS</code>,
 <code>ECONNREFUSED</code>, <code>ECONNRESET</code>, <code>EPIPE</code>,
-<code>EADDRINUSE</code>, <code>ETIMEDOUT</code>, <code>EBADF</code> and
-<code>EINVAL</code>, whose numbers differ between Linux and macOS. The flags
+<code>EADDRINUSE</code>, <code>EADDRNOTAVAIL</code>, <code>ENETUNREACH</code>,
+<code>EHOSTUNREACH</code>, <code>ETIMEDOUT</code>, <code>EMFILE</code>,
+<code>ENFILE</code>, <code>ENOENT</code>, <code>EACCES</code>, <code>ECHILD</code>,
+<code>EBADF</code> and <code>EINVAL</code>, each with the platform's number (several
+differ between Linux and macOS). The flags
 <code>MSG_NOSIGNAL</code>, <code>MSG_DONTWAIT</code>, <code>MSG_PEEK</code>,
 <code>MSG_WAITALL</code>, <code>MSG_TRUNC</code> and <code>MSG_OOB</code>, and
 <code>SHUT_RD</code>/<code>SHUT_WR</code>/<code>SHUT_RDWR</code> for <code>shutdown</code>,
