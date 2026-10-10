@@ -131,7 +131,7 @@ vim.api.nvim_create_autocmd("FileType", {
 ### Other tools
 `-cfg` / `-cfg-png` / `-cfg-svg` draw a function's control-flow graph
 (needs [graphviz](https://graphviz.org/)); `-transpile` turns HolyC into C
-(experimental). See [Tools](https://ozzenerol.github.io/holyc-lang/tools.html).
+(experimental and frozen: no new features). See [Tools](https://ozzenerol.github.io/holyc-lang/tools.html).
 
 ## Testing
 
