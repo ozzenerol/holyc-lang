@@ -1192,6 +1192,10 @@ public I64 StrIntToHex(U8 *dst, I64 num);
 public U8 *MPrintQ(U8 *ptr, I64 flags = 0);
 /* StrPrint(NULL, ...) into an exactly sized new string. */
 public U8 *MStrPrint(U8 *fmt, ...);
+/* StrPrint to stdout. A print statement whose format is a literal using
+ * %Q, %D, %T, %C or %F ("%Q\n", s;) is a call to this; others go to C's
+ * printf directly. Output stays in order with printf. */
+public U0 Print(U8 *fmt, ...);
 /* Append the formatted text to the heap string _dst (or start one if it
  * is NULL) and return it: write s = CatPrint(s, ...), it may move. Each
  * call measures _dst, so long loops are O(n^2): use CatLenPrint there. */

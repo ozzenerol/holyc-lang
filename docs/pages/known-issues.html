@@ -5,14 +5,7 @@ each with a way to reproduce it and a workaround. The other pages avoid them, so
 there works as shown.</p>
 
 <h2>Compiler</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>Print statements don't support the HolyC conversions <code>%Q %D %T %C %F</code></td>
-        <td><code>"%Q\n", s;</code> prints <code>%Q</code>: print statements are formatted by C's <code>printf</code>, and the compile-time argument check counts them that way</td>
-        <td>Format with <code>MStrPrint</code> or <code>StrPrint</code>, which support them</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h3>Diagnostics</h3>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
