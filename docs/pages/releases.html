@@ -4,6 +4,39 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.15.0 <small>(2026-10-10)</small></h2>
+<p>Running programs without a shell, and file descriptors that don't leak into them. Tested compiled
+and in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Changes you may notice</h3>
+<ul>
+  <li>Every file descriptor the library opens is close-on-exec: <code>FileRead</code>,
+  <code>FileWrite</code>, every <code>Net*</code> socket and accepted connection, and
+  <code>Shlurp</code>'s temporary file. Programs started with <code>System</code>, <code>Sh</code>,
+  <code>Shlurp</code> or <code>ProcSpawn</code> no longer inherit them. <code>O_CLOEXEC</code> (and
+  <code>SOCK_CLOEXEC</code> on Linux) are available for your own <code>open</code> and
+  <code>socket</code> calls, which keep C's behaviour.</li>
+  <li>The process functions need glibc 2.34 or newer on Linux.</li>
+</ul>
+
+<h3>New</h3>
+<ul>
+  <li>Processes: <code>ProcSpawn(argv, opts)</code> starts a program by its argument list, never through a
+  shell, with stdin, stdout and stderr each inherited, piped, sent to <code>/dev/null</code> or (stderr)
+  merged into stdout, plus a working directory, a replacement environment and its own process group.
+  <code>ProcWait</code>, <code>ProcDone</code>, <code>ProcKill</code> and <code>ProcRelease</code> manage it;
+  <code>ProcCommunicate</code> feeds stdin and collects stdout and stderr with <code>poll</code>, so large
+  outputs can't deadlock; <code>ProcRun(argv, &amp;code)</code> returns a program's output, like
+  <code>Shlurp</code> without the shell.</li>
+</ul>
+
+<h3>Testing</h3>
+<ul>
+  <li>A test still running after <code>HCC_TEST_TIMEOUT</code> seconds (default 60, 0 for no limit) is
+  killed together with everything it started and reported as <code>FAILED ... timed out</code>, so one
+  hanging test no longer stalls the whole suite. Ctrl-C stops a run cleanly.</li>
+</ul>
+
 <h2>v0.14.0 <small>(2026-10-10)</small></h2>
 <p>The last three known issues are fixed, so the known-issues page is empty. Every fix has a regression
 test that runs compiled and in the JIT on Linux x86_64, Linux arm64 and macOS arm64. The echo server
