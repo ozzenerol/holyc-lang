@@ -184,8 +184,8 @@ struct IrValueString {
 typedef struct IrVar {
     /* Variable id */
     u32 id;
-    /* How big the variable is */
-    u16 size;
+    /* How big the variable is (a local array can be MBs) */
+    u32 size;
 } IrVar;
 
 #define IR_VAL_FLAG_FUNC 0x1
@@ -362,7 +362,7 @@ typedef struct IrFunction {
     /* Name of the function as defined */
     AoStr *name;
     /* Space needed on the stack for allocating variables */
-    u16 stack_space;
+    u32 stack_space;
     /* Does the function have variable arguments? */
     u8 has_var_args;
     /* Not sure if this is needed but for printing as a 
@@ -527,7 +527,7 @@ Map *irVarValueMapNew(void);
 
 IrBlockMapping *irBlockMappingNew(int id);
 IrBlock *irBlockNew(void);
-IrValue *irTmp(IrValueType type, u16 size);
+IrValue *irTmp(IrValueType type, u32 size);
 /* Source line currently being lowered - set by ir.c's dispatchers
  * from Ast->line, stamped onto every irInstrNew instruction. */
 extern int ir_line_hint;

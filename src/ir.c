@@ -3326,7 +3326,7 @@ IrFunction *irLowerFunction(IrCtx *ctx, Ast *ast_func) {
 
         u32 key = irGetParamId(ast_param);
         IrValueType ir_type = irConvertType(ast_param->type);
-        u16 size = ast_param->type->size;
+        u32 size = ast_param->type->size;
         int is_float = ast_param->type->kind == AST_TYPE_FLOAT;
 
         /* AArch64 by-value struct param: it arrives in GP/FP registers
@@ -3573,8 +3573,9 @@ void irFunctionPrepForCodeGen(IrCgCtx *ctx, IrFunction *fn, Ast *ast_fn) {
     int total_stack = locals_params_space + fn->ra.extra_stack;
     if (total_stack > 0) total_stack = align(total_stack, 16);
 
-    /* Stack required for the function */
-    fn->stack_space = (u16)total_stack;
+    /* Stack required for the function (a u16 once: frames over 64 KiB
+     * reserved only the size mod 65536) */
+    fn->stack_space = (u32)total_stack;
 }
 
 void irCgFinishFunction(IrCgCtx *ctx) {
