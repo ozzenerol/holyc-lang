@@ -3943,6 +3943,22 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                     cctrlTokenRewind(cc);
                     type = parseFullType(cc);
                     name = cctrlTokenGet(cc);
+                    /* `extern T (*name)(params);`: a function pointer
+                     * global defined elsewhere (a library's), parsed as
+                     * the global definition parses it */
+                    if (name && tokenPunctIs(name,'(')) {
+                        Lexeme *fnptr_name = cctrlTokenPeekBy(cc,1);
+                        char *fname;
+                        int flen;
+                        cc->localenv = cctrlCreateAstMap(cc->localenv);
+                        type = parseFunctionPointerType(cc,&fname,&flen,type);
+                        cc->localenv = NULL;
+                        name = fnptr_name;
+                        if (name->tk_type != TK_IDENT) {
+                            /* reported by parseFunctionPointerType */
+                            cctrlTerminate(cc);
+                        }
+                    }
                     if (name->tk_type != TK_IDENT) {
                         cctrlRaiseException(cc,
                             "`extern <Type>` must be followed by an "

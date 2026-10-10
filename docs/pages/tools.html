@@ -105,9 +105,11 @@ Syntax highlighting for Vim is in <code>src/syntax-highlighting/hc.vim</code>.</
 <p>Build your own HolyC library and install it next to the standard one:</p>
 <pre><code>hcc -lib mylib --install-dir=$HOME/.local mylib.HC</code></pre>
 <p>This produces <code>libmylib.a</code> and a shared library in
-<code>$HOME/.local/lib</code>. Mark the functions it exports <code>public</code>. To use
-the library, declare its functions (usually in a <code>.HH</code> header you
-<code>#include</code>) and add <code>#link &lt;mylib&gt;</code>.</p>
+<code>$HOME/.local/lib</code>. Mark the functions and globals it exports
+<code>public</code>. To use the library, declare its functions, and its globals with
+<code>extern</code> (<code>extern I64 count;</code>, <code>extern I64 (*hook)(I64);</code>),
+usually in a <code>.HH</code> header you <code>#include</code>, and add
+<code>#link &lt;mylib&gt;</code>.</p>
 
 <h2>The transpiler</h2>
 <pre><code>hcc -transpile main.HC &gt; main.c</code></pre>
