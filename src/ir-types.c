@@ -771,7 +771,7 @@ void irTmpVariableCountReset(void) {
     ir_tmp_var_id = 1;
 }
 
-IrValue *irTmp(IrValueType type, u16 size) {
+IrValue *irTmp(IrValueType type, u32 size) {
     IrValue *val = irValueNew(type, IR_VAL_TMP);
     val->as.var.id = ir_tmp_var_id++;
     val->as.var.size = size;

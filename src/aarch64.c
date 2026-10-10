@@ -2030,7 +2030,7 @@ void aarch64PasteDataSection(Cctrl *cc, AoStr *buf) {
 }
 
 static void aarch64EmitFunctionPrologue(Cctrl *cc, AoStr *buf, Ast *func,
-                                        u16 total_stack, int omit_frame)
+                                        u32 total_stack, int omit_frame)
 {
     char *fname = asmNormaliseFunctionName(cc, func->fname);
     aoStrCatFmt(buf,

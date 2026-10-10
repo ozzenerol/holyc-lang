@@ -43,19 +43,7 @@ there works as shown.</p>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>JIT and code generation</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>A function with more than about 64 KiB of local variables gets a stack frame that is too small:
-        the frame size is kept in 16 bits, so only the size modulo 65536 is reserved and the locals lie below
-        the stack pointer, where the next call overwrites them (a crash, or a local array that changes by
-        itself). Compiled and JIT, x86_64 and arm64</td>
-        <td><code>U8 tmp[65536];</code> in a function, fill it, call any function that uses some stack, then
-        read <code>tmp</code> back: on x86_64 a 64 KiB <code>read()</code> into it overwrites the return address</td>
-        <td>Keep large buffers off the stack: <code>MAlloc</code> them, or use a global array; keep the locals
-        of one function under 64 KiB in total</td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Standard library</h2>
 <p>No known issues: everything found while writing these docs has been fixed.</p>

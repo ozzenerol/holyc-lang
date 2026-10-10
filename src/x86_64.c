@@ -2372,7 +2372,7 @@ void x86_64PasteDataSection(Cctrl *cc, AoStr *buf) {
 static void x86_64EmitFunctionPrologue(Cctrl *cc,
                                        AoStr *buf,
                                        Ast *func,
-                                       u16 total_stack,
+                                       u32 total_stack,
                                        Vec *pinned,
                                        int omit_frame)
 {
