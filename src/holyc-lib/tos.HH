@@ -2650,8 +2650,9 @@ public Bool NetListen(I32 sockfd, addrinfo *sa, I32 backlog);
 public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
     I32 addrfam=AF_UNSPEC, Bool non_blocking=FALSE);
 /* Wait for the next connection on a listening socket and return it, or -1.
- * non_blocking makes the accepted socket non-blocking; to not wait in
- * NetAccept itself, make the listening socket non-blocking. */
+ * The accepted socket is non-blocking when non_blocking is TRUE and
+ * blocking otherwise, whatever the listening socket is (on every OS). To
+ * not wait in NetAccept itself, make the listening socket non-blocking. */
 public I32 NetAccept(I32 socket, Bool non_blocking=FALSE);
 /* send() with MSG_NOSIGNAL added to flags: a peer that has closed gives
  * -1 with Errno() EPIPE (or ECONNRESET) instead of a SIGPIPE that ends

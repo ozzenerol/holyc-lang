@@ -766,8 +766,9 @@ names are not looked up), &quot;*&quot; or NULL for any address of addrfam, or
 &quot;::*&quot; for any IPv6 address. addrfam is AF_INET, AF_INET6 or AF_UNSPEC
 (the family of bindaddr; IPv4 for &quot;*&quot;). SO_REUSEADDR is set. Returns the
 socket, or -1 on failure (bad port, family or address, port in use).</p></div><div class="decl" id="NetAccept"><div class="decl-head"><a class="decl-name" href="#NetAccept">NetAccept</a> <span class="kind">function</span></div><pre><code class="language-holyc">I32 NetAccept(I32 socket, Bool non_blocking=FALSE);</code></pre><p class="doc">Wait for the next connection on a listening socket and return it, or -1.
-non_blocking makes the accepted socket non-blocking; to not wait in
-NetAccept itself, make the listening socket non-blocking.</p></div><div class="decl" id="NetSend"><div class="decl-head"><a class="decl-name" href="#NetSend">NetSend</a> <span class="kind">function</span></div><pre><code class="language-holyc">I64 NetSend(I32 sockfd, U0 *buf, I64 len, I32 flags=0);</code></pre><p class="doc">send() with MSG_NOSIGNAL added to flags: a peer that has closed gives
+The accepted socket is non-blocking when non_blocking is TRUE and
+blocking otherwise, whatever the listening socket is (on every OS). To
+not wait in NetAccept itself, make the listening socket non-blocking.</p></div><div class="decl" id="NetSend"><div class="decl-head"><a class="decl-name" href="#NetSend">NetSend</a> <span class="kind">function</span></div><pre><code class="language-holyc">I64 NetSend(I32 sockfd, U0 *buf, I64 len, I32 flags=0);</code></pre><p class="doc">send() with MSG_NOSIGNAL added to flags: a peer that has closed gives
 -1 with Errno() EPIPE (or ECONNRESET) instead of a SIGPIPE that ends
 the program. Like send it may write fewer than len bytes (on a
 non-blocking socket); returns the number written or -1.</p></div><div class="decl" id="NetGetIpv4AddressFromAcceptedSocket"><div class="decl-head"><a class="decl-name" href="#NetGetIpv4AddressFromAcceptedSocket">NetGetIpv4AddressFromAcceptedSocket</a> <span class="kind">function</span></div><pre><code class="language-holyc">Bool NetGetIpv4AddressFromAcceptedSocket(I32 sockfd, U8 *ipbuf, I32 outlen);</code></pre><p class="doc">Write the peer address of a connected socket (IPv4 or IPv6) as text
