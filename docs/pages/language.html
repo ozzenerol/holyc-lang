@@ -88,7 +88,9 @@ U0 Main()
 <p>As in C, a value becomes a <code>Bool</code> by comparing it with 0: an integer, float
 or pointer that isn't 0 (or <code>NULL</code>) is <code>TRUE</code>, whether it is assigned,
 passed as an argument, returned, stored in a field or cast with <code>x(Bool)</code>. Only the
-low byte is never kept, so <code>0x100</code> and <code>0.5</code> are <code>TRUE</code>.</p>
+low byte is never kept, so <code>0x100</code> and <code>0.5</code> are <code>TRUE</code>.
+A pointer needs no cast to become a <code>Bool</code> (other integer types warn without one),
+and messages and <code>typeof</code> call the type <code>Bool</code>.</p>
 <pre data-run><code>
 Bool IsSet(I64 flags, I64 bit) { return flags & bit; }
 
