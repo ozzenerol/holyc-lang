@@ -36,6 +36,18 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.19.1 <small>(2026-10-10)</small></h2>
+<p>One code generation fix, tested compiled and in the JIT on Linux x86_64, Linux arm64 and macOS
+arm64.</p>
+
+<h3>Fixes</h3>
+<ul>
+  <li>A global pointer initialised with a constant address (<code>U8 *p = &amp;g;</code>,
+  <code>&amp;arr[2]</code>, <code>arr + 4</code>, <code>&amp;Fn</code>) is written as data the linker
+  relocates instead of being set when <code>Main</code> starts, so a <code>-lib</code> library's pointer
+  globals are no longer <code>NULL</code>.</li>
+</ul>
+
 <h2>v0.19.0 <small>(2026-10-10)</small></h2>
 <p>The last bugs found while building real programs, and the C transpiler is frozen. Tested compiled and
 in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
