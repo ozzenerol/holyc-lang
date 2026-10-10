@@ -95,16 +95,16 @@ I32 Main()
 
   /* No temporary file is left behind, even after many calls */
   for (i = 0; i < 20; i++) Free(Shlurp("echo %d", i));
-  /* (TempFiles' own Shlurp file is counted both times) */
   if (before >= 0 && TempFiles() == before) correct++;
   else "Failed - Shlurp left temporary files: %d before, %d after\n",
          before, TempFiles();
 
-  /* The file is in $TMPDIR: TempFiles saw its own one there */
-  if (before == 1) correct++;
-  else "Failed - Shlurp's temporary file is not in $TMPDIR (%d there)\n", before;
+  /* Shlurp reads the command's output through a pipe: no temporary file
+   * at all, not even while TempFiles' own Shlurp runs */
+  if (before == 0) correct++;
+  else "Failed - Shlurp made a temporary file in $TMPDIR (%d there)\n", before;
 
-  /* A TMPDIR with a space in it is quoted for the shell */
+  /* A TMPDIR with a space in it changes nothing */
   U8 *tmpdir = getenv("TMPDIR");
   if (!tmpdir) tmpdir = "/tmp";
   tmpdir = StrNew(tmpdir);

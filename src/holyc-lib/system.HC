@@ -104,54 +104,29 @@ public U8 *ShQuote(U8 *s)
   return q;
 }
 
-extern "c" I32 mkostemp(U8 *template, I32 flags);
-#ifdef IS_LINUX
-#define __SYS_O_CLOEXEC 0x80000
-#else
-#define __SYS_O_CLOEXEC 0x1000000
-#endif
 extern "c" I32 close(I32 fd);
 extern "c" I32 unlink(U8 *path);
 extern "c" U8 *getenv(U8 *name);
+/* process.HC: what `sh -c cmd` prints to stdout, read until sh exits */
+U8 *ProcShellOutput(U8 *cmd, I64 *len);
 
 /* Run a shell command, built with `printf`-like formatting, and return
  * what it printed to stdout in a heap allocated string (Free it). One
  * trailing newline is removed. The exit status is not returned: a
  * failing command gives whatever it printed, often "". stderr is not
- * captured. Returns NULL if fmt is NULL or the output can't be read. */
+ * captured. Returns when the shell exits, not waiting for background
+ * jobs it started. NULL if fmt is NULL or the shell can't be started. */
 public U8 *Shlurp(U8 *fmt, ...)
 {
   if (!fmt) return NULL;
-  U8 *tmp_path, *tmp_quoted, *tmpdir = getenv("TMPDIR");
-  U8 *user_cmd, *cmd, *output;
   I64 len = 0;
-  I32 fd;
-
-  /* A unique temporary file per call, so concurrent calls don't share,
-   * in $TMPDIR like the compiler's own temporary files */
-  if (!tmpdir || !tmpdir[0]) tmpdir = "/tmp";
-  tmp_path = StrPrint(NULL,"%s/hcc-shlurp-XXXXXX",tmpdir);
-  fd = mkostemp(tmp_path,__SYS_O_CLOEXEC);   /* not inherited by System */
-  if (fd == -1) {
-    Free(tmp_path);
-    return NULL;
-  }
-  close(fd);
-  tmp_quoted = ShQuote(tmp_path);
-
-  user_cmd = StrPrintJoin(NULL,fmt,argc,argv);
-  /* The braces redirect every command in a list (`a; b`), not just the
-   * last one. The blank line ends a command that ends in a backslash and
-   * `:` keeps the braces from being empty for an empty command. */
-  cmd = StrPrint(NULL,"{\n%s\n\n:\n} > %s",user_cmd,tmp_quoted);
+  U8 *user_cmd = StrPrintJoin(NULL,fmt,argc,argv);
+  /* The newline completes a command that ends in a backslash (a line
+   * continuation) or in a here-doc delimiter */
+  U8 *cmd = StrPrint(NULL,"%s\n",user_cmd);
   Free(user_cmd);
-  System(cmd);
+  U8 *output = ProcShellOutput(cmd,&len);
   Free(cmd);
-
-  Free(tmp_quoted);
-  output = FileRead(tmp_path,&len);
-  unlink(tmp_path);
-  Free(tmp_path);
   if (!output) return NULL;
   if (len > 0 && output[len-1] == '\n') {
     output[len-1] = '\0';

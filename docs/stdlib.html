@@ -151,9 +151,9 @@ by a signal, could not be run, or fmt is NULL.</p></div><div class="decl" id="Sh
 formatted: %% for a literal %), and return what it printed to stdout
 in a heap allocated string (Free it). One trailing newline is removed.
 The exit status is not returned: a failing command gives whatever it
-printed, often &quot;&quot;. stderr is not captured. The output goes through a
-temporary file in $TMPDIR (default /tmp). Returns NULL if fmt is NULL
-or the output can&#x27;t be read.</p></div><div class="decl" id="ShQuote"><div class="decl-head"><a class="decl-name" href="#ShQuote">ShQuote</a> <span class="kind">function</span></div><pre><code class="language-holyc">U8 *ShQuote(U8 *s);</code></pre><p class="doc">s in single quotes for sh, as a new string to Free: each &#x27; becomes
+printed, often &quot;&quot;. stderr is not captured. It returns when the shell
+exits: what a background job (`cmd &amp;`) prints later is not waited for.
+Returns NULL if fmt is NULL or the shell can&#x27;t be started.</p></div><div class="decl" id="ShQuote"><div class="decl-head"><a class="decl-name" href="#ShQuote">ShQuote</a> <span class="kind">function</span></div><pre><code class="language-holyc">U8 *ShQuote(U8 *s);</code></pre><p class="doc">s in single quotes for sh, as a new string to Free: each &#x27; becomes
 &#x27;\&#x27;&#x27; and NULL gives &#x27;&#x27;. The shell expands nothing in it, so use it for
 any text that goes into a command: q = ShQuote(s); Sh(&quot;ls %s&quot;, q);
 Free(q).</p></div><div class="decl" id="unlink"><div class="decl-head"><a class="decl-name" href="#unlink">unlink</a> <span class="kind">C binding</span></div><pre><code class="language-holyc">I32 unlink(U8 *pathname);</code></pre></div></section><section id="list"><h2>Lists</h2><p class="lede">Circular doubly linked lists of U0 * values. Defined in <code>src/holyc-lib/list.HC</code>.</p><div class="decl" id="List"><div class="decl-head"><a class="decl-name" href="#List">List</a> <span class="kind">class</span></div><pre><code class="language-holyc">class List
