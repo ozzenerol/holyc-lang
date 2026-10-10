@@ -247,6 +247,34 @@ static void jitWriteInit(HccJit *jit, uint8_t *addr, Ast *init,
     free(items);
 }
 
+typedef struct JitPtrFixup {
+    uint8_t *addr;  /* the pointer's slot in the globals arena */
+    char *sym;
+    s64 off;
+} JitPtrFixup;
+
+/* Fill in the global pointers whose targets have an address now: a
+ * global (laid out with the chunk) or a function (once its chunk is
+ * finalized), or a library symbol. The others wait for a later chunk. */
+static void jitResolvePtrFixups(HccJit *jit) {
+    List *it = jit->ptr_fixups->next;
+    while (it != jit->ptr_fixups) {
+        List *next = it->next;
+        JitPtrFixup *f = (JitPtrFixup *)it->value;
+        void *p = jitResolveSymbol(jit, f->sym);
+        if (p) {
+            uintptr_t v = (uintptr_t)p + (uintptr_t)f->off;
+            memcpy(f->addr, &v, 8);
+            it->prev->next = next;
+            next->prev = it->prev;
+            free(f->sym);
+            free(f);
+            free(it);
+        }
+        it = next;
+    }
+}
+
 /* Lay out the (from, sentinel] range's new strings + globals into a
  * fresh arena; register each by its mangled name so the backends'
  * global-address emitters can find them via host_symbols. Strings come
@@ -280,6 +308,8 @@ static int jitAllocateGlobals(HccJit *jit, List *from) {
 
     /* Globals. Strings are now addressable, so AST_ARRAY_INIT
      * containing AST_STRING elements can resolve element addresses. */
+    AoStr *sym;
+    s64 sym_off;
     for (List *it = from; it != jit->cc->ast_list; it = it->next) {
         Ast *ast = it->value;
         AoStr *label = jitGlobalLabel(ast);
@@ -295,6 +325,12 @@ static int jitAllocateGlobals(HccJit *jit, List *from) {
              * calloc'd, so a larger `U8 buf[8]` is zero-filled. */
             void *src = mapGet(jit->host_symbols, (void *)init->slabel->data);
             if (src) memcpy(addr, src, (size_t)init->real_len);
+        } else if (asmAddrConst(jit->cc, init, &sym, &sym_off, 1)) {
+            JitPtrFixup *f = (JitPtrFixup *)malloc(sizeof(JitPtrFixup));
+            f->addr = addr;
+            f->sym = strdup(sym->data);
+            f->off = sym_off;
+            listAppend(jit->ptr_fixups, f);
         } else {
             jitWriteInit(jit, addr, init, ast->declvar->type);
         }
@@ -475,6 +511,7 @@ HccJit *hccJitNew(Cctrl *cc, const HccJitBackend *backend) {
     jit->chunk_fns      = mapNew(64, &map_cstring_opaque_type);
     jit->chunks         = listNew();
     jit->globals_arenas = listNew();
+    jit->ptr_fixups = listNew();
     jit->block_local    = mapNew(64, &map_uint_to_uint_type);
     jit->epi_local      = mapNew(16, &map_uint_to_uint_type);
     jit->next_local     = 0;
@@ -582,7 +619,10 @@ int hccJitCompileChunk(HccJit *jit, Ast *extra_fn) {
 
     /* Nothing emitted (e.g. the input only declared a class or a
      * prototype): success, no mapping needed. */
-    if (jit->enc.len == 0) return 0;
+    if (jit->enc.len == 0) {
+        jitResolvePtrFixups(jit);
+        return 0;
+    }
 
     /* Dev hex dump of pre-finalize bytes. Triggered by HCC_JIT_DUMP=1. */
     if (getenv("HCC_JIT_DUMP")) {
@@ -645,6 +685,7 @@ int hccJitCompileChunk(HccJit *jit, Ast *extra_fn) {
         mapAdd(jit->symbols, strdup(L->name), addr);
         mapAdd(jit->host_symbols, strdup(L->name), addr);
     }
+    jitResolvePtrFixups(jit);
     return 0;
 }
 

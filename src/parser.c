@@ -1087,6 +1087,71 @@ static int parseConstFoldSafe(Ast *ast) {
     }
 }
 
+/* `e` is a constant address: of a global (`&g`, an array `arr`), of a
+ * function (`&Fn`), plus a constant (`&arr[2]`, `&g + 1`), through
+ * pointer casts. Gives the global or function and the byte offset. */
+static int parseAddrConst(Ast *e, Ast **_target, s64 *_off) {
+    if (!e) return 0;
+    switch (e->kind) {
+        case AST_CAST:
+            if (!e->type || e->type->kind != AST_TYPE_POINTER) return 0;
+            return parseAddrConst(e->operand, _target, _off);
+        case AST_GVAR:
+            /* an array is its address */
+            if (!e->type || e->type->kind != AST_TYPE_ARRAY) return 0;
+            *_target = e;
+            *_off = 0;
+            return 1;
+        case AST_UNOP: {
+            Ast *op = e->operand;
+            if (e->unop != AST_UN_OP_ADDR_OF || !op) return 0;
+            if (op->kind == AST_GVAR || op->kind == AST_FUNC ||
+                op->kind == AST_FUN_PROTO || op->kind == AST_EXTERN_FUNC)
+            {
+                *_target = op;
+                *_off = 0;
+                return 1;
+            }
+            /* `&arr[i]` is `&*(arr + i)` */
+            if (op->kind == AST_UNOP && op->unop == AST_UN_OP_DEREF) {
+                return parseAddrConst(op->operand, _target, _off);
+            }
+            return 0;
+        }
+        case AST_BINOP: {
+            int is_add = e->binop == AST_BIN_OP_ADD;
+            if ((!is_add && e->binop != AST_BIN_OP_SUB) || !e->type ||
+                (e->type->kind != AST_TYPE_POINTER &&
+                 e->type->kind != AST_TYPE_ARRAY))
+            {
+                return 0;
+            }
+            /* scaled as the IR does: by the result's element size */
+            s64 scale = e->type->ptr && e->type->ptr->size > 0
+                ? e->type->ptr->size : 1;
+            Ast *l = e->left, *r = e->right;
+            int left_is_ptr = l && l->type &&
+                (l->type->kind == AST_TYPE_POINTER ||
+                 l->type->kind == AST_TYPE_ARRAY);
+            Ast *base = left_is_ptr ? l : r;
+            Ast *idx = left_is_ptr ? r : l;
+            int ok = 1;
+            if (!is_add && !left_is_ptr) return 0;
+            if (!idx || !idx->type || !astIsIntType(idx->type) ||
+                !parseConstFoldSafe(idx))
+            {
+                return 0;
+            }
+            s64 k = evalIntConstExprOrErr(idx, &ok);
+            if (!ok || !parseAddrConst(base, _target, _off)) return 0;
+            *_off += (is_add ? k : -k) * scale;
+            return 1;
+        }
+        default:
+            return 0;
+    }
+}
+
 /* A scalar global's initialiser that is a constant expression, folded to a
  * literal of the global's type, to be written out as static data like an
  * array's: then it holds its value before anything runs, also in a -lib
@@ -1134,6 +1199,33 @@ static Ast *parseConstGlobalInit(Cctrl *cc, Ast *var, Ast *rhs) {
             }
         }
         lit = astI64Type(v);
+    } else if (t->kind == AST_TYPE_POINTER || t->kind == AST_TYPE_FUNC) {
+        /* AST_TYPE_FUNC: a function pointer, `I64 (*fp)(I64) = &Fn`.
+         * The transpiler keeps them as stores: it would print the folded
+         * `(U8 *)&arr + 16` as C's `&arr + 16`. */
+        Ast *target = NULL;
+        if (cc->flags & CCTRL_TRANSPILING) return NULL;
+        s64 off = 0;
+        if (astIsIntType(rhs->type)) {
+            /* `U8 *p = NULL`, `0x1000` */
+            s64 v = evalIntConstExprOrErr(rhs, &ok);
+            if (!ok) return NULL;
+            lit = astI64Type(v);
+        } else if (parseAddrConst(rhs, &target, &off)) {
+            /* `&g`, `&arr[2]`, `&Fn`: as `(U8 *)&target + off`, which the
+             * backends write as a relocation (asmAddrConst) */
+            int is_err = 0;
+            Ast *addr = astUnaryOperator(astMakePointerType(ast_u8_type),
+                                         AST_UN_OP_ADDR_OF, target);
+            if (off) {
+                addr = astBinaryOp(AST_BIN_OP_ADD, addr, astI64Type(off),
+                                   &is_err);
+                if (is_err) return NULL;
+            }
+            return addr;
+        } else {
+            return NULL;
+        }
     } else {
         return NULL;
     }
@@ -4200,7 +4292,7 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
             }
 
             Ast *folded = NULL;
-            if (!is_fnptr && ast_expr->right->kind != AST_STRING) {
+            if (ast_expr->right->kind != AST_STRING) {
                 folded = parseConstGlobalInit(cc, variable, ast_expr->right);
             }
             if (folded) {
