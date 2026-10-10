@@ -1370,6 +1370,13 @@ or <code>recv</code>/<code>send</code>, and <code>close</code> them when done.
 the name resolves to. The server's bind address must be numeric (<code>"127.0.0.1"</code>,
 <code>"::1"</code>), <code>"*"</code> for any IPv4 address or <code>"::*"</code> for any IPv6
 address; port 0 lets the kernel pick one. Ports outside 0..65535 give -1.
+<code>NetConnect(addr, port, non_blocking, timeout_ms)</code> gives up after
+<code>timeout_ms</code> milliseconds (shared by all the addresses the name resolves to; the
+name lookup itself isn't timed) with -1 and <code>Errno()</code> <code>ETIMEDOUT</code>;
+0, the default, waits as long as the system does. <code>NetSetRecvTimeout(sock, ms)</code>
+and <code>NetSetSendTimeout(sock, ms)</code> make a read or a write on a connected socket
+give up after <code>ms</code> milliseconds with -1 and <code>Errno()</code>
+<code>EAGAIN</code> (a write returns the bytes it got out first, if any).
 Writing to a socket whose peer has closed raises <code>SIGPIPE</code>, which ends the
 program, as in C. <code>NetSend(sock, buf, len)</code> (a <code>send</code> that adds
 <code>MSG_NOSIGNAL</code> to its optional flags) returns -1 with <code>Errno()</code>

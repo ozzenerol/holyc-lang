@@ -395,6 +395,15 @@ public Bool NetSetSocketNonBlocking(I32 sockfd)
   return TRUE;
 }
 
+/* Clear O_NONBLOCK again; TRUE on success */
+static Bool NetSetSocketBlocking(I32 sockfd)
+{
+  I32 flags = fcntl(sockfd, F_GETFL, 0);
+  if (flags == -1 || fcntl(sockfd, F_SETFL, flags & ~O_NONBLOCK) == -1)
+    return FALSE;
+  return TRUE;
+}
+
 public Bool NetSetSockReuseAddr(I32 sockfd)
 {
   I32 yes = 1;
@@ -443,14 +452,80 @@ public Bool NetGetIpv4Address(sockaddr *sAddr, I32 ai_family, U8 *outbuf, I32 si
   return TRUE;
 }
 
-public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
+#ifdef IS_LINUX
+#define __NET_EINTR       4
+#define __NET_EINVAL      22
+#define __NET_ETIMEDOUT   110
+#define __NET_EINPROGRESS 115
+#else
+#define __NET_EINTR       4
+#define __NET_EINVAL      22
+#define __NET_ETIMEDOUT   60
+#define __NET_EINPROGRESS 36
+#endif
+#define __NET_POLLOUT     0x4
+
+class NetPollFd
+{
+  I32 fd;
+  I16 events;
+  I16 revents;
+};
+extern "c" I32 poll(NetPollFd *fds, U64 nfds, I32 timeout);
+
+/* Connect sockfd to `sa`, giving up when `deadline` (NowMilliseconds) is
+ * reached: a non-blocking connect, a poll for writability, then SO_ERROR.
+ * The socket is left non-blocking. 0 when connected, otherwise -1 with
+ * errno set (ETIMEDOUT when the time ran out). */
+static I32 NetConnectBefore(I32 sockfd, addrinfo *sa, I64 deadline)
+{
+  NetPollFd pfd;
+  I32 err = 0, n;
+  U32 len = sizeof(I32);
+  I64 left;
+
+  if (!NetSetSocketNonBlocking(sockfd))
+    return -1;
+  if (connect(sockfd, sa->ai_addr, sa->ai_addrlen) == 0)
+    return 0;
+  if (Errno() != __NET_EINPROGRESS)
+    return -1;
+
+  while (1) {
+    left = deadline - NowMilliseconds;
+    if (left <= 0) {
+      SetErrno(__NET_ETIMEDOUT);
+      return -1;
+    }
+    pfd.fd = sockfd;
+    pfd.events = __NET_POLLOUT;
+    pfd.revents = 0;
+    n = poll(&pfd, 1, left);
+    if (n > 0)
+      break;
+    if (n == -1 && Errno() != __NET_EINTR)
+      return -1;
+    /* 0 (time is up) or EINTR: the loop checks the deadline again */
+  }
+  if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &err, &len) == -1)
+    return -1;
+  if (err != 0) {
+    SetErrno(err);
+    return -1;
+  }
+  return 0;
+}
+
+public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE,
+    I64 timeout_ms=0)
 {// Returns the connected socket, or -1 on failure
   U8 strport[6];
-  I32 sockfd;
+  I32 sockfd, err = 0;
   addrinfo hints, *servinfo, *ptr;
-  I32 rv;
+  I64 deadline = 0;
 
-  if (port < 0 || port > 65535) {
+  if (port < 0 || port > 65535 || timeout_ms < 0) {
+    SetErrno(__NET_EINVAL);
     return -1;
   }
   snprintf(strport, sizeof(strport), "%d", port);
@@ -459,18 +534,32 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
   hints.ai_socktype = SOCK_STREAM;
   sockfd = -1;
 
-  if ((rv = getaddrinfo(addr, strport, &hints, &servinfo)) != 0) {
+  if (getaddrinfo(addr, strport, &hints, &servinfo) != 0) {
     return -1;
   }
+  /* The name lookup above can't be cut short; the time counts from here */
+  if (timeout_ms > 0)
+    deadline = NowMilliseconds + timeout_ms;
 
   /* connect on the first one we can */
   for (ptr = servinfo; ptr != NULL; ptr = ptr->ai_next) {
     if ((sockfd = NetSocket(ptr->ai_family, ptr->ai_socktype,
             ptr->ai_protocol)) == -1) {
+      err = Errno();
       continue;
     }
 
-    if (connect(sockfd, ptr->ai_addr, ptr->ai_addrlen) == -1) {
+    if (timeout_ms > 0) {
+      if (NetConnectBefore(sockfd, ptr, deadline) == -1) {
+        err = Errno();
+        close(sockfd); /* try the next address with the time that's left */
+        sockfd = -1;
+        if (err == __NET_ETIMEDOUT) break;
+        continue;
+      }
+      if (!non_blocking && !NetSetSocketBlocking(sockfd)) goto error;
+    } else if (connect(sockfd, ptr->ai_addr, ptr->ai_addrlen) == -1) {
+      err = Errno();
       close(sockfd); /* try the next address */
       sockfd = -1;
       continue;
@@ -482,8 +571,7 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
     break;
   }
 
-
-  if (ptr == NULL) {
+  if (sockfd == -1) {
     goto error;
   }
 
@@ -492,8 +580,12 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
   return sockfd;
 
 error:
-  if (sockfd != -1) close(sockfd);
+  if (sockfd != -1) {
+    err = Errno();
+    close(sockfd);
+  }
   freeaddrinfo(servinfo);
+  if (err) SetErrno(err);
   return -1;
 }
 
@@ -841,8 +933,9 @@ public I64 NetRecvFrom(I32 sockfd, U0 *buf, I64 len, U8 *from_addr=NULL,
   return got;
 }
 
-public Bool NetSetRecvTimeout(I32 sockfd, I64 ms)
-{// TRUE if SO_RCVTIMEO was set
+/* SO_RCVTIMEO or SO_SNDTIMEO */
+static Bool NetSetTimeout(I32 sockfd, I32 opt, I64 ms)
+{
   timeval tv;
 
   if (ms < 0)
@@ -851,5 +944,15 @@ public Bool NetSetRecvTimeout(I32 sockfd, I64 ms)
   MemSet(&tv, 0, sizeof(timeval));
   tv.tv_sec = ms / 1000;
   tv.tv_usec = (ms % 1000) * 1000;
-  return setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(timeval)) == 0;
+  return setsockopt(sockfd, SOL_SOCKET, opt, &tv, sizeof(timeval)) == 0;
+}
+
+public Bool NetSetRecvTimeout(I32 sockfd, I64 ms)
+{// TRUE if SO_RCVTIMEO was set
+  return NetSetTimeout(sockfd, SO_RCVTIMEO, ms);
+}
+
+public Bool NetSetSendTimeout(I32 sockfd, I64 ms)
+{// TRUE if SO_SNDTIMEO was set
+  return NetSetTimeout(sockfd, SO_SNDTIMEO, ms);
 }
