@@ -2045,7 +2045,26 @@ static void aarch64EmitFunctionPrologue(Cctrl *cc, AoStr *buf, Ast *func,
                 "mov x29, sp\n\t");
     if (total_stack > 0) {
         u32 aligned = ((u32)total_stack + 15u) & ~15u;
-        aarch64EmitAddSubImm(buf, "sub", "sp", "sp", (s64)aligned);
+        if (aligned > HCC_STACK_PROBE_STRIDE) {
+            /* Stack-clash probe: descend a page at a time, touching each
+             * page, so a frame larger than the guard page can't leap over
+             * it (see the x86_64 prologue). `ldr xzr` touches read-only;
+             * x9 is the backend's scratch and is free this early. Residual
+             * < a page, so the final register sub can't skip a page. */
+            aarch64EmitMovImm(buf, "x9", (s64)aligned);
+            aoStrCatFmt(buf, "1:\n\t");
+            aarch64EmitAddSubImm(buf, "sub", "sp", "sp",
+                                 (s64)HCC_STACK_PROBE_STRIDE);
+            aoStrCatFmt(buf, "ldr xzr, [sp]\n\t");
+            aarch64EmitAddSubImm(buf, "sub", "x9", "x9",
+                                 (s64)HCC_STACK_PROBE_STRIDE);
+            aoStrCatFmt(buf, "cmp x9, #%u, lsl #12\n\t",
+                        HCC_STACK_PROBE_STRIDE >> 12);
+            aoStrCatFmt(buf, "b.hs 1b\n\t");
+            aoStrCatFmt(buf, "sub sp, sp, x9\n\t");
+        } else {
+            aarch64EmitAddSubImm(buf, "sub", "sp", "sp", (s64)aligned);
+        }
     }
 }
 

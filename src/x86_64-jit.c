@@ -1666,13 +1666,36 @@ static void jitEmitInstr(JitFnCtx *ctx, IrInstr *instr) {
 
 /* ---------------- prologue / epilogue ---------------- */
 
+/* Reserve `aligned` bytes of frame, probing each page as rsp descends so
+ * a frame bigger than the guard page faults on overflow instead of
+ * leaping over the guard (matches the AOT prologue). The backward branch
+ * target is a byte offset we patched ourselves. */
+static void jitProbeStack(AsmEnc *enc, uint32_t aligned) {
+    jitEmitMovImm(enc, R_R11, (s64)aligned);
+    size_t top = enc->len;
+    x86_64_enc_subq_imm_reg(enc, R_RSP, (int32_t)HCC_STACK_PROBE_STRIDE);
+    /* Touch the new page (read-only, into rax; rax is scratch here). */
+    x86_64_enc_load_mem(enc, 8, R_RAX, R_RSP, -1, 0, 0);
+    x86_64_enc_subq_imm_reg(enc, R_R11, (int32_t)HCC_STACK_PROBE_STRIDE);
+    x86_64_enc_cmpq_imm_reg(enc, R_R11, (int32_t)HCC_STACK_PROBE_STRIDE);
+    size_t patch = x86_64_enc_jcc_rel32(enc, X86_CC_AE);  /* jae top */
+    int32_t rel = (int32_t)((int64_t)top - (int64_t)(patch + 4));
+    enc->bytes[patch]     = (uint8_t)(rel & 0xFF);
+    enc->bytes[patch + 1] = (uint8_t)((rel >> 8) & 0xFF);
+    enc->bytes[patch + 2] = (uint8_t)((rel >> 16) & 0xFF);
+    enc->bytes[patch + 3] = (uint8_t)((rel >> 24) & 0xFF);
+    x86_64_enc_alu_reg_reg(enc, '-', R_RSP, R_R11);  /* subq %r11, %rsp */
+}
+
 static void jitEmitPrologue(JitFnCtx *ctx) {
     AsmEnc *enc = &ctx->jit->enc;
     if (ctx->omit_frame) return;
     x86_64_enc_pushq_rbp(enc);
     x86_64_enc_mov_rsp_rbp(enc);  /* movq %rsp, %rbp */
     uint32_t aligned = ((uint32_t)ctx->fn->stack_space + 15u) & ~15u;
-    if (aligned > 0) {
+    if (aligned > HCC_STACK_PROBE_STRIDE) {
+        jitProbeStack(enc, aligned);
+    } else if (aligned > 0) {
         x86_64_enc_subq_imm_reg(enc, R_RSP, (int32_t)aligned);
     }
 }

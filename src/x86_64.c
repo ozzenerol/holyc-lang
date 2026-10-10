@@ -2399,7 +2399,29 @@ static void x86_64EmitFunctionPrologue(Cctrl *cc,
          * another 8 - so the frame base is already aligned; the
          * subq has to preserve that. */
         u32 aligned = ((u32)total_stack + 15u) & ~15u;
-        aoStrCatFmt(buf, "subq    $%u, %%rsp\n\t", aligned);
+        if (aligned > HCC_STACK_PROBE_STRIDE) {
+            /* Stack-clash probe: reserve the frame a page at a time,
+             * touching each page as rsp descends, so a frame larger than
+             * the guard page can't leap over it (a pthread/coroutine
+             * stack overflow then faults here instead of silently writing
+             * past the guard). `orq $0` touches without changing memory;
+             * r11 is caller-saved and unused this early. Residual < a
+             * page, so the final sub can't skip a page either. GNU local
+             * labels keep it self-contained. */
+            aoStrCatFmt(buf,
+                        "movq    $%u, %%r11\n\t"
+                        "1:\n\t"
+                        "subq    $%u, %%rsp\n\t"
+                        "orq     $0, (%%rsp)\n\t"
+                        "subq    $%u, %%r11\n\t"
+                        "cmpq    $%u, %%r11\n\t"
+                        "jae     1b\n\t"
+                        "subq    %%r11, %%rsp\n\t",
+                        aligned, HCC_STACK_PROBE_STRIDE,
+                        HCC_STACK_PROBE_STRIDE, HCC_STACK_PROBE_STRIDE);
+        } else {
+            aoStrCatFmt(buf, "subq    $%u, %%rsp\n\t", aligned);
+        }
     }
     /* Pinned saves AFTER reserving locals so rbp-relative offsets
      * for slots stay valid throughout the function body. */
