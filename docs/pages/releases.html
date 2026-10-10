@@ -4,6 +4,19 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.19.2 <small>(2026-10-10)</small></h2>
+<p>An important code generation fix found by building a job runner with hcc, and extern function
+pointers. Tested compiled and in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Fixes</h3>
+<ul>
+  <li>A function with more than about 64 KiB of local variables (<code>U8 buf[65536];</code>) got a stack
+  frame of only the size modulo 65536, so its locals lay below the stack pointer and the next call
+  overwrote them: silent corruption or a crash, on every platform. Frame and local sizes are now 32-bit.</li>
+  <li><code>extern I64 (*fp)(I64);</code> declares a function-pointer global defined elsewhere, such as a
+  library's <code>public</code> one; it was a syntax error.</li>
+</ul>
+
 <h2>v0.19.1 <small>(2026-10-10)</small></h2>
 <p>One code generation fix, tested compiled and in the JIT on Linux x86_64, Linux arm64 and macOS
 arm64.</p>
