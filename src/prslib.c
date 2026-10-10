@@ -1626,6 +1626,9 @@ static int parseGetPriority(Lexeme *tok) {
     }
 }
 
+static Ast *parseCreateBinaryOpAt(Cctrl *cc, AstBinOp operation, Ast *left,
+                                  Ast *right, s64 op_tok);
+
 Ast *parseSubscriptExpr(Cctrl *cc, Ast *ast) {
     Ast *subscript = parseExpr(cc,16);
     if (subscript == NULL) {
@@ -1635,8 +1638,6 @@ Ast *parseSubscriptExpr(Cctrl *cc, Ast *ast) {
                 lexemeTypeToString(tok->tk_type),lexemeAsWritten(tok));
     }
     cctrlTokenExpect(cc, ']');
-    Ast *binop = parseCreateBinaryOp(cc, AST_BIN_OP_ADD, ast, subscript);
-
     if (!astIsIntType(subscript->type)) {
         cctrlRaiseExceptionFromTo(cc, "Subscript expressions must evaluate to an integer type",
             '[', ']',
@@ -1645,6 +1646,10 @@ Ast *parseSubscriptExpr(Cctrl *cc, Ast *ast) {
             astKindToHumanReadable(subscript),
             astTypeToString(subscript->type));
     }
+
+    /* An error points at the `[`: there is no `+` in the source to
+     * rewind to, and looking for one lands on an earlier line. */
+    Ast *binop = parseCreateBinaryOpAt(cc, AST_BIN_OP_ADD, ast, subscript, '[');
 
     if (astTypeIsArray(ast->type) && ast->type->len > 0) {
         int ok = 1;

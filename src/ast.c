@@ -1081,7 +1081,8 @@ start_routine:
             return ast_uint_type;
         }
 
-        if (ptr1->kind != AST_TYPE_INT) {
+        /* Any integer offsets a pointer: I8/U8/Bool are char kind */
+        if (ptr1->kind != AST_TYPE_INT && ptr1->kind != AST_TYPE_CHAR) {
             goto error;
         }
         /* These are the only arithmetic operators for pointers,
@@ -1228,7 +1229,8 @@ check_type:
     {
         ret = e;
         goto out;
-    } else if ((e->kind == AST_TYPE_POINTER || e->kind == AST_TYPE_FUNC) && a->kind == AST_TYPE_INT) {
+    } else if ((e->kind == AST_TYPE_POINTER || e->kind == AST_TYPE_FUNC) && astIsIntType(a)) {
+        /* any integer, I8/U8/Bool too: `p += u8` offsets p like `p += i` */
         if (ast->kind == AST_LITERAL && ast->i64 == 0) {
             ret = e;
             goto out;
