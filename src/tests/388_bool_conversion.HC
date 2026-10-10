@@ -32,7 +32,7 @@ Bool Is(Bool b, I64 want)
 }
 
 I64 Arg(Bool b) { return (&b)(U8 *)[0]; }
-I64 DefArg(Bool b = 0x800) { return b; }   /* (&b of a defaulted param: see QUEUE) */
+I64 DefArg(Bool b = 0x800) { return (&b)(U8 *)[0]; }
 Bool RetInt(I64 x) { return x; }
 Bool RetU64(U64 x) { return x; }
 Bool RetFlt(F64 x) { return x; }

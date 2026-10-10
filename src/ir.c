@@ -1814,8 +1814,10 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
         return irPromoteNarrowInt(ctx, load_dst, ast->type);
     }
     if (astIsUnOpKind(ast, AST_UN_OP_ADDR_OF)) {
-        /* `&lvar` / `&gvar` / `&fn`: produce a pointer value. */
-        Ast *operand = ast->operand;
+        /* `&lvar` / `&gvar` / `&fn`: produce a pointer value. A parameter
+         * with a default value is wrapped in AST_DEFAULT_PARAM: its address
+         * is the parameter's own (the escape walk gave it a slot). */
+        Ast *operand = irUnwrapDefaultParam(ast->operand);
         /* `&*x` cancels to x. Used by the parser for `&arr[i]`
          * which is `&*(arr+i)`. */
         if (astIsUnOpKind(operand, AST_UN_OP_DEREF)) {
