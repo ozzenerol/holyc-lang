@@ -19,7 +19,6 @@ extern "c" U0 _exit(I32 code);
 extern "c" I32 fflush(U0 *stream);
 extern "c" I32 setenv(U8 *name, U8 *value, I32 overwrite);
 
-#define ENOENT 2
 
 ProcOpts *Opts(I64 in, I64 out, I64 err)
 {

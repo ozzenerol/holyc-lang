@@ -740,24 +740,35 @@ public I64 Write(I64 fd, U8 *buf, I64 len);
 
 /* errno values (the ones networking code checks most); they differ
  * between Linux and macOS, so compare Errno() with these names. */
+#define ENOENT          2               /* No such file or directory (or program) */
 #define EINTR           4               /* Interrupted by a signal: retry */
 #define EBADF           9               /* Bad file descriptor */
+#define ECHILD          10              /* No child process to wait for */
+#define EACCES          13              /* Permission denied */
 #define EINVAL          22              /* Invalid argument */
+#define ENFILE          23              /* Too many open files in the system */
+#define EMFILE          24              /* Too many open files in this process */
 #define EPIPE           32              /* Write to a closed pipe or socket */
 #ifdef IS_LINUX
 #define EAGAIN          11              /* Would block: try again later */
 #define EADDRINUSE      98              /* Address (port) already in use */
+#define EADDRNOTAVAIL   99              /* Address not available on this host */
+#define ENETUNREACH     101             /* Network unreachable */
 #define ECONNRESET      104             /* Connection reset by the peer */
 #define ETIMEDOUT       110             /* Timed out */
 #define ECONNREFUSED    111             /* Connection refused */
+#define EHOSTUNREACH    113             /* No route to host */
 #define EINPROGRESS     115             /* Non-blocking connect started */
 #else
 #define EAGAIN          35              /* Would block: try again later */
 #define EINPROGRESS     36              /* Non-blocking connect started */
 #define EADDRINUSE      48              /* Address (port) already in use */
+#define EADDRNOTAVAIL   49              /* Address not available on this host */
+#define ENETUNREACH     51              /* Network unreachable */
 #define ECONNRESET      54              /* Connection reset by the peer */
 #define ETIMEDOUT       60              /* Timed out */
 #define ECONNREFUSED    61              /* Connection refused */
+#define EHOSTUNREACH    65              /* No route to host */
 #endif
 #define EWOULDBLOCK     EAGAIN          /* Same value on Linux and macOS */
 
@@ -769,7 +780,7 @@ public I32 Errno();
  * reports errors through errno. */
 public U0 SetErrno(I32 err);
 
-/* Signals (same numbers on Linux and macOS) and signal(3). signal returns
+/* Signals (each platform's numbers) and signal(3). signal returns
  * the previous handler, or SIG_ERR. SIG_IGN on SIGPIPE makes a write to a
  * closed socket or pipe return -1 with Errno() EPIPE instead of ending
  * the program. */
@@ -785,10 +796,15 @@ public U0 SetErrno(I32 err);
 public extern "c" I64 signal(I32 sig, I64 handler);
 #define SIGQUIT         3               /* Ctrl-\ */
 #define SIGALRM         14              /* alarm() timer */
+#define SIGTTIN         21              /* Background read from the terminal */
+#define SIGTTOU         22              /* Background write to the terminal */
 #ifdef IS_MACOS
 #define SIGUSR1         30              /* For the program's own use */
 #define SIGUSR2         31
 #define SIGCHLD         20              /* A child process ended */
+#define SIGSTOP         17              /* Stop (can't be caught or ignored) */
+#define SIGTSTP         18              /* Ctrl-Z */
+#define SIGCONT         19              /* Continue a stopped process */
 #define SA_RESTART      0x2             /* Restart read/write/... after the handler */
 #define SA_RESETHAND    0x4             /* Back to SIG_DFL once the handler ran */
 #define SA_NODEFER      0x10            /* Don't block the signal in its handler */
@@ -796,6 +812,9 @@ public extern "c" I64 signal(I32 sig, I64 handler);
 #define SIGUSR1         10              /* For the program's own use */
 #define SIGUSR2         12
 #define SIGCHLD         17              /* A child process ended */
+#define SIGCONT         18              /* Continue a stopped process */
+#define SIGSTOP         19              /* Stop (can't be caught or ignored) */
+#define SIGTSTP         20              /* Ctrl-Z */
 #define SA_RESTART      0x10000000      /* Restart read/write/... after the handler */
 #define SA_RESETHAND    0x80000000      /* Back to SIG_DFL once the handler ran */
 #define SA_NODEFER      0x40000000      /* Don't block the signal in its handler */
