@@ -18,14 +18,7 @@ there works as shown.</p>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>JIT and code generation</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>On arm64 (macOS and Linux) a global with an initialiser breaks <code>Main</code>'s <code>argc</code> and <code>argv</code></td>
-        <td><code>I32 g = 7;</code> then <code>I32 Main(I32 argc, U8 **argv)</code> run with two arguments sees <code>argc</code> 7 and <code>argv[1]</code> NULL (AOT and JIT); the same happens with an <code>I64</code> or <code>Bool</code> global. x86_64 is fine, and so are globals without an initialiser and pointers set to a string literal</td>
-        <td>Declare the globals without an initialiser and set them at the top of <code>Main</code></td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Standard library</h2>
 <table>

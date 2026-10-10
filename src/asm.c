@@ -156,11 +156,44 @@ Ast *asmBuildInitialiserMain(Cctrl *cc) {
         }
     }
 
+    /* The process's argc/argv arrive here: pass them on to Main, or the
+     * initialisers above would run over the registers Main reads them
+     * from (x0/x1 on arm64). */
+    Vec *params = astVecNew();
+    Ast *argc_p = astLVar(ast_i32_type, str_lit("__main_argc"));
+    Ast *argv_p = astLVar(astMakePointerType(astMakePointerType(ast_u8_type)),
+                          str_lit("__main_argv"));
+    vecPush(params, argc_p);
+    vecPush(params, argv_p);
+    /* Ids are per function: take ones the file-scope locals don't use */
+    s64 max_id = 0;
+    if (cc->initaliser_locals) {
+        listForEach(cc->initaliser_locals) {
+            Ast *l = (Ast *)it->value;
+            if (l && l->kind == AST_LVAR && l->lvar_id > max_id) {
+                max_id = l->lvar_id;
+            }
+        }
+    }
+    argc_p->lvar_id = max_id + 1;
+    argv_p->lvar_id = max_id + 2;
+
     Ast *user_main = (Ast *)mapGetLen(cc->global_env, str_lit("Main"));
     if (!calls_main && user_main && user_main->kind == AST_FUNC) {
         AstType *rt = user_main->type ? user_main->type->rettype : NULL;
+        Vec *margs = astVecNew();
+        Vec *mp = user_main->params;
+        Ast *p0 = mp && mp->size >= 1 ? (Ast *)mp->entries[0] : NULL;
+        Ast *p1 = mp && mp->size >= 2 ? (Ast *)mp->entries[1] : NULL;
+        if (p0 && astIsIntType(p0->type)) {
+            vecPush(margs, p0->type->size == 4
+                    ? argc_p : astCast(argc_p, p0->type));
+            if (p1 && p1->type && p1->type->kind == AST_TYPE_POINTER) {
+                vecPush(margs, argv_p);
+            }
+        }
         Ast *call = astFunctionCall(rt ? rt : ast_void_type,
-                                    str_lit("Main"), astVecNew());
+                                    str_lit("Main"), margs);
         if (rt && rt->kind != AST_TYPE_VOID) {
             /* Propagate Main's value as the exit code, matching the
              * no-initialiser case where Main *is* the entry point. */
@@ -176,9 +209,8 @@ Ast *asmBuildInitialiserMain(Cctrl *cc) {
     }
 
     Ast *body = astCompountStatement(cc->initalisers);
-    Vec *empty_params = astVecNew();
-    AstType *fn_type = astMakeFunctionType(ast_i32_type, empty_params);
-    return astFunction(fn_type, str_lit("main"), empty_params, body,
+    AstType *fn_type = astMakeFunctionType(ast_i32_type, params);
+    return astFunction(fn_type, str_lit("main"), params, body,
                        cc->initaliser_locals, 0);
 }
 

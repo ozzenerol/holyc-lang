@@ -60,7 +60,10 @@ I32 Main()
   /* code at file scope: runs as before */
   tests++; if (JitRuns("\"top\\n\";\n", TRUE, "top\n")) correct++;
   tests++; if (JitRuns("I64 Two() { return 2; }\n\"%d\\n\", Two;\n", TRUE, "2\n")) correct++;
-  tests++; if (JitRuns("I64 x = 3;\nI64 Foo() { return x; }\n", TRUE, "")) correct++;
+  /* a constant initialiser is static data, like `I64 g;` (no code); one
+   * that calls a function is code at file scope */
+  tests++; if (JitRuns("I64 x = 3;\nI64 Foo() { return x; }\n", FALSE, NO_MAIN_MSG)) correct++;
+  tests++; if (JitRuns("I64 x = StrLen(\"ab\");\nI64 Foo() { return x; }\n", TRUE, "")) correct++;
   /* a Main: runs as before */
   tests++; if (JitRuns("U0 Main() { \"main\\n\"; }\n", TRUE, "main\n")) correct++;
   tests++; if (JitRuns("I32 Main() { return 3; }\n", FALSE, "")) correct++;
