@@ -36,6 +36,9 @@ typedef struct TranspileCtx {
     Set *visiting_types;
     Cctrl *cc;
     AoStr *buf;
+    /* File-scope code (non-constant global initialisers, statements)
+     * went into __hcc_init(), which main() calls first */
+    int has_init;
 } TranspileCtx;
 
 static void transpileFields(TranspileCtx *ctx,
@@ -274,6 +277,7 @@ void transpileInitMaps(void) {
 
 TranspileCtx *transpileCtxNew(Cctrl *cc) {
     TranspileCtx *ctx = (TranspileCtx *)malloc(sizeof(TranspileCtx));
+    ctx->has_init = 0;
     ctx->used_types = setNew(32, &set_cstring_type);
     ctx->used_defines = setNew(32, &set_cstring_type);
     ctx->done_types = setNew(32, &set_cstring_type);
@@ -319,7 +323,16 @@ int transpileCtxShouldEmitDefine(TranspileCtx *ctx, char *name, int len) {
 }
 
 /* make lower camelcase */
+/* Set when file-scope code calls Main itself: the user's Main is then
+ * __hcc_Main and a generated main() runs the file-scope code */
+static int transpile_rename_main = 0;
+
 AoStr *transpileFormatFunction(AoStr *fname) {
+    if (transpile_rename_main && fname->len == 4 &&
+        !memcmp(fname->data, "Main", 4))
+    {
+        return aoStrDupRaw(str_lit("__hcc_Main"));
+    }
     AoStr *dupped = aoStrDup(fname);
     dupped->data[0] = tolower(dupped->data[0]);
     return dupped;
@@ -571,6 +584,17 @@ void transpileUnary(Ast *ast, TranspileCtx *ctx, s64 *indent) {
     s64 saved_indent = *indent;
 
     *indent = 0;
+
+    /* `&Fn`: a function is already written as `&fn` (AST_FUNC) */
+    if (ast->unop == AST_UN_OP_ADDR_OF && ast->operand &&
+        (ast->operand->kind == AST_FUNC ||
+         ast->operand->kind == AST_FUN_PROTO ||
+         ast->operand->kind == AST_EXTERN_FUNC))
+    {
+        transpileAstInternal(ast->operand,ctx,indent);
+        *indent = saved_indent;
+        return;
+    }
 
     /* `*(a + i)`, which is how `a[i]` is parsed, is written as `a[i]`: no
      * `*` in front, which would dereference the element again, and no
@@ -1608,7 +1632,16 @@ AoStr *transpileFunction(Ast *fn, TranspileCtx *ctx) {
     if (fname->len == 4 && !memcmp(fname->data,"main",4)) {
         AstType *c_main_type = astMakeFunctionType(ast_i32_type,
                 fn->type->params);
-        fn_proto = transpileFunctionProto(ctx, c_main_type,"main");
+        AoStr *proto = transpileFunctionProto(ctx, c_main_type,"main");
+        /* C wants `char **argv`: clang rejects `unsigned char **` */
+        fn_proto = aoStrNew();
+        char *at = proto->data, *hit;
+        while ((hit = strstr(at, "unsigned char")) != NULL) {
+            aoStrCatLen(fn_proto, at, hit - at);
+            aoStrCat(fn_proto, "char");
+            at = hit + strlen("unsigned char");
+        }
+        aoStrCat(fn_proto, at);
     } else {
         fn_proto = transpileFunctionProto(ctx, fn->type,fname->data);
     }
@@ -1622,7 +1655,11 @@ AoStr *transpileFunction(Ast *fn, TranspileCtx *ctx) {
                        transpileKeyWordHighlight(ctx,KW_INLINE));
     }
 
-    aoStrCatFmt(function, "%S\n{\n%S}",fn_proto, body);
+    if (ctx->has_init && fname->len == 4 && !memcmp(fname->data,"main",4)) {
+        aoStrCatFmt(function, "%S\n{\n    __hcc_init();\n%S}",fn_proto, body);
+    } else {
+        aoStrCatFmt(function, "%S\n{\n%S}",fn_proto, body);
+    }
     return function;
 }
 
@@ -1803,6 +1840,94 @@ void transpileAstList(Cctrl *cc, TranspileCtx *ctx) {
     }
 }
 
+/* The file's globals (those declared after `after` in cc->ast_list, i.e.
+ * not tos.HH's), each with its type, linkage and constant initialiser;
+ * the initialisers the native backends write as data are C initialisers
+ * here. Non-constant initialisers and other file-scope statements (in
+ * cc->initalisers after `init_after`) go, in source order, into
+ * __hcc_init(), which runs first in main(); without a Main, a main() is
+ * generated to run them. Returns the code for after the functions. */
+/* A global's `{...}` initialiser with its non-constant items (`&gx`, a
+ * variable) as 0: C needs constants there, and those items are stored at
+ * startup (__hcc_init), as the native backends do */
+static Ast *transpileConstInit(Ast *init) {
+    if (!init || init->kind != AST_ARRAY_INIT) return init;
+    List *items = listNew();
+    Ast *copy = astArrayInit(items);
+    copy->type = init->type;
+    listForEach(init->arrayinit) {
+        Ast *item = (Ast *)it->value;
+        if (item && item->kind == AST_ARRAY_INIT) {
+            item = transpileConstInit(item);
+        } else if (item && item->kind != AST_LITERAL &&
+                   item->kind != AST_STRING) {
+            item = astI64Type(0);
+        }
+        listAppend(items, item);
+    }
+    return copy;
+}
+
+static AoStr *transpileGlobals(Cctrl *cc, TranspileCtx *ctx, List *after,
+                               List *init_after)
+{
+    Set *seen = setNew(16, &set_cstring_type);
+    AoStr *tail = aoStrNew();
+    s64 indent = 0;
+
+    for (List *it = after->next; it != cc->ast_list; it = it->next) {
+        Ast *ast = (Ast *)it->value;
+        Ast *var;
+        if (ast->kind == AST_DECL && ast->declvar &&
+            ast->declvar->kind == AST_GVAR)
+        {
+            var = ast->declvar;
+        } else if (ast->kind == AST_GVAR) {
+            var = ast;
+            ast = astDecl(var, NULL);
+        } else {
+            continue;
+        }
+        if ((ast->flags | var->flags) & AST_FLAG_EXTERN) continue;
+        if (setHasLen(seen, var->gname->data, var->gname->len)) continue;
+        setAdd(seen, var->gname->data);
+        if (ast->declinit && ast->declinit->kind == AST_ARRAY_INIT) {
+            ast = astDecl(var, transpileConstInit(ast->declinit));
+        }
+        transpileAstInternal(ast, ctx, &indent);
+        aoStrCat(ctx->buf, ";\n");
+    }
+    setRelease(seen);
+
+    List *stmts = listNew();
+    int calls_main = 0;
+    for (List *it = init_after->next; it != cc->initalisers; it = it->next) {
+        Ast *a = (Ast *)it->value;
+        if (a && a->kind == AST_FUNCALL && a->fname && a->fname->len == 4 &&
+            !memcmp(a->fname->data, "Main", 4))
+        {
+            calls_main = 1;
+        }
+        listAppend(stmts, a);
+    }
+    if (listEmpty(stmts)) return tail;
+
+    Ast *user_main = mapGetLen(cc->global_env, str_lit("Main"));
+    int has_main = user_main && user_main->kind == AST_FUNC;
+    ctx->has_init = 1;
+    if (calls_main) transpile_rename_main = 1;
+    aoStrCat(ctx->buf, "static void __hcc_init(void);\n");
+
+    AoStr *body = transpileAst(astCompountStatement(stmts), ctx);
+    aoStrCatFmt(tail, "static void\n__hcc_init(void)\n{\n%S}\n", body);
+    if (!has_main || calls_main) {
+        ctx->has_init = 0;  /* the user's Main, if any, is __hcc_Main */
+        aoStrCat(tail, "\nint\nmain(void)\n{\n    __hcc_init();\n"
+                       "    return 0;\n}\n");
+    }
+    return tail;
+}
+
 AoStr *transpileIncludes(TranspileCtx *ctx) {
     s64 len = static_size(transpile_used_c_headers);
     AoStr *buf = aoStrNew();
@@ -1819,6 +1944,7 @@ AoStr *transpileIncludes(TranspileCtx *ctx) {
 
 AoStr *transpileToC(Cctrl *cc, CliArgs *args) {
     TranspileCtx *ctx = transpileCtxNew(cc);
+    transpile_rename_main = 0;
     transpileInitMaps();
     
     cc->flags |= (CCTRL_SAVE_ANONYMOUS|CCTRL_PASTE_DEFINES|CCTRL_PRESERVE_SIZEOF|CCTRL_TRANSPILING);
@@ -1839,6 +1965,9 @@ AoStr *transpileToC(Cctrl *cc, CliArgs *args) {
     // we are parsing the built in types
     cc->clsdefs = built_in_types;
     parseToAst(cc);
+    /* What follows in these lists is the file's own */
+    List *ast_mark = cc->ast_list->prev;
+    List *init_mark = cc->initalisers->prev;
 
     lexPushFile(l,aoStrDupRaw(args->infile,strlen(args->infile)));
     cctrlInitParse(cc,l);
@@ -1849,6 +1978,11 @@ AoStr *transpileToC(Cctrl *cc, CliArgs *args) {
     listRelease(l->files,NULL);
 
     AoStr *include_buf = transpileIncludes(ctx);
+
+    /* Globals first: has_init must be known when main() is written */
+    AoStr *global_buf = aoStrNew();
+    transpileCtxSetBuffer(ctx, global_buf);
+    AoStr *init_buf = transpileGlobals(cc, ctx, ast_mark, init_mark);
 
     AoStr *ast_buf = aoStrNew();
     transpileCtxSetBuffer(ctx, ast_buf);
@@ -1866,11 +2000,14 @@ AoStr *transpileToC(Cctrl *cc, CliArgs *args) {
         include_buf,
         define_buf,
         class_buf,
+        global_buf,
         ast_buf,
+        init_buf,
     };
 
     AoStr *code = aoStrAlloc(ast_buf->len + define_buf->len +
-                             class_buf->len);
+                             class_buf->len + global_buf->len +
+                             init_buf->len);
 
     s64 len = static_size(buffers);
     for (s64 i = 0; i < len; ++i) {
