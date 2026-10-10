@@ -47,7 +47,8 @@ I32 Main()
   U8 u3;
   if ((u3 = -1) == 255 && (u3 = 255) == 255) correct++;
   Bool b;
-  if ((b = 258) == 2 && b == 2) correct++;
+  /* Bool is 0 or 1 (value != 0), not the low byte (2) */
+  if ((b = 258) == 1 && b == 1) correct++;
 
   /* Chained assignment through mixed widths. */
   U8 a;

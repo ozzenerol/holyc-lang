@@ -426,6 +426,13 @@ static s64 evalIntDivMod(Ast *ast, int *_ok) {
 s64 evalIntConstExprOrErr(Ast *ast, int *_ok) {
     switch (ast->kind) {
         case AST_CAST: {
+            /* To Bool: 0 or 1, as in C (0.5(Bool) and 0x100(Bool) are 1) */
+            if (ast->type && ast->type->is_bool) {
+                if (astIsFloatType(ast->operand->type)) {
+                    return evalFloatExprOrErr(ast->operand, _ok) != 0.0;
+                }
+                return evalIntConstExprOrErr(ast->operand, _ok) != 0;
+            }
             s64 value = astIsFloatType(ast->operand->type)
                 ? (s64)evalFloatExprOrErr(ast->operand, _ok)
                 : evalIntConstExprOrErr(ast->operand, _ok);

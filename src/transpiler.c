@@ -1245,7 +1245,9 @@ static void transpileTypeInternal(TranspileCtx *ctx, AstType *type, TypeInfo *in
     
     case AST_TYPE_CHAR: {
         AoStr *type_str= aoStrNew();
-        if (type->issigned) aoStrCatFmt(type_str, "char");
+        /* C's _Bool converts like HolyC's Bool: any non-zero value is 1 */
+        if (type->is_bool)       aoStrCatFmt(type_str, "_Bool");
+        else if (type->issigned) aoStrCatFmt(type_str, "char");
         else                aoStrCatFmt(type_str, "unsigned char");
         info->base_name = type_str;
         break;

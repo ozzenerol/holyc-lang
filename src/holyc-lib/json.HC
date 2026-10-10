@@ -297,10 +297,10 @@ static U0 JsonParseStrNum(JsonParser *p)
  * 0: false
  * -1: error
  */
-static Bool JsonParseBool(JsonParser *p)
+static I64 JsonParseBool(JsonParser *p)
 {
   U8 peek = JsonPeek(p);
-  Bool retval = -1;
+  I64 retval = -1;
 
   /* Check if the next character in the buffer is 't' for true */
   if (peek == 't') {

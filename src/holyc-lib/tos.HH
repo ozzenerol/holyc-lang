@@ -1740,13 +1740,13 @@ public extern "c" I32 rmdir(U8 *dirname);
  * removed, never followed, and path itself must not be a symlink. Prints
  * what it removes or fails to remove only with RM_VERBOSE. 0 on
  * success, -1 on failure (also for NULL). */
-public I32 RmDir(U8 *path, Bool flags=0);
+public I32 RmDir(U8 *path, I64 flags=0);
 /* DANGER: remove path, whatever flags are given. A file, symlink (never
  * what it points to), socket or FIFO is unlinked; a directory goes to
  * RmDir(path, flags), so it must be empty unless RM_RECURSE is given.
  * RM_VERBOSE prints what is removed, RM_FORCE makes a path that doesn't
  * exist a success. 0 on success, -1 on failure (also for NULL). */
-public I32 Rm(U8 *path, Bool flags=0);
+public I32 Rm(U8 *path, I64 flags=0);
 /* Make the directory path with mode (minus the umask), and with recurse
  * every missing parent too. Returns 0 if path is a directory afterwards,
  * made now or already there, and -1 if not (NULL or "", a file in the

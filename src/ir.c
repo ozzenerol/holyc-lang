@@ -975,6 +975,28 @@ static IrValue *irGlobalValue(Ast *gvar_ast) {
     return v;
 }
 
+/* A value converted to Bool is 0 or 1, as in C: `value != 0` (a float
+ * against 0.0, a pointer against NULL). Keeping the low byte made 0x100,
+ * 0x800 and 0.5 FALSE and left -1 as -1. Returns `val` unchanged unless
+ * `to` is Bool and `from` isn't. */
+static IrValue *irBoolConvert(IrCtx *ctx, IrValue *val,
+                              AstType *from, AstType *to)
+{
+    if (!val || !to || !to->is_bool) return val;
+    /* A constant is folded whatever its declared type: the parser types
+     * brace-list items and default arguments as the Bool they fill */
+    if (val->kind == IR_VAL_CONST_INT) {
+        return irConstInt(IR_TYPE_I8, val->as._i64 != 0);
+    }
+    if (val->kind == IR_VAL_CONST_FLOAT) {
+        return irConstInt(IR_TYPE_I8, val->as._f64 != 0.0);
+    }
+    if (from && from->is_bool) return val;
+    IrValue *b = irTmp(IR_TYPE_I8, 1);
+    irBlockAddInstr(ctx, irTruthCmp(b, IR_CMP_NE, val));
+    return b;
+}
+
 static int irIsIntLikeCast(AstType *type) {
     /* Intrinsic classes (`I64 class CDate`) are int-shaped at the value
      * level, casting in/out is a pass-through. */
@@ -992,6 +1014,9 @@ static IrValue *irLowerCast(IrCtx *ctx,
                             AstType *from_type,
                             AstType *to_type) {
     if (!from_type || !to_type) return src;
+    if (to_type->is_bool && !from_type->is_bool) {
+        return irBoolConvert(ctx, src, from_type, to_type);
+    }
     /* Intrinsic classes (`I64 class CDate`) are int-shaped at the value
      * level, casting in/out is a pass-through. */
     int from_int = irIsIntLikeCast(from_type);
@@ -1270,8 +1295,14 @@ static IrValue *irLowerAssign(IrCtx *ctx, Ast *ast) {
         irBlockAddInstr(ctx, irInstrNew(ir_op, new_val, cur, rhs));
     }
 
-    /* float<->int assignment needs a real conversion (sitofp/fptosi). */
-    if (tgt.type && ast->right->type &&
+    /* float<->int assignment needs a real conversion (sitofp/fptosi);
+     * to Bool it is a `!= 0` test, also from an int or a pointer. */
+    if (tgt.type && tgt.type->is_bool) {
+        /* A compound result (`b += 1`) is never already 0/1 */
+        AstType *from = astIsBinOpKind(ast, AST_BIN_OP_ASSIGN)
+                      ? ast->right->type : NULL;
+        new_val = irBoolConvert(ctx, new_val, from, tgt.type);
+    } else if (tgt.type && ast->right->type &&
         ((astIsFloatType(ast->right->type) && astIsIntOrIntrinsic(tgt.type)) ||
          (astIsIntOrIntrinsic(ast->right->type) && astIsFloatType(tgt.type))))
     {
@@ -1438,6 +1469,7 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
             } else {
                 IrValue *val = irExpr(ctx, item);
                 AstType *cty = fld ? fld : item->type;
+                val = irBoolConvert(ctx, val, item->type, cty);
                 val = irConvertFloatToTargetWidth(ctx, val, cty);
                 val = irNarrowToTargetWidth(ctx, val, cty);
                 IrValue *field = irTmp(IR_TYPE_PTR, 8);
@@ -1495,6 +1527,7 @@ static int irLowerArrayInitWalk(IrCtx *ctx,
         IrValue *val = irExpr(ctx, item);
         AstType *narrow_ty = (parent_is_array && elem_ty)
                              ? elem_ty : item->type;
+        val = irBoolConvert(ctx, val, item->type, narrow_ty);
         val = irNarrowToTargetWidth(ctx, val, narrow_ty);
         IrValue *field = irTmp(IR_TYPE_PTR, 8);
         IrValue *off = irConstInt(IR_TYPE_I64, offset_bytes);
@@ -1937,6 +1970,8 @@ IrValue *irLowerUnOp(IrCtx *ctx, Ast *ast) {
     IrValue *new_val = irTmp(ir_type, size);
     IrInstr *op = irInstrNew(op_kind, new_val, cur, delta);
     irBlockAddInstr(ctx, op);
+    /* Bool: ++ gives 1 and -- toggles, as in C */
+    new_val = irBoolConvert(ctx, new_val, NULL, val_type);
     IrOp store_op = indirect ? IR_STORE_DEREF : IR_STORE;
     irBlockAddInstr(ctx, irInstrNew(store_op, target, new_val, NULL));
 
@@ -2046,7 +2081,9 @@ void irLowerReturn(IrCtx *ctx, Ast *ast) {
             /* float<->int return (`F64 f(I64 u) { return u; }`) needs a
              * real conversion (sitofp/fptosi) like an assignment does,
              * not a raw bit copy into the return slot. */
-            if (ast->type && ast->retval->type &&
+            if (ast->type && ast->type->is_bool) {
+                val = irBoolConvert(ctx, val, ast->retval->type, ast->type);
+            } else if (ast->type && ast->retval->type &&
                 ((astIsFloatType(ast->retval->type) && astIsIntOrIntrinsic(ast->type)) ||
                  (astIsIntOrIntrinsic(ast->retval->type) && astIsFloatType(ast->type))))
             {
@@ -2493,7 +2530,9 @@ void irLowerDecl(IrCtx *ctx, Ast *ast) {
                      * float return assigned to an int (or vice versa)
                      * needs a real fcvt, not a raw register spill. Same
                      * chain as the scalar `default` initialiser path. */
-                    if ((astIsFloatType(init->type) && astIsIntOrIntrinsic(var->type)) ||
+                    if (var->type->is_bool) {
+                        ret = irBoolConvert(ctx, ret, init->type, var->type);
+                    } else if ((astIsFloatType(init->type) && astIsIntOrIntrinsic(var->type)) ||
                         (astIsIntOrIntrinsic(init->type) && astIsFloatType(var->type)))
                     {
                         ret = irLowerCast(ctx, ret, init->type, var->type);
@@ -2541,7 +2580,9 @@ void irLowerDecl(IrCtx *ctx, Ast *ast) {
                 ir_init = irExpr(ctx, init);
                 /* float<->int initialiser (`I64 j = f32v;`) needs a real
                  * conversion (sitofp/fptosi), not a raw bit copy. */
-                if ((astIsFloatType(init->type) && astIsIntOrIntrinsic(var->type)) ||
+                if (var->type->is_bool) {
+                    ir_init = irBoolConvert(ctx, ir_init, init->type, var->type);
+                } else if ((astIsFloatType(init->type) && astIsIntOrIntrinsic(var->type)) ||
                     (astIsIntOrIntrinsic(init->type) && astIsFloatType(var->type)))
                 {
                     ir_init = irLowerCast(ctx, ir_init, init->type, var->type);

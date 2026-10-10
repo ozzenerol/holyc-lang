@@ -15,7 +15,7 @@ static I32 MkDirIfNotExist(U8 *path, I32 mode=MKDIR_DEFAULT)
   return -1;
 }
 
-public I32 RmDir(U8 *path, Bool flags=0)
+public I32 RmDir(U8 *path, I64 flags=0)
 {
   I32 is_verbose = flags & RM_VERBOSE, result,r2;
   I64 pathlen,buflen;
@@ -102,7 +102,7 @@ public I32 RmDir(U8 *path, Bool flags=0)
   return result;
 }
 
-public I32 Rm(U8 *path, Bool flags=0)
+public I32 Rm(U8 *path, I64 flags=0)
 { /* DANGER Remove a file or directory, this is powerful but can cause a world 
    * of pain */
   I32 result;
