@@ -39,6 +39,7 @@ MODULES = [
     ("except.HC",    "Exceptions",        "The runtime behind try / catch / throw."),
     ("threads.HC",   "Threads",           "pthreads bindings and helpers."),
     ("net.HC",       "Networking",        "Sockets and address resolution."),
+    ("process.HC",   "Processes",         "Running programs by argv without a shell, with pipes."),
     ("coroutines.HC","Coroutines",        "Functions that pause and resume on their own stacks."),
     ("sqllite.HC",   "SQLite",            "SQLite bindings, available when hcc is built with sqlite."),
     (None,           "Other declarations","Declared in tos.HH but not defined in a library .HC file."),
