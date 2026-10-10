@@ -1049,6 +1049,85 @@ AstType *parseUnionDef(Cctrl *cc) {
     return _union;
 }
 
+/* No `/` or `%` in `ast` has a divisor that folds to 0 (folding it would
+ * divide by zero in the compiler) */
+static int parseConstFoldSafe(Ast *ast) {
+    if (!ast) return 1;
+    switch (ast->kind) {
+        case AST_BINOP:
+            if (ast->binop == AST_BIN_OP_DIV || ast->binop == AST_BIN_OP_MOD) {
+                int ok = 1;
+                if (!astIsFloatType(ast->right->type) &&
+                    parseConstFoldSafe(ast->right) &&
+                    evalIntConstExprOrErr(ast->right, &ok) == 0 && ok)
+                {
+                    return 0;
+                }
+            }
+            return parseConstFoldSafe(ast->left) &&
+                   parseConstFoldSafe(ast->right);
+        case AST_UNOP:
+        case AST_CAST:
+            return parseConstFoldSafe(ast->operand);
+        default:
+            return 1;
+    }
+}
+
+/* A scalar global's initialiser that is a constant expression, folded to a
+ * literal of the global's type, to be written out as static data like an
+ * array's: then it holds its value before anything runs, also in a -lib
+ * library (no main), and the generated main doesn't need to store it.
+ * NULL when `rhs` isn't constant: it is stored at startup instead. The
+ * REPL keeps running the stores, as it runs every top-level statement. */
+static Ast *parseConstGlobalInit(Cctrl *cc, Ast *var, Ast *rhs) {
+    AstType *t = var->type;
+    Ast *lit;
+    int ok = 1;
+
+    if ((cc->flags & CCTRL_REPL) || !t || !rhs || !rhs->type ||
+        !parseConstFoldSafe(rhs))
+    {
+        return NULL;
+    }
+    if (astIsFloatType(t)) {
+        if (!astIsFloatType(rhs->type) && !astIsIntType(rhs->type)) {
+            return NULL;
+        }
+        double v = evalFloatExprOrErr(rhs, &ok);
+        if (!ok) return NULL;
+        if (t->size == 4) v = (double)(float)v;
+        lit = astF64Type(v);
+    } else if (astIsIntType(t) && !t->is_intrinsic) {
+        s64 v;
+        if (astIsFloatType(rhs->type)) {
+            double f = evalFloatExprOrErr(rhs, &ok);
+            v = t->is_bool ? f != 0 : (s64)f;
+        } else if (astIsIntType(rhs->type)) {
+            v = evalIntConstExprOrErr(rhs, &ok);
+        } else {
+            return NULL;
+        }
+        if (!ok) return NULL;
+        /* Converted as an assignment converts: a Bool is 0 or 1 (value
+         * != 0), `U8 g = 300` is 44 */
+        if (t->is_bool) {
+            v = v != 0;
+        } else if (t->size > 0 && t->size < 8) {
+            u64 mask = (1ULL << (t->size * 8)) - 1;
+            v &= mask;
+            if (t->issigned && (v & (s64)(mask ^ (mask >> 1)))) {
+                v |= ~mask;
+            }
+        }
+        lit = astI64Type(v);
+    } else {
+        return NULL;
+    }
+    lit->type = astTypeCopy(t);
+    return lit;
+}
+
 /* A global's `{...}` initialiser is written out as static data, which only
  * holds literals and string addresses (asmInitImage). Any other item -
  * `&gx`, `&Foo`, `gx`, `&arr[1]` - is not known until the program runs,
@@ -4076,6 +4155,12 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                     parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
                     return ast_decl;
                 }
+                Ast *folded = parseConstGlobalInit(cc, variable, rhs);
+                if (folded) {
+                    ast_decl->declinit = folded;
+                    parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
+                    return ast_decl;
+                }
                 int is_err = 0;
                 Ast *assign = astBinaryOp(AST_BIN_OP_ASSIGN, variable,
                                           rhs, &is_err);
@@ -4101,7 +4186,15 @@ Ast *parseToplevelDef(Cctrl *cc, int *is_global) {
                 ast_expr = parseExpr(cc,16); // parseVariableInitialiser(cc,variable,PUNCT_TERM_COMMA|PUNCT_TERM_SEMI);
             }
 
-            if (ast_expr->right->kind != AST_STRING) {
+            Ast *folded = NULL;
+            if (!is_fnptr && ast_expr->right->kind != AST_STRING) {
+                folded = parseConstGlobalInit(cc, variable, ast_expr->right);
+            }
+            if (folded) {
+                ast_decl->declinit = folded;
+                parseGlobalDeclListNext(cc,cctrlTokenGet(cc),base_type);
+                return ast_decl;
+            } else if (ast_expr->right->kind != AST_STRING) {
                 *is_global = 1;
             } else {
                 ast_decl->declinit = ast_expr->right;

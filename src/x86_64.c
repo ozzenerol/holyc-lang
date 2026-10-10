@@ -2533,10 +2533,11 @@ static void x86_64DataInternal(AoStr *buf, Ast *data) {
         return;
     }
     switch (data->type->size) {
-        case 1: aoStrCatPrintf(buf, ".byte %d\n\t", data->i64); break;
-        case 2: aoStrCatPrintf(buf, ".short %d\n\t", data->i64); break;
-        case 4: aoStrCatPrintf(buf, ".long %d\n\t", data->i64); break;
-        case 8: aoStrCatPrintf(buf, ".quad %d\n\t", data->i64); break;
+        /* %lld: the value is 64 bits (`I64 g = -3000000000`) */
+        case 1: aoStrCatPrintf(buf, ".byte %lld\n\t", (long long)data->i64); break;
+        case 2: aoStrCatPrintf(buf, ".short %lld\n\t", (long long)data->i64); break;
+        case 4: aoStrCatPrintf(buf, ".long %lld\n\t", (long long)data->i64); break;
+        case 8: aoStrCatPrintf(buf, ".quad %lld\n\t", (long long)data->i64); break;
         default:
             loggerPanic("Cannot create size information for: %s\n",
                         astToString(data));

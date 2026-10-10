@@ -182,6 +182,9 @@ typedef struct AstType {
     Map *fields;
     int offset;
     int is_intrinsic;
+    /* Bool: a 1-byte char type, but a value converted to it becomes 0 or
+     * 1 (value != 0), as in C, instead of keeping its low byte. */
+    u8 is_bool;
     /* On a class field: a union member after the first one (directly or
      * through an anonymous class/union flattened into the class). A
      * union takes one initialiser item, for its first member, so

@@ -100,11 +100,9 @@ public Bool SigHandle(I32 sig, I64 handler, I32 flags=SIG_SA_RESTART,
   return SigAction(sig, &a, old);
 }
 
-/* No initializers: a scalar global's initializer doesn't run in the
- * library (it is a store in a program's main), so zero means unset */
-static Bool sig_stop_ready;
-static I32 sig_stop_rfd, sig_stop_wfd;
-static I64 sig_stop_sig;
+/* The pipe SigStopInit made, -1 before; the signal that asked to stop */
+static I32 sig_stop_rfd = -1, sig_stop_wfd = -1;
+static I64 sig_stop_sig = 0;
 
 /* Runs in the signal: only a store and write(2), and errno is left as
  * the interrupted code had it. */
@@ -128,7 +126,7 @@ static U0 SigStopHandler(I32 sig)
 public I32 SigStopInit()
 {
   I32 fds[2];
-  if (sig_stop_ready) return sig_stop_rfd;
+  if (sig_stop_rfd != -1) return sig_stop_rfd;
   if (pipe(fds) != 0) return -1;
   fcntl(fds[0], SIG_F_SETFD, 1);
   fcntl(fds[1], SIG_F_SETFD, 1);
@@ -136,7 +134,6 @@ public I32 SigStopInit()
   fcntl(fds[1], SIG_F_SETFL, fcntl(fds[1], SIG_F_GETFL, 0) | SIG_O_NONBLOCK);
   sig_stop_rfd = fds[0];
   sig_stop_wfd = fds[1];
-  sig_stop_ready = TRUE;
   SigHandle(SIG_SIGINT, (&SigStopHandler)(I64), SIG_SA_RESTART | SIG_SA_RESETHAND);
   SigHandle(SIG_SIGTERM, (&SigStopHandler)(I64), SIG_SA_RESTART | SIG_SA_RESETHAND);
   return sig_stop_rfd;
