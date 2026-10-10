@@ -783,6 +783,66 @@ public U0 SetErrno(I32 err);
 #define SIG_ERR         -1              /* signal() failed */
 /* handler is SIG_DFL, SIG_IGN or a U0 F(I32 sig) as (&F)(I64) */
 public extern "c" I64 signal(I32 sig, I64 handler);
+#define SIGQUIT         3               /* Ctrl-\ */
+#define SIGALRM         14              /* alarm() timer */
+#ifdef IS_MACOS
+#define SIGUSR1         30              /* For the program's own use */
+#define SIGUSR2         31
+#define SIGCHLD         20              /* A child process ended */
+#define SA_RESTART      0x2             /* Restart read/write/... after the handler */
+#define SA_RESETHAND    0x4             /* Back to SIG_DFL once the handler ran */
+#define SA_NODEFER      0x10            /* Don't block the signal in its handler */
+#else
+#define SIGUSR1         10              /* For the program's own use */
+#define SIGUSR2         12
+#define SIGCHLD         17              /* A child process ended */
+#define SA_RESTART      0x10000000      /* Restart read/write/... after the handler */
+#define SA_RESETHAND    0x80000000      /* Back to SIG_DFL once the handler ran */
+#define SA_NODEFER      0x40000000      /* Don't block the signal in its handler */
+#endif
+
+/* sigaction(2) (signals.HC). A handler runs in the middle of whatever
+ * the program was doing, on whichever thread the signal reached, so it
+ * may only: store to a global (I64, Bool), call write(2), _exit, kill or
+ * raise, and save/restore Errno() around them. Not MAlloc/Free, printing,
+ * StrPrint, throw, mutexes or anything else that takes a lock: the
+ * interrupted code may hold it. Actions are per process (every thread);
+ * a signal sent to the process goes to one thread that doesn't block it
+ * (pthread_sigmask, not wrapped here, blocks it per thread). signal()
+ * sets the same action as SigHandle(sig, handler, SA_RESTART) on Linux
+ * and macOS, and the two can be mixed. */
+public class SigAct
+{
+  I64 handler;  /* SIG_DFL, SIG_IGN, or a U0 F(I32 sig) as (&F)(I64) */
+  U64 mask;     /* signals blocked while it runs: SigBit(s) | ... */
+  I32 flags;    /* SA_RESTART, SA_RESETHAND, SA_NODEFER */
+};
+/* The bit for signal sig in SigAct.mask (0 outside 1..64). */
+public U64 SigBit(I32 sig);
+/* Set the action for sig to *act (unless act is NULL) and store the
+ * previous one in *old (unless old is NULL). FALSE on failure, Errno()
+ * says why (EINVAL: a bad number, SIGKILL or SIGSTOP). Without
+ * SA_RESTART a blocking read, write, accept, ... interrupted by the
+ * handler returns -1 with Errno() EINTR; poll() always does. */
+public Bool SigAction(I32 sig, SigAct *act, SigAct *old=NULL);
+/* SigAction in one call: handler for sig with flags and mask, the
+ * previous action in *old if given. */
+public Bool SigHandle(I32 sig, I64 handler, I32 flags=SA_RESTART,
+                      U64 mask=0, SigAct *old=NULL);
+/* Clean shutdown for a poll() loop: after this, SIGINT or SIGTERM sets
+ * SigStopRequested and makes the returned fd readable (put it in the
+ * poll set; reading it is optional). A second SIGINT or SIGTERM ends the
+ * program as usual. The fd is non-blocking and close-on-exec; later calls
+ * return the same fd, -1 if the pipe can't be made. Call it once, before
+ * starting threads. */
+public I32 SigStopInit();
+/* TRUE once SIGINT or SIGTERM arrived after SigStopInit. */
+public Bool SigStopRequested();
+/* Which signal requested the stop (SIGINT or SIGTERM), 0 if none. */
+public I32 SigStopSignal();
+/* Send sig to the calling thread / to process pid (-pid: its group). */
+public extern "c" I32 raise(I32 sig);
+public extern "c" I32 kill(I32 pid, I32 sig);
 
 /* Call the shell with `printf`-like formatting. fmt is always formatted,
  * also without arguments, so write %% for a literal %. Returns what

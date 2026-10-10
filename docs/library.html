@@ -557,6 +557,59 @@ inherits none of your sockets or files. <code>System</code>, <code>Sh</code> and
 are still the tools for shell pipelines, globs and redirections; use the <code>Proc</code>
 functions whenever an argument comes from a file name or user input.</p>
 
+<h2 id="signals">Signals</h2>
+<p><code>SigHandle(sig, handler, flags, mask, &amp;old)</code> sets what happens when a signal arrives:
+<code>SIG_DFL</code>, <code>SIG_IGN</code>, or a function <code>U0 F(I32 sig)</code> passed as
+<code>(&amp;F)(I64)</code>. <code>flags</code> defaults to <code>SA_RESTART</code>, which makes a
+blocking <code>read</code>, <code>write</code> or <code>accept</code> carry on after the handler; pass 0 to
+have it return -1 with <code>Errno() == EINTR</code> instead (<code>poll</code> always does).
+<code>mask</code> (<code>SigBit(SIGUSR2) | ...</code>) holds other signals back while the handler runs,
+and <code>old</code>, if given, receives the previous action, so it can be put back with
+<code>SigAction(sig, &amp;old)</code>. <code>signal(sig, handler)</code> is the same as
+<code>SigHandle</code> with <code>SA_RESTART</code>, and the two can be mixed.</p>
+<pre data-run><code>I64 hits = 0;
+U0 OnUsr1(I32 sig)
+{
+  hits++;
+}
+
+U0 Main()
+{
+  SigAct old;
+  SigHandle(SIGUSR1, (&amp;OnUsr1)(I64), SA_RESTART, 0, &amp;old);
+  raise(SIGUSR1);
+  raise(SIGUSR1);
+  SigAction(SIGUSR1, &amp;old);      // back to what it was
+  "%d signals, previous handler SIG_DFL: %d\n", hits, old.handler == SIG_DFL;
+}
+</code></pre>
+<pre class="output">2 signals, previous handler SIG_DFL: 1
+</pre>
+<p>A handler interrupts the program wherever it is, on whichever thread the signal reached, so it
+may only set a global variable, call <code>write</code>, <code>_exit</code>, <code>kill</code> or
+<code>raise</code>, and keep <code>Errno()</code> as it found it. Allocating, printing,
+<code>throw</code> or taking a mutex there can deadlock or corrupt memory: the interrupted code may be
+in the middle of the same thing. Actions are shared by all threads, and a signal sent to the
+process is handled by one of them, whichever doesn't block it.</p>
+<p>For a server built around <code>poll()</code>, <code>SigStopInit()</code> does this for SIGINT and
+SIGTERM: it returns an fd to add to the poll set, which becomes readable when either signal
+arrives, and from then on <code>SigStopRequested()</code> is TRUE (<code>SigStopSignal()</code> says
+which one came). The loop finishes what it is doing and returns. A second Ctrl-C ends the program
+as usual, in case the loop never gets there.</p>
+<pre data-run><code>U0 Main()
+{
+  I32 fd = SigStopInit();
+  pollfd p;
+  p.fd = fd;
+  p.events = POLLIN;
+  raise(SIGTERM);                // as if `kill` had been run on us
+  if (poll(&amp;p, 1, 1000) == 1 &amp;&amp; SigStopRequested())
+    "stopping cleanly after signal %d\n", SigStopSignal();
+}
+</code></pre>
+<pre class="output">stopping cleanly after signal 15
+</pre>
+
 <h2 id="lists">Lists</h2>
 <p><code>List</code> is a circular doubly linked list of <code>U0 *</code> values. The list
 is its head node, which links to itself when the list is empty, so iterate from
