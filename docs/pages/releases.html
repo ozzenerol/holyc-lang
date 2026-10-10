@@ -4,6 +4,26 @@
 Linux arm64 and macOS are attached to each release on
 <a href="https://github.com/ozzenerol/holyc-lang/releases">GitHub</a>.</p>
 
+<h2>v0.19.3 <small>(2026-10-10)</small></h2>
+<p>Fixes from building a shell and a duplicate-file finder with hcc, and stack overflow safety. Tested
+compiled and in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
+
+<h3>Fixes</h3>
+<ul>
+  <li>On macOS a program started by <code>ProcSpawn</code> had no stdin, stdout or stderr when they were
+  inherited, the default, so most programs failed there.</li>
+  <li><code>-jit -Memsafe</code> crashed as soon as a thread allocated memory; it now tracks every
+  thread, and leaks and double frees in threads are reported.</li>
+  <li>A function whose frame is bigger than a page touches each page as it reserves the frame, so a stack
+  overflow in a thread or coroutine (whose guard page is small) crashes instead of silently writing over
+  other memory. Frames up to a page cost nothing extra.</li>
+  <li><code>ENOENT</code>, <code>EACCES</code> and <code>ECHILD</code>, which the process docs name, were
+  missing. Added with them: <code>ENFILE</code>, <code>EMFILE</code>, <code>EADDRNOTAVAIL</code>,
+  <code>ENETUNREACH</code>, <code>EHOSTUNREACH</code>, and the job-control signals <code>SIGCONT</code>,
+  <code>SIGSTOP</code>, <code>SIGTSTP</code>, <code>SIGTTIN</code> and <code>SIGTTOU</code>, all with each
+  platform's values.</li>
+</ul>
+
 <h2>v0.19.2 <small>(2026-10-10)</small></h2>
 <p>An important code generation fix found by building a job runner with hcc, and extern function
 pointers. Tested compiled and in the JIT on Linux x86_64, Linux arm64 and macOS arm64.</p>
