@@ -145,7 +145,9 @@ docker/test.sh --full                  # every build configuration (gcc, clang, 
 
 Tests are `src/tests/NN_name.HC`; the runners pick up every numbered file and run
 it both ahead of time and in the JIT, `JOBS` at a time (default: one per CPU),
-each in its own working directory and `TMPDIR`. A bug fix comes with a test that
+each in its own working directory and `TMPDIR`. A test still running after
+`HCC_TEST_TIMEOUT` seconds (default 60, `0` for no limit) is killed with everything
+it started and reported as `FAILED ... timed out`. A bug fix comes with a test that
 fails before the fix and passes after it.
 
 ## Differences from TempleOS HolyC

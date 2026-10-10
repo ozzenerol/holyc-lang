@@ -58,7 +58,9 @@
 </table>
 <p>Set <code>INSTALL_PREFIX=$HOME/.local</code> to install somewhere else, and
 <code>CC=clang</code> to choose the C compiler, and <code>JOBS=4</code> to build and
-run the tests 4 at a time instead of one per CPU. The classic route also works:
+run the tests 4 at a time instead of one per CPU. A test that runs longer than
+<code>HCC_TEST_TIMEOUT</code> seconds (default 60, <code>0</code> for no limit) is
+stopped and reported as failed. The classic route also works:
 <code>make &amp;&amp; sudo make install</code>.</p>
 
 <div class="note"><p><strong>Without installing.</strong> A program needs the standard library to

@@ -15,7 +15,8 @@
 #
 # Run as your normal user, not with sudo.
 #
-# Env overrides: CC, JOBS (make and test parallelism), INSTALL_PREFIX
+# Env overrides: CC, JOBS (make and test parallelism), INSTALL_PREFIX,
+# HCC_TEST_TIMEOUT (seconds before a test is killed, default 60, 0 = none)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
