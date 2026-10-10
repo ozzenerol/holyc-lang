@@ -769,6 +769,12 @@ static void parseCoerceArgs(Ast *def, Vec *argv) {
         if (!type)
             continue;
 
+        /* Bool: 0 or 1 (arg != 0), not the low byte of a wider value */
+        if (type->is_bool && !arg->type->is_bool) {
+            argv->entries[i] = astCast(arg, type);
+            continue;
+        }
+
         int want_float = astIsFloatType(type);
         int want_int   = astIsIntOrIntrinsic(type);
         int got_float  = astIsFloatType(arg->type);
@@ -1405,6 +1411,9 @@ static Ast *parseIdentifierOrFunction(Cctrl *cc,
                 parseFunctionArgumentCheck(cc,ast,argv,ast->fname->data,ast->fname->len,&loc);
                 parseFlattenDefaultArgs(ast, argv);
                 parseAddEmptyVarArgCount(ast, argv);
+                /* Default values convert to their parameter's type here
+                 * too (a Bool default of 0x800 is 1), as with parens */
+                parseCoerceArgs(ast, argv);
                 if (ast->flags & AST_FLAG_INLINE && !(cc->flags & CCTRL_TRANSPILING)) {
                     if (ast->kind == AST_ASM_FUNC_BIND || ast->kind == AST_ASM_FUNCDEF) {
                         Ast *call = astAsmFunctionCall(ast->type->rettype, aoStrDup(ast->asmfname), argv);

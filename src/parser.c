@@ -158,6 +158,19 @@ static Ast *parseFoldInitElement(Ast *init, AstType *dst) {
     if (init->kind == AST_STRING || init->kind == AST_ARRAY_INIT) {
         return init;
     }
+    if (dst->is_bool) {
+        /* 0 or 1, as in C: `Bool b[] = {0x100, 0.5}` is {1, 1} */
+        int ok = 1;
+        s64 v = (init->type && astIsFloatType(init->type))
+              ? evalFloatExprOrErr(init, &ok) != 0.0
+              : evalIntConstExprOrErr(init, &ok) != 0;
+        if (!ok) {
+            return init;
+        }
+        Ast *lit = astI64Type(v);
+        lit->type = astTypeCopy(dst);
+        return lit;
+    }
     if (astIsIntType(dst)) {
         int ok = 1;
         s64 v = evalIntConstExprOrErr(init, &ok);

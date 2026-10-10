@@ -237,6 +237,7 @@ static void cctrlAddBuiltinTypes(Map *symbol_table) {
         type->size = built_in->size;
         type->issigned = built_in->issigned;
         type->kind = built_in->kind;
+        type->is_bool = !strcmp(built_in->name, "Bool");
         type->ptr = NULL;
         mapAdd(symbol_table, built_in->name, type);
     }

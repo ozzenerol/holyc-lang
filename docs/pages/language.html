@@ -74,7 +74,7 @@ U0 Main()
   <thead><tr><th>Type</th><th>Size</th><th>Meaning</th></tr></thead>
   <tbody>
     <tr><td><code>U0</code></td><td>0</td><td>Nothing, like C's <code>void</code></td></tr>
-    <tr><td><code>Bool</code></td><td>1</td><td><code>TRUE</code> (1) or <code>FALSE</code> (0)</td></tr>
+    <tr><td><code>Bool</code></td><td>1</td><td><code>TRUE</code> (1) or <code>FALSE</code> (0): any other value converted to it is 1 if it isn't 0</td></tr>
     <tr><td><code>I8</code> / <code>U8</code></td><td>1</td><td>Signed / unsigned byte; <code>U8</code> is the character type</td></tr>
     <tr><td><code>I16</code> / <code>U16</code></td><td>2</td><td>16-bit integers</td></tr>
     <tr><td><code>I32</code> / <code>U32</code></td><td>4</td><td>32-bit integers</td></tr>
@@ -85,6 +85,22 @@ U0 Main()
 </table>
 <p>Pointers are written as in C (<code>U8 *s</code>, <code>I64 **pp</code>) and are 8 bytes.
 <code>NULL</code> is 0.</p>
+<p>As in C, a value becomes a <code>Bool</code> by comparing it with 0: an integer, float
+or pointer that isn't 0 (or <code>NULL</code>) is <code>TRUE</code>, whether it is assigned,
+passed as an argument, returned, stored in a field or cast with <code>x(Bool)</code>. Only the
+low byte is never kept, so <code>0x100</code> and <code>0.5</code> are <code>TRUE</code>.</p>
+<pre data-run><code>
+Bool IsSet(I64 flags, I64 bit) { return flags & bit; }
+
+U0 Main()
+{
+  Bool b = 0x100;
+  "%d %d %d %d\n", b, IsSet(0x800, 0x800), 0.5(Bool), (-1)(Bool);
+}
+</code></pre>
+<pre class="output">
+1 1 1 1
+</pre>
 <pre data-run><code>
 U0 Main()
 {
