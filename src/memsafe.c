@@ -19,6 +19,7 @@
 #include <dlfcn.h>
 #include <malloc.h> /* malloc_usable_size */
 #endif
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +65,54 @@ static uintptr_t memsafe_stack_lo = 0;
 static uintptr_t memsafe_stack_hi = 0;
 #endif
 
+/* The wrappers are called from any thread: the live map and the ring
+ * are shared, so every entry point holds this. Recursive, as ReAlloc
+ * goes through MAlloc and Free. */
+static pthread_mutex_t memsafe_lock;
+static int memsafe_lock_ready = 0;
+
+static void memsafeLock(void) {
+    if (memsafe_lock_ready) pthread_mutex_lock(&memsafe_lock);
+}
+
+static void memsafeUnlock(void) {
+    if (memsafe_lock_ready) pthread_mutex_unlock(&memsafe_lock);
+}
+
+/* [lo, hi) of the calling thread's stack, looked up once per thread;
+ * both 0 if the system won't say. */
+static __thread uintptr_t memsafe_tstack_lo = 0;
+static __thread uintptr_t memsafe_tstack_hi = 0;
+static __thread int memsafe_tstack_known = 0;
+
+static void memsafeThreadStack(uintptr_t *lo, uintptr_t *hi) {
+    if (!memsafe_tstack_known) {
+        memsafe_tstack_known = 1;
+#if defined(__APPLE__)
+        pthread_t self = pthread_self();
+        uintptr_t top = (uintptr_t)pthread_get_stackaddr_np(self);
+        size_t size = pthread_get_stacksize_np(self);
+        if (top && size) {
+            memsafe_tstack_hi = top;
+            memsafe_tstack_lo = top - size;
+        }
+#else
+        pthread_attr_t attr;
+        if (pthread_getattr_np(pthread_self(), &attr) == 0) {
+            void *addr = NULL;
+            size_t size = 0;
+            if (pthread_attr_getstack(&attr, &addr, &size) == 0 && addr) {
+                memsafe_tstack_lo = (uintptr_t)addr;
+                memsafe_tstack_hi = (uintptr_t)addr + size;
+            }
+            pthread_attr_destroy(&attr);
+        }
+#endif
+    }
+    *lo = memsafe_tstack_lo;
+    *hi = memsafe_tstack_hi;
+}
+
 void memsafeSetRound(int round) {
     memsafe_round = round;
 }
@@ -77,9 +126,15 @@ static int memsafeCallSites(uintptr_t *out, int max) {
     int n = 0;
     uintptr_t fp = (uintptr_t)__builtin_frame_address(0);
     uintptr_t prev = 0;
+    /* A thread's chain doesn't end in a NULL frame pointer the way the
+     * main thread's does (its start routine may not keep one): stay
+     * inside this thread's stack. */
+    uintptr_t lo, hi;
+    memsafeThreadStack(&lo, &hi);
     for (int depth = 0; depth < 32 && fp && n < max; ++depth) {
         if (fp & 7) break;
         if (prev && fp <= prev) break;
+        if (hi > lo && (fp < lo || fp + 2 * sizeof(uintptr_t) > hi)) break;
         uintptr_t ret = ((uintptr_t *)fp)[1];
         uintptr_t next = ((uintptr_t *)fp)[0];
         if (ret && hccJitFindChunk(jit, (void *)ret)) out[n++] = ret;
@@ -213,6 +268,9 @@ static int memsafeIsWild(void *p) {
     uintptr_t a = (uintptr_t)p;
     if ((a & 15) != 8) return 1;
     if (a >= memsafe_stack_lo && a < memsafe_stack_hi) return 1;
+    uintptr_t tlo, thi;  /* this thread's stack, when it isn't the main one */
+    memsafeThreadStack(&tlo, &thi);
+    if (a >= tlo && a < thi) return 1;
     Dl_info info;
     if (dladdr(p, &info)) return 1;
     if (memsafe_jit) {
@@ -249,7 +307,9 @@ static void *memsafeMAlloc(u64 size) {
     if (base == NULL) return NULL;
     *(u64 *)base = size;
     void *p = base + 8;
+    memsafeLock();
     memsafeTrack(p, size);
+    memsafeUnlock();
     return p;
 }
 
@@ -259,8 +319,16 @@ static void *memsafeCAlloc(u64 size) {
     return p;
 }
 
+static void memsafeFreeLocked(void *p);
+
 static void memsafeFree(void *p) {
     if (p == NULL) return;
+    memsafeLock();
+    memsafeFreeLocked(p);
+    memsafeUnlock();
+}
+
+static void memsafeFreeLocked(void *p) {
     if (memsafeRetire(p)) return;
     MemsafeEntry *r = memsafeRingFind(p);
     if (r) {
@@ -287,18 +355,22 @@ static void memsafeFree(void *p) {
 
 static void *memsafeReAlloc(void *p, u64 size) {
     if (p == NULL) return memsafeMAlloc(size);
+    memsafeLock();
     /* Refuse before touching the old block: a freed block's header
      * (and bytes) are not ours to read any more. */
     MemsafeEntry *r = memsafeRingFind(p);
     if (r != NULL) {
         memsafeReportDoubleFree(p, r);
+        memsafeUnlock();
         return NULL;
     }
     void *q = memsafeMAlloc(size);
-    if (q == NULL) return NULL;
-    u64 old_size = *(u64 *)((u8 *)p - 8);
-    memcpy(q, p, old_size < size ? old_size : size);
-    memsafeFree(p);
+    if (q != NULL) {
+        u64 old_size = *(u64 *)((u8 *)p - 8);
+        memcpy(q, p, old_size < size ? old_size : size);
+        memsafeFreeLocked(p);
+    }
+    memsafeUnlock();
     return q;
 }
 
@@ -343,6 +415,7 @@ static void memsafeList(FILE *f, Vec *v) {
 
 void memsafeDumpLive(FILE *f) {
     if (memsafe_live == NULL) return;
+    memsafeLock();
     u64 total = 0;
     Vec *v = memsafeCollect(&total);
     fprintf(f, "heap: %llu live allocation(s), %llu bytes\n",
@@ -350,10 +423,16 @@ void memsafeDumpLive(FILE *f) {
     memsafeList(f, v);
     vecRelease(v);
     fflush(f);
+    memsafeUnlock();
 }
 
 void memsafeReportLeaks(FILE *f) {
-    if (memsafe_live == NULL || memsafe_live->size == 0) return;
+    if (memsafe_live == NULL) return;
+    memsafeLock();
+    if (memsafe_live->size == 0) {
+        memsafeUnlock();
+        return;
+    }
     /* The program's buffered stdout should land before the report. */
     fflush(stdout);
     u64 total = 0;
@@ -363,11 +442,20 @@ void memsafeReportLeaks(FILE *f) {
     memsafeList(f, v);
     vecRelease(v);
     fflush(f);
+    memsafeUnlock();
 }
 
 void memsafeInit(HccJit *jit) {
     if (jit == NULL) return;
     memsafe_jit = jit;
+    if (!memsafe_lock_ready) {
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(&memsafe_lock, &attr);
+        pthread_mutexattr_destroy(&attr);
+        memsafe_lock_ready = 1;
+    }
 #if defined(__linux__)
     if (memsafe_stack_hi == 0) memsafeFindStack();
 #endif
