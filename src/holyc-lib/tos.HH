@@ -2570,10 +2570,14 @@ public Bool NetSetSocketNoDelay(I32 sockfd);
 public Bool NetGetIpv4Address(sockaddr *sAddr, I32 ai_family, U8 *outbuf, I32 size);
 /* Connect a TCP socket to `addr` (a host name, or an IPv4 or IPv6 address)
  * on `port`, trying each address the name resolves to in turn. Returns the
- * socket, or -1 if none accepted or port is outside 0..65535. The connect
- * itself always blocks: non_blocking makes the socket non-blocking after
- * it is connected. */
-public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE);
+ * socket, or -1 if none accepted (Errno() says why, e.g. ECONNREFUSED) or
+ * port is outside 0..65535. With timeout_ms 0 each connect waits as long as
+ * the system lets it; otherwise all the addresses together get timeout_ms
+ * milliseconds (each the time that's left) and -1 with Errno() ETIMEDOUT
+ * means it ran out. The name lookup itself isn't timed. non_blocking makes
+ * the socket non-blocking once it is connected. */
+public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE,
+    I64 timeout_ms=0);
 /* bind() and listen() sockfd on the address in sa. On failure it closes
  * sockfd and returns FALSE. */
 public Bool NetListen(I32 sockfd, addrinfo *sa, I32 backlog);
@@ -2628,9 +2632,15 @@ public I64 NetSendTo(I32 sockfd, U0 *buf, I64 len, U8 *addr, I32 port);
  * socket has nothing to read Errno() is EAGAIN, on a signal EINTR. */
 public I64 NetRecvFrom(I32 sockfd, U0 *buf, I64 len, U8 *from_addr=NULL,
     I64 from_size=0, I32 *from_port=NULL);
-/* Make reads on sockfd (recv, read, NetRecvFrom) give up after `ms`
- * milliseconds and return -1; 0 waits forever again. TRUE on success. */
+/* Make reads on sockfd (recv, read, NetRecvFrom; TCP or UDP) give up after
+ * `ms` milliseconds and return -1 with Errno() EAGAIN; 0 waits forever
+ * again. TRUE on success. */
 public Bool NetSetRecvTimeout(I32 sockfd, I64 ms);
+/* The same for writes (send, write, NetSend, NetSendTo): one that can't
+ * go on for `ms` milliseconds, because the peer doesn't read and the
+ * buffers are full, returns what it wrote so far, or -1 with Errno()
+ * EAGAIN if that's nothing. 0 waits forever again. TRUE on success. */
+public Bool NetSetSendTimeout(I32 sockfd, I64 ms);
 /* The local port sockfd is bound to (IPv4 or IPv6), or -1. */
 public I32 NetGetSocketPort(I32 sockfd);
 
