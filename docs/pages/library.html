@@ -323,9 +323,11 @@ missing files give NULL
 <code>O_CREAT | O_WRONLY | O_TRUNC</code> (a new file gets mode 0644 minus the umask).
 Pass the flags yourself to do something else, <code>O_CREAT | O_WRONLY | O_APPEND</code>
 to add to the end. A <code>NULL</code> name or buffer or a negative size gives
-<code>FALSE</code> and creates nothing. <code>FileRead</code> only reads regular files:
-for a directory, FIFO or device it returns <code>NULL</code>, and on any failure it sets
-<code>*_size</code> to 0.</p>
+<code>FALSE</code> and creates nothing. <code>FileRead</code> reads a regular file up to
+its size, and a FIFO, a pipe (<code>/dev/fd/N</code>, <code>/dev/stdin</code>), a device or a
+<code>/proc</code> file (which reports size 0) until end of file, so it waits for a
+FIFO's writer and never finishes on an endless device like <code>/dev/zero</code>. For a
+directory it returns <code>NULL</code>, and on any failure it sets <code>*_size</code> to 0.</p>
 
 <p>Directories: <code>MkDir(path)</code> makes one directory and
 <code>MkDir(path,, TRUE)</code> the missing parents too; both return 0 if the path is a

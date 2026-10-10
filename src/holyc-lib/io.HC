@@ -164,6 +164,36 @@ I32 Stat(Fstat *fst, U8 *pathname)
   return 0;
 }
 
+/* Read fd until end of file into a buffer that doubles as it fills:
+ * pipes, FIFOs and devices have no size, and /proc files report 0. */
+static U8 *FileReadToEof(I32 fd, I64 *_len)
+{
+  I64 cap = 4096, size = 0, rbytes;
+  U8 *s = MAlloc(cap), *bigger;
+
+  while (s) {
+    if (size + 1 >= cap) {
+      if ((bigger = ReAlloc(s, cap * 2)) == NULL) {
+        break;
+      }
+      s = bigger;
+      cap *= 2;
+    }
+    rbytes = read(fd,s+size,cap-size-1);
+    if (rbytes == 0) {
+      s[size] = '\0';
+      *_len = size;
+      return s;
+    }
+    if (rbytes < 0) {
+      break;
+    }
+    size += rbytes;
+  }
+  Free(s);
+  return NULL;
+}
+
 public U8 *FileRead(U8 *path, I64 *_size=NULL)
 {
   if (_size) *_size = 0;
@@ -177,11 +207,22 @@ public U8 *FileRead(U8 *path, I64 *_size=NULL)
     return NULL;    
   }
 
-  /* Only a regular file has a size to read up to: lseek on a directory
-   * gives a huge "size" on some filesystems (LLONG_MAX on ext4) */
-  if (fstat(fd,&st) != 0 || (st.st_mode & S_IFMT) != S_IFREG) {
+  /* A directory has nothing to read (lseek on one gives a huge "size" on
+   * some filesystems, LLONG_MAX on ext4) */
+  if (fstat(fd,&st) != 0 || (st.st_mode & S_IFMT) == S_IFDIR) {
     close(fd);
     return NULL;
+  }
+
+  /* Only a regular file with a size is read up to that size; anything
+   * else (a FIFO, a pipe, a device, a /proc file of size 0) to EOF. */
+  if ((st.st_mode & S_IFMT) != S_IFREG || st.st_size == 0) {
+    s = FileReadToEof(fd,&len);
+    close(fd);
+    if (s && _size) {
+      *_size = len;
+    }
+    return s;
   }
 
   /* get the file size */
