@@ -355,6 +355,37 @@ public U32 Ntohl(U32 x)
   return Htonl(x);
 }
 
+#ifdef IS_LINUX
+#define __NET_SOCK_CLOEXEC 0x80000
+extern "c" I32 accept4(I32 socket, sockaddr *address, U32 *address_len, I32 flags);
+#endif
+
+/* The library's sockets are close-on-exec, so programs started with
+ * System or exec don't inherit them. macOS has no SOCK_CLOEXEC or
+ * accept4: set FD_CLOEXEC right after (a fork in another thread in
+ * between can still inherit it there). */
+static I32 NetSocket(I32 domain, I32 type, I32 protocol)
+{
+#ifdef IS_LINUX
+  return socket(domain, type | __NET_SOCK_CLOEXEC, protocol);
+#else
+  I32 fd = socket(domain, type, protocol);
+  if (fd != -1) fcntl(fd, F_SETFD, FD_CLOEXEC);
+  return fd;
+#endif
+}
+
+static I32 NetAcceptCloexec(I32 socket, sockaddr *address, U32 *address_len)
+{
+#ifdef IS_LINUX
+  return accept4(socket, address, address_len, __NET_SOCK_CLOEXEC);
+#else
+  I32 fd = accept(socket, address, address_len);
+  if (fd != -1) fcntl(fd, F_SETFD, FD_CLOEXEC);
+  return fd;
+#endif
+}
+
 public Bool NetSetSocketNonBlocking(I32 sockfd)
 {
   I32 flags = fcntl(sockfd, F_GETFL, 0);
@@ -434,7 +465,7 @@ public I32 NetConnect(U8 *addr, I32 port, Bool non_blocking=FALSE)
 
   /* connect on the first one we can */
   for (ptr = servinfo; ptr != NULL; ptr = ptr->ai_next) {
-    if ((sockfd = socket(ptr->ai_family, ptr->ai_socktype,
+    if ((sockfd = NetSocket(ptr->ai_family, ptr->ai_socktype,
             ptr->ai_protocol)) == -1) {
       continue;
     }
@@ -518,7 +549,7 @@ public I32 NetCreateServer(I32 port, U8 *bindaddr, I32 backlog,
     return -1;
 
   for (ptr = servinfo; ptr != NULL; ptr = ptr->ai_next) {
-    if ((sockfd = socket(ptr->ai_family, ptr->ai_socktype,
+    if ((sockfd = NetSocket(ptr->ai_family, ptr->ai_socktype,
             ptr->ai_protocol)) == -1)
       continue;
 
@@ -555,7 +586,7 @@ public I32 NetAccept(I32 socket, Bool non_blocking=FALSE)
   U32 socklen = sizeof(sockaddr_storage);
   sockaddr_storage in_addr;
 
-  if ((accepted = accept(socket,(&in_addr)(sockaddr *),&socklen)) == -1) {
+  if ((accepted = NetAcceptCloexec(socket,(&in_addr)(sockaddr *),&socklen)) == -1) {
     return -1;
   }
 
@@ -631,7 +662,7 @@ static Bool NetUnixSocketIsStale(sockaddr_un *addr, U8 *name)
 
   if (lstat(name, &st) != 0 || (st.st_mode & S_IFMT) != S_IFSOCK)
     return FALSE;
-  if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+  if ((fd = NetSocket(AF_UNIX, SOCK_STREAM, 0)) == -1)
     return FALSE;
   rv = connect(fd, addr(sockaddr *), sizeof(sockaddr_un));
   Bool stale = rv == -1 && Errno() == __NET_ECONNREFUSED;
@@ -649,7 +680,7 @@ public I32 NetCreateUnixServerSocket(U8 *name, I32 backlog)
   if (!NetUnixAddress(&srv, name))
     return -1;
 
-  if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+  if ((sockfd = NetSocket(AF_UNIX, SOCK_STREAM, 0)) == -1)
     goto error;
 
   if (NetUnixSocketIsStale(&srv, name))
@@ -677,7 +708,7 @@ public I32 NetCreateUnixClientSocket(U8 *name)
   if (!NetUnixAddress(&srv, name))
     return -1;
 
-  if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+  if ((sockfd = NetSocket(AF_UNIX, SOCK_STREAM, 0)) == -1)
     return -1;
 
   if (connect(sockfd, (&srv)(sockaddr *), sizeof(sockaddr_un)) == -1) {
@@ -735,7 +766,7 @@ public I32 NetCreateUdpSocket(I32 port, U8 *bindaddr, I32 addrfam=AF_UNSPEC,
     return -1;
 
   for (ptr = servinfo; ptr != NULL; ptr = ptr->ai_next) {
-    if ((sockfd = socket(ptr->ai_family, ptr->ai_socktype,
+    if ((sockfd = NetSocket(ptr->ai_family, ptr->ai_socktype,
             ptr->ai_protocol)) == -1)
       continue;
     if (bind(sockfd, ptr->ai_addr, ptr->ai_addrlen) == -1) {

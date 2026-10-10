@@ -53,12 +53,14 @@
   #define O_EXCL     0x080
   #define O_NONBLOCK 0x800
   #define O_APPEND   0x400
+  #define O_CLOEXEC  0x80000
 #else
   #define O_CREAT    0x200
   #define O_TRUNC    0x400
   #define O_EXCL     0x800
   #define O_NONBLOCK 0x004
   #define O_APPEND   0x008
+  #define O_CLOEXEC  0x1000000
 #endif
 
 #define SEEK_SET 0
@@ -203,7 +205,8 @@ public U8 *FileRead(U8 *path, I64 *_size=NULL)
   U8 *s;
   cStat st;
 
-  if ((fd = open(path,O_RDONLY,438)) == -1) {
+  /* The library's fds are close-on-exec: programs it starts don't get them */
+  if ((fd = open(path,O_RDONLY|O_CLOEXEC,438)) == -1) {
     return NULL;    
   }
 
@@ -272,7 +275,7 @@ public Bool FileWrite(U8 *filename, U8 *buf, I64 size,
     return FALSE;
   }
 
-  if ((fd = open(filename,flags,perms)) == -1) {
+  if ((fd = open(filename,flags|O_CLOEXEC,perms)) == -1) {
     return FALSE;
   }
 
