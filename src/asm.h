@@ -42,6 +42,9 @@ int asmInitItemWidth(Ast *item);
  * sections (`.p2align` operand): its natural alignment, so a class or
  * I64 after a `U8 a[3]` does not land on an odd address. */
 int asmDataAlignLog2(AstType *type);
+int asmAddrConst(Cctrl *cc, Ast *init, AoStr **_sym, s64 *_off,
+                 int for_jit);
+void asmEmitAddrConst(AoStr *buf, AoStr *sym, s64 off);
 
 /* Append `init`, laid out by asmInitImage, to `buf` as data directives. */
 void asmEmitInitData(AoStr *buf, Ast *init, AstType *type);

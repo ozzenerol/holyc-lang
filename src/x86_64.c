@@ -2565,6 +2565,18 @@ void x86_64GlobalVar(Cctrl *cc,
     aoStrRemovePreviousChar(buf, '\t');
     setAdd(seen_globals, varname->data);
 
+    /* `U8 *p = &g;`, `&arr[2]`, `&Fn`: a relocated pointer */
+    AoStr *addr_sym;
+    s64 addr_off;
+    if (declinit && asmAddrConst(cc, declinit, &addr_sym, &addr_off, 0)) {
+        if (!local) {
+            aoStrCatFmt(buf, ".globl %S\n", label);
+        }
+        aoStrCatFmt(buf, ".data\n\t.p2align 3\n%S:\n\t", label);
+        asmEmitAddrConst(buf, addr_sym, addr_off);
+        return;
+    }
+
     if (declinit &&
         (declinit->kind == AST_ARRAY_INIT ||
          declinit->kind == AST_LITERAL ||

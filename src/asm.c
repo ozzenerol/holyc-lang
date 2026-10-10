@@ -457,6 +457,56 @@ static int asmInitImageAt(Ast *init, AstType *type, u8 *bytes, Ast **items,
     return off + ((type && type->size > 0) ? type->size : 8);
 }
 
+/* A global's initialiser that parseConstGlobalInit folded to an address,
+ * `&target` or `(U8 *)&target + off` with target a global or a function:
+ * the symbol to write (`.quad sym+off`) and the offset. `for_jit` gives
+ * the name the JIT registers a global under (no assembler escaping). */
+int asmAddrConst(Cctrl *cc, Ast *init, AoStr **_sym, s64 *_off,
+                 int for_jit)
+{
+    s64 off = 0;
+    if (!init) return 0;
+    if (init->kind == AST_BINOP && init->binop == AST_BIN_OP_ADD &&
+        init->right && init->right->kind == AST_LITERAL)
+    {
+        off = init->right->i64;
+        init = init->left;
+    }
+    if (init->kind != AST_UNOP || init->unop != AST_UN_OP_ADDR_OF ||
+        !init->operand)
+    {
+        return 0;
+    }
+    Ast *t = init->operand;
+    switch (t->kind) {
+        case AST_GVAR: {
+            AoStr *label = t->is_static ? t->glabel : t->gname;
+            *_sym = for_jit ? label : asmNormaliseGlobalLabel(cc, label);
+            break;
+        }
+        case AST_FUNC:
+        case AST_FUN_PROTO:
+        case AST_EXTERN_FUNC: {
+            char *name = asmNormaliseFunctionName(cc, t->fname);
+            *_sym = aoStrDupRaw(name, strlen(name));
+            break;
+        }
+        default:
+            return 0;
+    }
+    *_off = off;
+    return 1;
+}
+
+/* `.quad sym+off` */
+void asmEmitAddrConst(AoStr *buf, AoStr *sym, s64 off) {
+    if (off) {
+        aoStrCatPrintf(buf, ".quad %s%+lld\n\t", sym->data, (long long)off);
+    } else {
+        aoStrCatPrintf(buf, ".quad %s\n\t", sym->data);
+    }
+}
+
 int asmDataAlignLog2(AstType *type) {
     int align = astTypeAlign(type);
     int log2 = 0;

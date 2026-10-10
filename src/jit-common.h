@@ -49,6 +49,9 @@ typedef struct HccJit {
     /* RW arenas for globals + string literals, one per chunk; the
      * absolute addresses are registered in host_symbols. */
     List *globals_arenas;
+    /* Global pointers initialised with an address (`U8 *p = &g`, `&Fn`),
+     * patched once the target has one (jitResolvePtrFixups) */
+    List *ptr_fixups;
 
     /* Incremental cursors: last node of cc->ast_list / cc->asm_blocks
      * already consumed by a chunk. A chunk compiles (cursor, sentinel]. */
