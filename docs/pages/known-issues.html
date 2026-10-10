@@ -21,14 +21,7 @@ there works as shown.</p>
 <p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Standard library</h2>
-<table>
-  <thead><tr><th>Problem</th><th>Reproduce</th><th>Workaround</th></tr></thead>
-  <tbody>
-    <tr><td>On macOS <code>NetAccept</code> returns a non-blocking socket when the listening socket is non-blocking</td>
-        <td><code>NetCreateServer(0, "127.0.0.1", 4, AF_INET, TRUE)</code>, then <code>NetAccept(srv)</code> without <code>non_blocking</code>: on macOS the accepted socket has <code>O_NONBLOCK</code> (BSD's <code>accept</code> copies it from the listener), so <code>recv</code> returns -1 with <code>Errno()</code> <code>EAGAIN</code> instead of waiting; on Linux it is blocking</td>
-        <td>Clear the flag after accepting: <code>fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) &amp; ~O_NONBLOCK)</code></td></tr>
-  </tbody>
-</table>
+<p>No known issues: everything found while writing these docs has been fixed.</p>
 
 <h2>Reporting</h2>
 <p>Please report bugs on <a href="https://github.com/ozzenerol/holyc-lang/issues">GitHub</a>.

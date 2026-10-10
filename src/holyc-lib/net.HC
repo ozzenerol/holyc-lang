@@ -682,11 +682,16 @@ public I32 NetAccept(I32 socket, Bool non_blocking=FALSE)
     return -1;
   }
 
+  /* Set the mode either way: BSD accept (macOS) copies O_NONBLOCK from
+   * the listening socket, Linux's doesn't. */
   if (non_blocking) {
     if (!NetSetSocketNonBlocking(accepted)) {
       close(accepted);
       return -1;
     }
+  } else if (!NetSetSocketBlocking(accepted)) {
+    close(accepted);
+    return -1;
   }
   return accepted;
 }
