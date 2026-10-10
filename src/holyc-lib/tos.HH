@@ -1268,12 +1268,14 @@ public CDate StrToCDate(U8 *_str, U8 *fmt);
   #define O_EXCL     0x080 /* Error if file already exists */
   #define O_NONBLOCK 0x800 /* Non-blocking mode */
   #define O_APPEND   0x400 /* Append data to the end of the file */
+  #define O_CLOEXEC  0x80000 /* Close the fd in programs started by exec */
 #else
   #define O_CREAT    0x00000200
   #define O_TRUNC    0x00000400
   #define O_EXCL     0x00000800
   #define O_NONBLOCK 0x00000004
   #define O_APPEND   0x00000008
+  #define O_CLOEXEC  0x01000000
 #endif
 
 #define SEEK_SET 0 /* Set offset to specified value */
@@ -2066,6 +2068,9 @@ public U0 SqlRowRelease(SqlRow *row);
 #define SOCK_DGRAM      2               /* Datagram (connectionless) socket */
 #define SOCK_RAW        3               /* Raw protocol interface */
 #define SOCK_SEQPACKET  5               /* Sequenced packet stream */
+#ifdef IS_LINUX
+#define SOCK_CLOEXEC    0x80000         /* Or into socket()'s type: close on exec */
+#endif
 
 /* Flags for send, recv, sendto, recvfrom, sendmsg and recvmsg */
 #define MSG_OOB         0x1             /* Out-of-band data */

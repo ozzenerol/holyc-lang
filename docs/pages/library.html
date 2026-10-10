@@ -464,6 +464,12 @@ newline, as a string to <code>Free</code>; format arguments are optional. It doe
 capture stderr or return the exit status: a failing command gives whatever it printed,
 often <code>""</code>. The output goes through a temporary file in <code>$TMPDIR</code>
 (<code>/tmp</code> if it is unset). <code>Exit(code)</code> ends the program.</p>
+<p>The commands get the program's stdin, stdout and stderr, but none of the files or
+sockets the library opened: those (the <code>Net*</code> sockets and accepted connections,
+<code>FileRead</code>/<code>FileWrite</code>'s file, <code>Shlurp</code>'s temporary file)
+are close-on-exec. An fd you open yourself with <code>open</code> or <code>socket</code> is
+inherited unless you pass <code>O_CLOEXEC</code> (Linux also has <code>SOCK_CLOEXEC</code>)
+or set <code>FD_CLOEXEC</code> with <code>fcntl(fd, F_SETFD, FD_CLOEXEC)</code>.</p>
 <p>The command is shell text, so a string from elsewhere (a file name, user input) must
 not be pasted in as it is: a space splits it and <code>$</code>, <code>`</code>,
 <code>;</code> or <code>*</code> run or expand things. <code>ShQuote(s)</code> returns

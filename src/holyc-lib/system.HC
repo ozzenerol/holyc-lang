@@ -104,7 +104,12 @@ public U8 *ShQuote(U8 *s)
   return q;
 }
 
-extern "c" I32 mkstemp(U8 *template);
+extern "c" I32 mkostemp(U8 *template, I32 flags);
+#ifdef IS_LINUX
+#define __SYS_O_CLOEXEC 0x80000
+#else
+#define __SYS_O_CLOEXEC 0x1000000
+#endif
 extern "c" I32 close(I32 fd);
 extern "c" I32 unlink(U8 *path);
 extern "c" U8 *getenv(U8 *name);
@@ -126,7 +131,7 @@ public U8 *Shlurp(U8 *fmt, ...)
    * in $TMPDIR like the compiler's own temporary files */
   if (!tmpdir || !tmpdir[0]) tmpdir = "/tmp";
   tmp_path = StrPrint(NULL,"%s/hcc-shlurp-XXXXXX",tmpdir);
-  fd = mkstemp(tmp_path);
+  fd = mkostemp(tmp_path,__SYS_O_CLOEXEC);   /* not inherited by System */
   if (fd == -1) {
     Free(tmp_path);
     return NULL;
