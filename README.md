@@ -1,3 +1,5 @@
+> **This repository is archived.** hcc continues as **ktm**: https://github.com/ozzenerol/ktm-lang
+
 # hcc — a HolyC compiler (ozzenerol fork)
 
 <p align="center">
